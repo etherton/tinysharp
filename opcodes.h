@@ -25,6 +25,7 @@
     OPCODE(LIT_H) \
     OPCODE(LIT_3B) \
     OPCODE(LIT_W) \
+    OPCODE(LIT_S) \
     OPCODE(TOKEN_W) \
     OPCODE(CALL_W) \
     OPCODE(ENTER_B) \
@@ -61,7 +62,7 @@
     OPCODE(NATIVE4R0_A) \
     OPCODE(NATIVE4R1_A) \
 
-enum opcode_t : unit8_t {
+enum opcode_t : uint8_t {
     OPCODE_LIST
 };
 

@@ -6,7 +6,7 @@
 
 /* Syntax is C-like except designed to be easy to parse */
 enum { 
-	K_STATIC, K_CLASS, K_STRUCT, K_SWITCH, K_CASE, K_IF, K_FOR, K_ELSE, 
+	K_STATIC = 256, K_CLASS, K_STRUCT, K_SWITCH, K_CASE, K_IF, K_FOR, K_ELSE, 
 	K_WHILE, K_DO, K_PUBLIC, K_PRIVATE, K_PROTECTED, K_VIRTUAL, K_NAMESPACE,
 	K_IN, K_OUT, K_REF, K_CONTINUE, K_BREAK
 };
@@ -51,14 +51,14 @@ void compiler::setup() {
 	keywords["continue"] = K_CONTINUE;
 	keywords["break"] = K_BREAK;
 
-	types["int8_t"] = type(BT_INT,8,true);
-	types["uint8_t"] = type(BT_INT,8,false);
-	types["int16_t"] = type(BT_INT,16,true);
-	types["uint16_t"] = type(BT_INT,16,false);
-	types["int32_t"] = type(BT_INT,32,true);
-	types["uint32_t"] = type(BT_INT,32,false);
-	types["float"] = type(BT_FLOAT,32,false);
-	types["void"] = type(BT_VOID,0,false);
+	types.insert(std::make_pair("int8_t",type(BT_INT,8,true)));
+	types.insert(std::make_pair("uint8_t",type(BT_INT,8,false)));
+	types.insert(std::make_pair("int16_t",type(BT_INT,16,true)));
+	types.insert(std::make_pair("uint16_t",type(BT_INT,16,false)));
+	types.insert(std::make_pair("int32_t",type(BT_INT,32,true)));
+	types.insert(std::make_pair("uint32_t",type(BT_INT,32,false)));
+	types.insert(std::make_pair("float",type(BT_FLOAT,32,false)));
+	types.insert(std::make_pair("void",type(BT_VOID,0,false)));
 
 }
 
@@ -128,12 +128,12 @@ void machine::run(cell *sp,cell *fp,uint8_t *pc) {
 			case OP_LIT_W: --sp->u = *(uint32_t*)pc; pc+=4; NEXT;
 			case OP_CALL_W: --sp->a = pc; pc = *(uint8_t**)pc; NEXT;
 			case OP_ENTER_B: --sp->c = fp; fp = sp; sp -= *pc++; NEXT;
-			case OP_RET0: sp = fp; pc = sp->a; sp++; NEXT;
-			case OP_RET1: sp = fp; pc = sp->a; sp+=2; NEXT;
-			case OP_RET2: sp = fp; pc = sp->a; sp+=3; NEXT;
-			case OP_RET3: sp = fp; pc = sp->a; sp+=4; NEXT;
-			case OP_RET4: sp = fp; pc = sp->a; sp+=5; NEXT;
-			case OP_RET_B: sp = fp; pc = sp->a; sp += *pc++; NEXT;
+			case OP_RET0: sp = fp; fp = sp->c; pc = sp[1].a; sp+=2; NEXT;
+			case OP_RET1: sp = fp; fp = sp->c; pc = sp[1].a; sp+=3; NEXT;
+			case OP_RET2: sp = fp; fp = sp->c; pc = sp[1].a; sp+=4; NEXT;
+			case OP_RET3: sp = fp; fp = sp->c; pc = sp[1].a; sp+=5; NEXT;
+			case OP_RET4: sp = fp; fp = sp->c; pc = sp[1].a; sp+=6; NEXT;
+			case OP_RET_B: sp = fp; fp = sp->c; pc = sp[1].a; sp+=*pc++; NEXT;
 			case OP_LDLOC0: *--sp = fp[-1]; NEXT;
 			case OP_LDLOC1: *--sp = fp[-2]; NEXT;
 			case OP_LDLOC2: *--sp = fp[-3]; NEXT;
