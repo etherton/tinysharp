@@ -1,5 +1,7 @@
 #include <stdint.h>
 
+#pragma once
+
 #define OPCODE(op) OP_##op,
 
 /* _B means one literal byte in opcode stream
@@ -51,6 +53,9 @@
     OPCODE(LDARG3) \
     OPCODE(LDARG_B) \
     OPCODE(LDARGA_B) \
+    OPCODE(J) \
+    OPCODE(JNZ) \
+    OPCODE(JZ) \
     OPCODE(NATIVE0R0_A) \
     OPCODE(NATIVE0R1_A) \
     OPCODE(NATIVE1R0_A) \
@@ -62,7 +67,12 @@
     OPCODE(NATIVE4R0_A) \
     OPCODE(NATIVE4R1_A) \
 
+namespace tinysharp {
+
 enum opcode_t : uint8_t {
     OPCODE_LIST
 };
+
+} // namespace tinysharp
+
 

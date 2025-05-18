@@ -1,4 +1,7 @@
+#pragma once
+
 #include <stdint.h>
+#include <stddef.h>
 
 namespace tinysharp {
 
@@ -12,7 +15,7 @@ union cell {
 
 class machine {
 public:
-	void run
+	void run(cell*,cell*,uint8_t*);
 };
 
 } // namespace tinysharp

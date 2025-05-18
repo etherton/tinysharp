@@ -1,4 +1,5 @@
 #include "machine.h"
+#include "opcodes.h"
 
 namespace tinysharp {
 
@@ -22,10 +23,6 @@ typedef cell (*call4_1)(cell,cell,cell,cell);
 /* field table */
 
 /* local table */
-
-class machine {
-	public: void run(cell*,cell*,uint8_t*);
-};
 
 /* sp is current top of stack
    fp positive values are parameters; negative values are locals
