@@ -180,7 +180,17 @@ stmt* compiler::statement() {
 		expr *cond = boolean_expression();
 		match_next_token(')');
 		stmt *body = embedded_statement();
-		return new stmt_while(cond,body)
+		return new stmt_while(cond,body);
+	}
+	else if (m_token == K_FOR) {
+		match_next_token('(');
+		stmt *i = (m_token != ';')? declaration_statement() : nullptr;
+		match_next_token(';');
+		expr *c = boolean_expression();
+		expr *n = (m_token != ')')? boolean_expression() : nullptr;
+		match_next_token(')');
+		stmt *body = embedded_statement();
+		return new stmt_for(i,c,n,body);
 	}
 }
 

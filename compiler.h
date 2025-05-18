@@ -81,9 +81,10 @@ private:
 
 class stmt_for: public stmt {
 public:
+    stmt_for(stmt *i,expr *c,expr *n,stmt *b) : m_initializer(i), m_cond(c), m_step(n), m_body(b) { }
     void emit();
 private:
-    expr *m_initializer;
+    stmt *m_initializer;
     expr *m_cond;
     expr *m_step;
     stmt *m_body;
@@ -115,7 +116,7 @@ private:
 
 class expr_binary: public expr {
 public:
-    expr_binary(expr *l,expr *r,opcode_t o) : m_left(l), m_right(r), opcode(o) { }
+    expr_binary(expr *l,expr *r,opcode_t o) : m_left(l), m_right(r), m_opcode(o) { }
     void emit();
 private:
     expr *m_left, *m_right;
