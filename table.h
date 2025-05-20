@@ -1,37 +1,99 @@
 #include <stdint.h>
+#include <stddef.h>
 #include <string.h>
 #include <assert.h>
 
 namespace tinysharp {
 
-enum tableindex_x {
+enum tableindex_t {
 	TI_TYPES,
 	TI_FIELDS,
 	TI_METHODS,
 };
 const unsigned TI_COUNT = 3;
 
+inline uint32_t unpack(const uint8_t* &p) {
+	if (p[0] < 0x80)
+		return *p++;
+	else if (p[0] < 0xA0)  {
+		p+=2;
+		return ((p[-2]&0x1F) | (p[-1]<<5)) + 0x80;
+	}
+	else if (p[0] < 0xC0) {
+		p+=3;
+		return ((p[-3]&0x1F) | (p[-2]<<5) | (p[-1]<<13)) + 0x1F80;
+	}
+	else if (p[0] < 0xE0) {
+		p+=4;
+		return ((p[-4]&0x1F) | (p[-3]<<5) | (p[-2]<<13) | (p[-3]<<21)) + 0x1F1F80;
+	}
+	else {
+		p+=5;
+		return (p[-4]) | (p[-3]<<8) | (p[-2]<<16) | (p[-3]<<24);
+	}
+}
+
+inline void pack(uint32_t i,uint8_t *&dest) {
+	if (i < 0x80)
+		*dest++ = i;
+	else if (i < 0x1F80) {
+		i -= 0x80;
+		*dest++ = (i & 0x1F) | 0x80;
+		*dest++ = i >> 5;
+	}
+	else if (i < 0x1F1F80) {
+		i -= 0x1F80;
+		*dest++ = (i & 0x1F) | 0xA0;
+		*dest++ = i >> 5;
+		*dest++ = i >> 13;
+	}
+	else if (i < 0x1F1F'1F80) {
+		i -= 0x1F'1F80;
+		*dest++ = (i & 0x1F) | 0xC0;
+		*dest++ = i >> 5;
+		*dest++ = i >> 13;
+		*dest++ = i >> 21;
+	}
+	else {
+		// no reason to do fancy packing here
+		*dest++ = 0xE0;
+		*dest++ = i;
+		*dest++ = i >> 8;
+		*dest++ = i >> 16;
+		*dest++ = i >> 24;
+	}
+}
+
 /* a table is basically a specialzized heap */
 class table {
 	class chunk {
+	private:
 		uint16_t m_count, m_capacity;
 		uint32_t m_heapOffset, m_heapSize;
-		uint32_t m_is32:1, unused:31;
-		
-		static chunk *create(bool large,size_t maxSize) {
+		uint32_t m_is32:1, m_baseIndex:31;
+		union {
+			uint8_t m_heap[0];
+			uint16_t m_offset16[0];
+			uint32_t m_offset32[0];
+		};
+	public:
+		static chunk *create(bool large,uint32_t baseIndex,size_t maxSize) {
 			chunk *c = (chunk*) new uint8_t[maxSize];
 			c->m_count = 0;
 			c->m_capacity = 0;
 			c->m_heapOffset = 0;
 			c->m_heapSize = maxSize - sizeof(chunk);
 			c->m_is32 = large;
+			c->m_baseIndex = baseIndex;
+			return c;
 		}
-		union {
-			uint8_t m_heap[0];
-			uint16_t m_offset16[0];
-			uint32_t m_offset32[0];
-		};
 
+		bool hasRoomFor(const uint8_t *data,uint16_t length) {
+			// if it's short enough and there's room in the offset table we know it will fit.
+			if (m_count < m_capacity && length <= (m_is32? 3 : 1))
+				return true;
+			return ((m_capacity+(m_count==m_capacity))  * (2 << m_is32) + m_heapOffset + length <= m_heapSize);
+		}
 		int insert(const uint8_t *data,uint16_t length) {
 			if (m_count == m_capacity) {
 				const uint32_t step = 32;
@@ -76,8 +138,16 @@ class table {
 		}
 	};
 public:
+	int insert(const uint8_t *data,uint16_t count) {
+		if (!m_count || !m_chunks[m_count-1]->hasRoomFor(data,count)) {
+			if (m_count == kMaxChunks)
+				return -1;
+			m_chunks[m_count++] = chunk::create(false,m_count * 64,4096);
+		}
+		return m_chunks[m_count-1]->insert(data,count);
+	}
 	static uint32_t insert(uint32_t index,const uint8_t *data,uint16_t count) {
-		return insert(data,count) | (index << 24);
+		return sm_tables[index].insert(data,count) | (index << 24);
 	}
 	static uint32_t insert(uint32_t index,uint8_t data) {
 		return insert(index,&data,1);

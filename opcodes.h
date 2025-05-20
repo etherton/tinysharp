@@ -17,6 +17,10 @@
     OPCODE(MULU) \
     OPCODE(MULF) \
     OPCODE(SHLU) \
+    OPCODE(SHRI) \
+    OPCODE(NOTU) \
+    OPCODE(NEGI) \
+    OPCODE(NEGF) \
     OPCODE(SHRU) \
     OPCODE(LIT0) \
     OPCODE(LIT1) \

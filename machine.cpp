@@ -5,7 +5,7 @@ namespace tinysharp {
 
 #define NEXT break
 
-#define BINARY(sym,t) ++sp; sp[0].t sym sp[1].t; NEXT
+#define BINARY(op,t) ++sp; sp[0].t op sp[1].t; NEXT
 
 typedef void (*call0_0)();
 typedef cell (*call0_1)();
@@ -46,6 +46,7 @@ void machine::run(cell *sp,cell *fp,uint8_t *pc) {
 			case OP_MULU: BINARY(*=,u);
 			case OP_MULF: BINARY(*=,f);
 			case OP_SHLU: BINARY(<<=,u);
+			case OP_SHRI: BINARY(>>=,i);
 			case OP_SHRU: BINARY(>>=,u);
 			case OP_LIT0: --sp->i = 0; NEXT;
 			case OP_LIT1: --sp->i = 1; NEXT;
@@ -72,7 +73,7 @@ void machine::run(cell *sp,cell *fp,uint8_t *pc) {
 			case OP_LDARG1: *--sp = fp[2]; NEXT;
 			case OP_LDARG2: *--sp = fp[3]; NEXT;
 			case OP_LDARG3: *--sp = fp[4]; NEXT;
-			case OP_LDARG_B: *--sp = fp[-*pc++]; NEXT;
+			case OP_LDARG_B: *--sp = fp[*pc++]; NEXT;
 			case OP_NATIVE0R0_A: (*(call0_0)pc)(); pc+=sizeof(void*); NEXT;
 			case OP_NATIVE0R1_A: *--sp = (*(call0_1)pc)(); pc+=sizeof(void*); NEXT;
 			case OP_NATIVE1R0_A: (*(call1_0)pc)(sp[0]); ++sp; pc+=sizeof(void*); NEXT;
