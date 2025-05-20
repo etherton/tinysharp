@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
-#include <assert.h>
+#include "trap.h"
 
 namespace tinysharp {
 
@@ -122,7 +122,7 @@ class table {
 				memcpy(m_heap + m_capacity*2 + m_heapOffset,data,length);
 			}
 			m_heapOffset += length;
-			assert(m_heapOffset + m_capacity*(2<<m_is32) <= m_heapSize);
+			trapgt(m_heapOffset + m_capacity*(2<<m_is32),m_heapSize);
 			return m_count++;			
 		}
 
