@@ -7,7 +7,14 @@
 
 namespace tinysharp {
 
-void error(const char*,...);
+void error(const char* fmt,...) {
+	va_list args;
+	va_start(args,fmt);
+	vfprintf(stderr,fmt,args);
+	fputc('\n',stderr);
+	va_end(args);
+}
+
 
 /* Syntax is C-like except designed to be easy to parse */
 
@@ -16,9 +23,14 @@ void error(const char*,...);
 	reference-to type
 	array-of[N] type
 */
-enum basetype_t : uint8_t { BT_VOID, BT_BOOL, BT_S8, BT_U8, BT_S16, BT_U16, BT_S32, BT_U32, BT_FLOAT, BT_STRING };
+enum basetype_t : uint8_t { 
+	BT_VOID, BT_BOOL, BT_S8, BT_U8, 
+	BT_S16, BT_U16, 
+	BT_S32, BT_U32, BT_FLOAT, BT_STRING,
+	BT_S64, BT_U64 
+};
 
-const uint8_t typeSizes[] = { 0, 1, 1, 1,  2, 2, 4, 4, 4, 4 };
+const uint8_t typeSizes[] = { 0, 1, 1, 1,  2, 2, 4, 4, 4, 4, 8, 8 };
 
 const uint32_t boolType = (TI_TYPES<<24) | 0;
 
@@ -26,12 +38,14 @@ void compiler::setup() {
 
 	m_types["bool"] = table::insert(TI_TYPES,BT_BOOL);
 	m_types["char"] = table::insert(TI_TYPES,BT_S8);
-	m_types["byte"] = table::insert(TI_TYPES,BT_U8);
+	m_types["sbyte"] = table::insert(TI_TYPES,BT_S8);
 	m_types["uchar"] = table::insert(TI_TYPES,BT_U8);
 	m_types["short"] = table::insert(TI_TYPES,BT_S16);
 	m_types["ushort"] = table::insert(TI_TYPES,BT_U16);
 	m_types["int"] = table::insert(TI_TYPES,BT_S32);
 	m_types["uint"] = table::insert(TI_TYPES,BT_U32);
+	m_types["long"] = table::insert(TI_TYPES,BT_S64);
+	m_types["ulong"] = table::insert(TI_TYPES,BT_U64);
 	m_types["string"] = table::insert(TI_TYPES,BT_STRING);
 	m_types["float"] = table::insert(TI_TYPES,BT_FLOAT);
 	m_types["void"] = table::insert(TI_TYPES,BT_VOID);
@@ -123,6 +137,84 @@ stmt* compiler::declaration_statement() {
 	return nullptr;
 }
 
+expr* compiler::expression() {
+	return additiveExpression();
+}
+
+expr* compiler::primaryExpression() {
+	lval_t lval;
+	if (nextTokenIs(K_INTLIT,lval)) {
+		return new expr_integer_literal(lval.i);
+	}
+	else if (nextTokenIs('(')) {
+		expr *r = expression();
+		matchNextToken(')');
+		return r;
+	}
+	error("unknown element in primary expr");
+	return nullptr;
+}
+
+bool compiler::nextTokenIs(int token) {
+	if (m_token == token) {
+		nextToken();
+		return true;
+	}
+	else
+		return false;
+}
+
+bool compiler::nextTokenIs(int token,lval_t &outval) {
+	if (m_token == token) {
+		outval = m_lval;
+		nextToken();
+		return true;
+	}
+	else
+		return false;
+}
+
+void compiler::matchNextToken(int token) {
+	if (!nextTokenIs(token))
+		error("expected '%c' here",token);
+}
+
+expr* compiler::multiplicativeExpression() {
+	expr *left = primaryExpression();
+	for (;;) {
+		if (nextTokenIs('*'))
+			left = new expr_binary(left,primaryExpression(),OP_MULI);
+		else if (nextTokenIs('/'))
+			left = new expr_binary(left,primaryExpression(),OP_DIVI);
+		else if (nextTokenIs('%'))
+			left = new expr_binary(left,primaryExpression(),OP_MODI);
+
+	}
+}
+expr* compiler::additiveExpression() {
+	expr *left = multiplicativeExpression();
+	for (;;) {
+		if (nextTokenIs('+'))
+			left = new expr_binary(left,multiplicativeExpression(),OP_ADDU);
+		else if (nextTokenIs('-'))
+			left = new expr_binary(left,multiplicativeExpression(),OP_SUBU);
+		else
+			break;
+	}
+	return left;
+}
+
+expr* compiler::unaryExpr() {
+	if (nextTokenIs('-'))
+		return new expr_unary(unaryExpr(),OP_NEGI);
+	else if (nextTokenIs('~'))
+		return new expr_unary(unaryExpr(),OP_NOTU);
+	else if (nextTokenIs('!'))
+		return new expr_unary(unaryExpr(),OP_LNOT);
+	else
+		return primaryExpression();
+}
+
 expr* compiler::boolean_expression() {
 	expr *e = expression();
 	if (e->m_type != boolType)
@@ -190,6 +282,5 @@ stmt* compiler::statement() {
 		return nullptr;
 	}
 }
-
 
 } // namespace tinysharp

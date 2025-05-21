@@ -46,6 +46,13 @@ struct token_t {
 class stmt;
 class expr;
 
+union lval_t {
+    unsigned u;
+    int i;
+    float f;
+    size_t s;
+};
+
 class compiler {
 public:
     void setup();
@@ -53,7 +60,9 @@ public:
     void block();
     int nextChar();
     int nextToken();
-    int matchNextToken(int);
+    bool nextTokenIs(int token);
+    bool nextTokenIs(int token,lval_t& outVal);
+    void matchNextToken(int);
 
     stmt* declaration_statement();
     stmt* embedded_statement();
@@ -61,14 +70,14 @@ public:
     stmt* statements();
     expr* boolean_expression();
     expr* expression();
+    expr* primaryExpression();
+    expr* additiveExpression();
+    expr *multiplicativeExpression();
+    expr *primaryExpr();
+    expr *unaryExpr();
     int m_token;
     std::map<std::string,uint32_t> m_types;
-    union {
-        unsigned u;
-        int i;
-        float f;
-        size_t s;
-    } m_lval;
+    lval_t m_lval;
     const char *m_fileBase;
     int m_ch;
     uint32_t m_fileOffset, m_fileSize;

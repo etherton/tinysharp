@@ -20,6 +20,19 @@ protected:
     static void emitOp(opcode_t op) {
         sm_heap[sm_pc++] = op;
     }
+    static void emitByte(uint8_t b) {
+        sm_heap[sm_pc++] = b;
+    }
+    static void emitHalf(uint16_t h) {
+        sm_heap[sm_pc++] = h;
+        sm_heap[sm_pc++] = h >> 8;
+    }
+    static void emitWord(uint32_t w) {
+        sm_heap[sm_pc++] = w;
+        sm_heap[sm_pc++] = w >> 8;
+        sm_heap[sm_pc++] = w >> 16;
+        sm_heap[sm_pc++] = w >> 24;
+    }    
     static label_t emitForwardJump(opcode_t op) {
         emitOp(op);
         sm_pc += 2;
@@ -40,7 +53,7 @@ protected:
     }
 private:
     static uint8_t *sm_heap;
-    static uint16_t sm_pc;
+    static label_t sm_pc;
 };
 
 class stmt: public node {
@@ -108,6 +121,24 @@ public:
         return false;
     }
     uint32_t m_type;
+};
+
+class expr_integer_literal: public expr {
+public:
+    expr_integer_literal(int i) : m_literal(i) { }
+    void emit();
+    bool isConstant(constant_t &outValue);
+private:
+    int m_literal;
+};
+
+class expr_float_literal: public expr {
+public:
+    expr_float_literal(float f) : m_literal(f) { }
+    void emit();
+    bool isConstant(constant_t &outValue);
+private:
+    float m_literal;
 };
 
 class expr_unary: public expr {

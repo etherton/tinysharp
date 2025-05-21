@@ -3,6 +3,9 @@
 
 namespace tinysharp {
 
+uint8_t* node::sm_heap;
+label_t node::sm_pc;
+
 void stmt_if::emit() {
 	m_cond->emit();
 	auto ifFalse = emitForwardJump(OP_JZ);
@@ -101,4 +104,52 @@ bool expr_binary::isConstant(constant_t &outValue) {
     else
         return false;
 }
+
+void expr_integer_literal::emit() {
+	int i = m_literal < -1 ? -i : i;
+	switch (i) {
+		case -1: emitOp(OP_LITM1); break;
+		case 0: emitOp(OP_LIT0); break;
+		case 1: emitOp(OP_LIT1); break;
+		case 2: emitOp(OP_LIT2); break;
+		case 3: emitOp(OP_LIT3); break;
+		default:
+			if (m_literal <= 0xFF) {
+				emitOp(OP_LIT_B);
+				emitByte(m_literal);
+			}
+			else if (m_literal <= 0xFFFF) {
+				emitOp(OP_LIT_H);
+				emitHalf(m_literal);
+			}
+			else if (m_literal <= 0xFFFFFF) {
+				emitOp(OP_LIT_3B);
+				emitByte(m_literal);
+				emitByte(m_literal >> 8);
+				emitByte(m_literal >> 16);
+			}
+			else {
+				emitOp(OP_LIT_W);
+				emitWord(m_literal);			
+			}
+			break;
+	}
+	if (m_literal < -1)
+		emitOp(OP_NEGI);
+}
+
+bool expr_integer_literal::isConstant(constant_t &outValue) {
+	outValue.i = m_literal;
+	return true;
+}
+
+void expr_float_literal::emit() {
+}
+
+
+bool expr_float_literal::isConstant(constant_t &outValue) {
+	outValue.f = m_literal;
+	return true;
+}
+
 } // namespace tinysharp
