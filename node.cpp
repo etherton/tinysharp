@@ -6,6 +6,26 @@ namespace tinysharp {
 uint8_t* node::sm_heap;
 label_t node::sm_pc;
 
+stmt::state stmt::sm_current;
+
+stmt::state stmt::beginLoopBody() {
+	auto result = sm_current;
+	sm_current.b = nullptr;
+	sm_current.c = nullptr;
+	return result;
+}
+
+void stmt::endLoopBody(stmt::state prev,label_t breakAddr,label_t continueAddr) {
+	for (auto i=sm_current.b; i; i=i->m_nextBreak) {
+		sm_heap[i->m_offset] = breakAddr;
+		sm_heap[i->m_offset + 1] = breakAddr >> 8;
+	}
+	for (auto i=sm_current.c; i; i=i->m_nextContinue) {
+		sm_heap[i->m_offset] = continueAddr;
+		sm_heap[i->m_offset + 1] = continueAddr >> 8;
+	}
+}
+
 void stmt_if::emit() {
 	m_cond->emit();
 	auto ifFalse = emitForwardJump(OP_JZ);
@@ -24,20 +44,20 @@ void stmt_while::emit() {
 	auto eval = emitLabel();
 	m_cond->emit();
 	auto past = emitForwardJump(OP_JZ);
-	beginLoopBody();
+	auto prev = beginLoopBody();
 	m_body->emit();
 	emitBackwardJump(OP_J,eval);
 	placeForwardJump(past);
-	endLoopBody(past,eval);	// break, continue addresses
+	endLoopBody(prev,past,eval);	// break, continue addresses
 }
 
 void stmt_do::emit() {
 	label_t top = emitLabel();
-	beginLoopBody();
+	auto prev = beginLoopBody();
 	m_body->emit();
 	emitBackwardJump(OP_JNZ,top);
 	label_t bottom = emitLabel();
-	endLoopBody(bottom,top);
+	endLoopBody(prev,bottom,top);
 }
 
 void stmt_for::emit() {
@@ -48,7 +68,7 @@ void stmt_for::emit() {
 	if (m_cond)
 		m_cond->emit();
 	bottom = emitForwardJump(OP_JZ);
-	beginLoopBody();
+	auto prev = beginLoopBody();
 	m_body->emit();
 	auto step = m_step? emitLabel() : top;
 	if (m_step) {
@@ -57,7 +77,23 @@ void stmt_for::emit() {
 	}
 	emitBackwardJump(OP_J,top);
 	placeForwardJump(bottom);
-	endLoopBody(bottom,step);
+	endLoopBody(prev,bottom,step);
+}
+
+void stmt_break::emit() {
+	m_nextBreak = sm_current.b;
+	emitOp(OP_J);
+	m_offset = sm_pc;
+	emitHalf(0);
+	sm_current.b = this;
+}
+
+void stmt_continue::emit() {
+	m_nextContinue = sm_current.c;
+	emitOp(OP_J);
+	m_offset = sm_pc;
+	emitHalf(0);	
+	sm_current.c = this;
 }
 
 void expr_unary::emit() {

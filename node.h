@@ -51,18 +51,22 @@ protected:
     static label_t emitLabel() {
         return sm_pc;
     }
-private:
+protected:
     static uint8_t *sm_heap;
     static label_t sm_pc;
 };
 
+class stmt_break;
+class stmt_continue;
+
 class stmt: public node {
 public:
+    struct state { stmt_break *b; stmt_continue *c; };
 protected:
     // these declare a stack that `break` and `continue` jump to
-    static void beginLoopBody();
-    static void endLoopBody(label_t breakAddr,label_t continueAddr);
-
+    static state beginLoopBody();
+    static void endLoopBody(state prev,label_t breakAddr,label_t continueAddr);
+    static state sm_current;
 };
 
 class expr;
@@ -106,13 +110,21 @@ private:
 };
 
 class stmt_break: public stmt {
+    friend class stmt;
 public:
     void emit();
+private:
+    stmt_break *m_nextBreak;
+    label_t m_offset;
 };
 
 class stmt_continue: public stmt {
+    friend class stmt;
 public:
     void emit();
+private:
+    stmt_continue *m_nextContinue;
+    label_t m_offset;
 };
 
 class expr: public node {

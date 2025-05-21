@@ -222,6 +222,10 @@ expr* compiler::boolean_expression() {
 	return e;
 }
 
+stmt* compiler::statements() {
+	return statement();
+}
+
 stmt* compiler::statement() {
 	if (m_token == K_TYPE)
 		return declaration_statement();
@@ -229,10 +233,10 @@ stmt* compiler::statement() {
 		matchNextToken('(');
 		expr* cond = boolean_expression();
 		matchNextToken(')');
-		stmt* ifTrue = embedded_statement(), *ifFalse = nullptr;
+		stmt* ifTrue = statement(), *ifFalse = nullptr;
 		if (m_token == K_else) {
 			nextToken();
-			ifFalse = embedded_statement();
+			ifFalse = statement();
 		}
 		constant_t v;
 		// deadstrip unnecessary conditions
@@ -245,7 +249,7 @@ stmt* compiler::statement() {
 		matchNextToken('(');
 		expr *cond = boolean_expression();
 		matchNextToken(')');
-		stmt *body = embedded_statement();
+		stmt *body = statement();
 		constant_t v;
 		// deadstrip a while(false)
 		if (cond->isConstant(v) && !v.u)
@@ -254,7 +258,7 @@ stmt* compiler::statement() {
 			return new stmt_while(cond,body);
 	}
 	else if (m_token == K_do) {
-		stmt *body = embedded_statement();
+		stmt *body = statement();
 		matchNextToken(K_while);
 		matchNextToken('(');
 		expr *cond = boolean_expression();
@@ -274,9 +278,17 @@ stmt* compiler::statement() {
 		matchNextToken(';');
 		expr *n = (m_token != ')')? boolean_expression() : nullptr;
 		matchNextToken(')');
-		stmt *body = embedded_statement();
+		stmt *body = statement();
 		return new stmt_for(i,c,n,body);
 	}
+	else if (m_token == K_break) {
+		matchNextToken(';');
+		return new stmt_break();
+	}
+	else if (m_token == K_continue) {
+		matchNextToken(';');
+		return new stmt_continue();
+	}	
 	else {
 		error("expected a statement here");
 		return nullptr;
