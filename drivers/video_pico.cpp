@@ -56,7 +56,7 @@ void __not_in_flash_func(video_pico_3bpp::draw)(int x,int y,int w,int h,const vo
 
 void __not_in_flash_func(video_pico_3bpp::fill)(int x,int y,int w,int h,rgb c) {
     setRegion(x,y,w,h);
-    int count = ((w * h) + 1) >> 1;
+    int count = ((w * h) + 1)  >> 1;
     uint8_t packed2 = pack3(c);
     if (count==1)
         spi_write_blocking(spi1,&packed2,1);
@@ -96,6 +96,34 @@ void __not_in_flash_func(video_pico_16bpp::fill)(int x,int y,int w,int h,rgb c) 
             spi_write_blocking(spi1,reinterpret_cast<const uint8_t*>(&packed),2);
     gpio_put(LCD_CS, 1);
 }    
+
+void __not_in_flash_func(video_pico_18bpp::draw)(int x,int y,int w,int h,const void *data) {
+    setRegion(x,y,w,h);
+    spi_write_blocking(spi1,static_cast<const uint8_t*>(data),w*h*3);
+    gpio_put(LCD_CS, 1);
+}
+
+void __not_in_flash_func(video_pico_18bpp::fill)(int x,int y,int w,int h,rgb c) {
+    setRegion(x,y,w,h);
+    int count = w*h;
+    while (count--)
+      spi_write_blocking(spi1,&c.r,3);
+    gpio_put(LCD_CS, 1);
+} 
+
+void __not_in_flash_func(video_pico_24bpp::draw)(int x,int y,int w,int h,const void *data) {
+    setRegion(x,y,w,h);
+    spi_write_blocking(spi1,static_cast<const uint8_t*>(data),w*h*3);
+    gpio_put(LCD_CS, 1);
+}
+
+void __not_in_flash_func(video_pico_24bpp::fill)(int x,int y,int w,int h,rgb c) {
+    setRegion(x,y,w,h);
+    int count = w*h;
+    while (count--)
+      spi_write_blocking(spi1,&c.r,3);
+    gpio_put(LCD_CS, 1);
+} 
 
 #define LCD_SPI_SPEED       25000000 // (105 * 1000000)
 
@@ -190,6 +218,10 @@ video *video::create(const char *opts) {
     const char *bpp = strstr(opts,"bpp=");
     if (bpp && bpp[4]=='3')
         return new video_pico_3bpp();
+    else if (bpp && bpp[4]=='1'&&bpp[5]=='8')
+        return new video_pico_16bpp();
+    else if (bpp && bpp[4]=='2')
+        return new video_pico_24bpp();
     else
         return new video_pico_16bpp();
 }

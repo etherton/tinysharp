@@ -10,12 +10,13 @@ int main()
         printf("Hello, world!\n");
         sleep_ms(1000);
     } */
-   auto v = hal::video::create("bpp=16");
+   auto v = hal::video::create("bpp=3");
    v->init();
    uint8_t r = 128;
+   int line = 0;
     while (true) {
-       v->fill(0,0,320,320,hal::rgb { r++,255,0 });
-        printf("Hello, world!\n");
-        sleep_ms(10);
+       v->fill(0,0,100,100,hal::rgb { 255,255,255 });
+       v->fill(0,0,100,100,hal::rgb { 0,0,0 });
+       v->setScroll(++line & 63);
     }
 }

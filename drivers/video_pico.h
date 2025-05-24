@@ -27,7 +27,7 @@ protected:
 
 class video_pico_3bpp: public video_pico {
 public:
-	void init() { initCommon((uint8_t*)"\x3A\x01\x61",3); }
+	void init() { initCommon((uint8_t*)"\x3A\x01\x61\x39",5); }
 	int getBpp() { return 3; }
 	void draw(int,int,int,int,const void*);
 	void fill(int,int,int,int,rgb color);
@@ -37,6 +37,23 @@ class video_pico_16bpp: public video_pico {
 public:
 	void init() { initCommon((uint8_t*)"\x3A\x01\x55",3); }
 	int getBpp() { return 16; }
+	void draw(int,int,int,int,const void*);
+	void fill(int,int,int,int,rgb color);
+};
+
+class video_pico_18bpp: public video_pico {
+public:
+	void init() { initCommon((uint8_t*)"\x3A\x01\x66",3); }
+	int getBpp() { return 18; }
+	void draw(int,int,int,int,const void*);
+	void fill(int,int,int,int,rgb color);
+};
+
+
+class video_pico_24bpp: public video_pico {
+public:
+	void init() { initCommon((uint8_t*)"\x3A\x01\x77",3); }
+	int getBpp() { return 24; }
 	void draw(int,int,int,int,const void*);
 	void fill(int,int,int,int,rgb color);
 };
