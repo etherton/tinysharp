@@ -4,6 +4,7 @@
 
 #include <map>
 #include <string>
+#include <stdarg.h>
 
 namespace tinysharp {
 

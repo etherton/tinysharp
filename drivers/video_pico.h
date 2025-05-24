@@ -29,7 +29,7 @@ class video_pico_3bpp: public video_pico {
 public:
 	void init() { initCommon((uint8_t*)"\x3A\x01\x61",3); }
 	int getBpp() { return 3; }
-	void draw(int,int,int,int,void*);
+	void draw(int,int,int,int,const void*);
 	void fill(int,int,int,int,rgb color);
 	void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,rgb fore,rgb back);
 };
@@ -38,7 +38,7 @@ class video_pico_16bpp: public video_pico {
 public:
 	void init() { initCommon((uint8_t*)"\x3A\x01\0x55",3); }
 	int getBpp() { return 16; }
-	void draw(int,int,int,int,void*);
+	void draw(int,int,int,int,const void*);
 	void fill(int,int,int,int,rgb color);
 	void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,rgb fore,rgb back);
 };

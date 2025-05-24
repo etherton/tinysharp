@@ -2,6 +2,7 @@
 
 #include "video_pico.h"
 
+#include "pico/time.h"
 #include "hardware/gpio.h"
 #include "hardware/spi.h"
 
@@ -48,7 +49,7 @@ void __not_in_flash_func(video_pico::setScroll)(int y) {
 
 void __not_in_flash_func(video_pico_3bpp::draw)(int x,int y,int w,int h,const void *data) {
     setRegion(x,y,w,h);
-    spi_write_blocking(spi1,data,((w*h)+1)>>1);
+    spi_write_blocking(spi1,static_cast<const uint8_t*>(data),((w*h)+1)>>1);
     gpio_put(LCD_CS, 1);
 }
 
@@ -57,7 +58,7 @@ void __not_in_flash_func(video_pico_3bpp::fill)(int x,int y,int w,int h,rgb c) {
     int count = ((w * h) + 1) >> 1;
     uint8_t packed2 = pack3(c);
     if (count==1)
-        spi_write_blocking(spi1,&packed,1);
+        spi_write_blocking(spi1,&packed2,1);
     else {
         uint8_t run[8] = { packed2, packed2, packed2, packed2, packed2, packed2, packed2, packed2 };
         while (count >= 8) {
@@ -72,7 +73,7 @@ void __not_in_flash_func(video_pico_3bpp::fill)(int x,int y,int w,int h,rgb c) {
 
 void __not_in_flash_func(video_pico_16bpp::draw)(int x,int y,int w,int h,const void *data) {
     setRegion(x,y,w,h);
-    spi_write_blocking(spi1,data,w*h*2);
+    spi_write_blocking(spi1,static_cast<const uint8_t*>(data),w*h*2);
     gpio_put(LCD_CS, 1);
 }
 
@@ -83,42 +84,22 @@ void __not_in_flash_func(video_pico_16bpp::fill)(int x,int y,int w,int h,rgb c) 
     if (count > 8) {
         uint16_t run[8] = { packed, packed, packed, packed, packed, packed, packed, packed };
         while (count >= 8) {
-            spi_write_blocking(spi1,run,16);
+            spi_write_blocking(spi1,reinterpret_cast<const uint8_t*>(run),16);
             count -= 8;
         }
         if (count)
-            spi_write_blocking(spi1,run,count<<1);
+            spi_write_blocking(spi1,reinterpret_cast<const uint8_t*>(run),count<<1);
     }
     else
         while (count--)
-            spi_write_blocking(spi1,&packed,2);
+            spi_write_blocking(spi1,reinterpret_cast<const uint8_t*>(&packed),2);
     gpio_put(LCD_CS, 1);
 }    
 
 #define LCD_SPI_SPEED       25000000 // (105 * 1000000)
-#define PORTCLR             1
-#define PORTSET             2
-#define PORTINV             3
-#define LAT                 4
+
 #define LATCLR              5
 #define LATSET              6
-#define LATINV              7
-#define ODC                 8
-#define ODCCLR              9
-#define ODCSET              10
-#define CNPU                12
-#define CNPUCLR             13
-#define CNPUSET             14
-#define CNPUINV             15
-#define CNPD                16
-#define CNPDCLR             17
-#define CNPDSET             18
-#define ANSELCLR            -7
-#define ANSELSET            -6
-#define ANSELINV            -5
-#define TRIS                -4
-#define TRISCLR             -3
-#define TRISSET             -2
 
 static void pin_set_bit(int pin, unsigned int offset) {
   switch (offset) {
@@ -132,49 +113,10 @@ static void pin_set_bit(int pin, unsigned int offset) {
       gpio_pull_up(pin);
       gpio_put(pin, 1);
       return;
-    case LATINV:
-      gpio_xor_mask(1 << pin);
-      return;
-    case TRISSET:
-      gpio_set_dir(pin, GPIO_IN);
-      sleep_us(2);
-      return;
-    case TRISCLR:
-      gpio_set_dir(pin, GPIO_OUT);
-      gpio_set_drive_strength(pin, GPIO_DRIVE_STRENGTH_12MA);
-      sleep_us(2);
-      return;
-    case CNPUSET:
-      gpio_set_pulls(pin, true, false);
-      return;
-    case CNPDSET:
-      gpio_set_pulls(pin, false, true);
-      return;
-    case CNPUCLR:
-    case CNPDCLR:
-      gpio_set_pulls(pin, false, false);
-      return;
-    case ODCCLR:
-      gpio_set_dir(pin, GPIO_OUT);
-      gpio_put(pin, 0);
-      sleep_us(2);
-      return;
-    case ODCSET:
-      gpio_set_pulls(pin, true, false);
-      gpio_set_dir(pin, GPIO_IN);
-      sleep_us(2);
-      return;
-    case ANSELCLR:
-      gpio_set_function(pin, GPIO_FUNC_SIO);
-      gpio_set_dir(pin, GPIO_IN);
-      return;
-    default:
-      printf("unknown pin_set_bit command\n");
-      break;
   }
 }
 
-void pico_video::initCommon(const uint8_t *memoryMode,size_t memoryModeSize) {
+void video_pico::initCommon(const uint8_t *memoryMode,size_t memoryModeSize) {
     // Init GPIO
     gpio_init(LCD_SCK);
     gpio_init(LCD_TX);
