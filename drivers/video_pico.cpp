@@ -87,7 +87,9 @@ void __not_in_flash_func(video_pico_3bpp::fill)(int x,int y,int w,int h,rgb c) {
 
 void __not_in_flash_func(video_pico_16bpp::draw)(int x,int y,int w,int h,const void *data) {
     setRegion(x,y,w,h);
-    spi_write_blocking(spi1,static_cast<const uint8_t*>(data),w*h*2);
+    spi_set_format(spi1, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+    spi_write16_blocking(spi1,static_cast<const uint16_t*>(data),w*h);
+    spi_set_format(spi1, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
     gpio_put(LCD_CS, 1);
 }
 
@@ -95,18 +97,20 @@ void __not_in_flash_func(video_pico_16bpp::fill)(int x,int y,int w,int h,rgb c) 
     setRegion(x,y,w,h);
     int count = w*h;
     uint16_t packed = pack16(c);
+    spi_set_format(spi1, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
     if (count >= 8) {
         uint16_t run[8] = { packed, packed, packed, packed, packed, packed, packed, packed };
         while (count >= 8) {
-            spi_write_blocking(spi1,reinterpret_cast<const uint8_t*>(run),16);
+            spi_write16_blocking(spi1,run,8);
             count -= 8;
         }
         if (count)
-            spi_write_blocking(spi1,reinterpret_cast<const uint8_t*>(run),count<<1);
+            spi_write16_blocking(spi1,run,count);
     }
     else
         while (count--)
-            spi_write_blocking(spi1,reinterpret_cast<const uint8_t*>(&packed),2);
+            spi_write16_blocking(spi1,&packed,1);
+    spi_set_format(spi1, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
     gpio_put(LCD_CS, 1);
 }    
 
@@ -203,7 +207,7 @@ void video_pico::initCommon(const uint8_t *memoryMode,size_t memoryModeSize) {
         0xC0, 2, 0x17, 0x15,          // Power Control 1
         0xC1, 1, 0x41,                // Power Control 2
         0xC5, 3, 0x00, 0x12, 0x80,    // VCOM Control
-        0x36, 1, 0x40,                // Memory Access Control (0x48=BGR, 0x40=RGB)
+        0x36, 1, 0x48,                // Memory Access Control (0x48=BGR, 0x40=RGB)
     };
     static const uint8_t initCommands2[] = {
         0xB0, 1, 0x00,                // Interface Mode Control
@@ -232,7 +236,7 @@ video *video::create(const char *opts) {
     if (bpp && bpp[4]=='3')
         return new video_pico_3bpp();
     else if (bpp && bpp[4]=='1'&&bpp[5]=='8')
-        return new video_pico_16bpp();
+        return new video_pico_18bpp();
     else if (bpp && bpp[4]=='2')
         return new video_pico_24bpp();
     else
