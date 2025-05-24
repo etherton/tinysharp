@@ -10,7 +10,7 @@ int main()
         printf("Hello, world!\n");
         sleep_ms(1000);
     } */
-   auto v = hal::video::create("bpp=3");
+   auto v = hal::video::create("bpp=16");
    v->init();
    uint8_t r = 128;
    int line = 0;
