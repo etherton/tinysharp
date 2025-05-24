@@ -1,7 +1,7 @@
 A stripped down implementation of C# suitable for native development
 on embedded systems.
 
-Currently the only target supported is PicoCalc. The 3bpp driver doesn't work for some reason. 16bpp is the default. You should be able to target pico2 by editing the toplevel CMakeLists.txt file (search for PICO_BOARD)
+Currently the only target supported is PicoCalc. You should be able to target pico2 by editing the toplevel CMakeLists.txt file (search for PICO_BOARD)
 
 To build it, clone the repo then run
 ```
