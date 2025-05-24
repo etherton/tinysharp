@@ -154,7 +154,7 @@ void video_pico::initCommon(const uint8_t *memoryMode,size_t memoryModeSize) {
     // Setup LCD
     gpio_put(LCD_CS, 0);
 
-    static const uint8_t initCommands[] = {
+    static const uint8_t initCommands1[] = {
         // Positive Gamma Control
         0xE0, 15, 0x00, 0x03, 0x09, 0x08, 0x16, 0x0A, 0x3F, 0x78, 0x4C, 0x09, 0x0A, 0x08, 0x16, 0x1A, 0x0F,
         // Negative Gamma Control
@@ -163,7 +163,8 @@ void video_pico::initCommon(const uint8_t *memoryMode,size_t memoryModeSize) {
         0xC1, 1, 0x41,                // Power Control 2
         0xC5, 3, 0x00, 0x12, 0x80,    // VCOM Control
         0x36, 1, 0x40,                // Memory Access Control (0x48=BGR, 0x40=RGB)
-        0x3A, 1, 0x55,
+    };
+    static const uint8_t initCommands2[] = {
         0xB0, 1, 0x00,                // Interface Mode Control
 
         // Frame Rate Control
@@ -178,10 +179,10 @@ void video_pico::initCommon(const uint8_t *memoryMode,size_t memoryModeSize) {
         0x11, 0,                      // Exit Sleep
         0x29, 0,
     };
-    sendCommands(initCommands,sizeof(initCommands));
+    sendCommands(initCommands1,sizeof(initCommands1));
+    sendCommands(memoryMode,memoryModeSize);
+    sendCommands(initCommands2,sizeof(initCommands2));
     sleep_ms(120);
-    //sendCommands((const uint8_t*)"\x29",2);
-    //sleep_ms(120);
     gpio_put(LCD_CS, 1);
 }
 
