@@ -31,7 +31,6 @@ public:
 	int getBpp() { return 3; }
 	void draw(int,int,int,int,const void*);
 	void fill(int,int,int,int,rgb color);
-	void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,rgb fore,rgb back);
 };
 
 class video_pico_16bpp: public video_pico {
@@ -40,7 +39,6 @@ public:
 	int getBpp() { return 16; }
 	void draw(int,int,int,int,const void*);
 	void fill(int,int,int,int,rgb color);
-	void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,rgb fore,rgb back);
 };
 
 } // namespace hal
