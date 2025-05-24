@@ -7,7 +7,7 @@ namespace hal {
 class keyboard_pico: public keyboard {
 public:
 	void init();
-	bool getState(uint32_t state[4]);
+	uint16_t getKeyEvent();
 	uint8_t getBattery();
 };
 

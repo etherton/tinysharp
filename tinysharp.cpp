@@ -32,12 +32,15 @@ int main()
 
    int line = top;
    uint8_t bat = k->getBattery();
+   uint16_t event = 0;
     while (true) {
         char buf[40];
         sprintf(buf,"Scroll %d",line); // scroll should be red
         v->drawString(100,0,buf,hal::rgb{255,0,0},hal::rgb{});
-        k->getState(state);
-        sprintf(buf,"%08x%08x bat %d",state[0],state[1],bat);
+        uint16_t thisEvent = k->getKeyEvent();
+        if (thisEvent)
+            event = thisEvent;
+        sprintf(buf,"event %04x (%c) bat %d",event,event >> 8,bat);
         v->drawString(100,8,buf,hal::rgb{255,255,255},hal::rgb{});
         sleep_ms(16);
        // v->fill(0,0,320,480,hal::rgb { 255,255,255 });
