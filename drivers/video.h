@@ -26,7 +26,7 @@ public:
 	// this version uses multiple separate fill commands
 	virtual void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,rgb fore);
 	// this version generates an unpacked blob and sends it to draw
-	virtual void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,rgb fore,rgb back) = 0;
+	virtual void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,rgb fore,rgb back);
 
 };
 
