@@ -11,5 +11,11 @@ int main()
         sleep_ms(1000);
     } */
    auto v = hal::video::create("");
-   v->fill(0,0,320,320,hal::rgb { 255,0,0 });
+   v->init();
+   uint8_t r = 128;
+    while (true) {
+       v->fill(0,0,320,320,hal::rgb { r++,255,0 });
+        printf("Hello, world!\n");
+        sleep_ms(10);
+    }
 }

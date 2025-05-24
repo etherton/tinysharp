@@ -23,7 +23,8 @@ void __not_in_flash_func(video_pico::sendCommands)(const uint8_t *commands,size_
         spi_write_blocking(spi1, commands, 1);
         gpio_put(LCD_DC, 1);
         uint8_t argc = commands[1];
-        spi_write_blocking(spi1, commands+2, argc);
+        if (argc)
+          spi_write_blocking(spi1, commands+2, argc);
         commands += argc + 2;
         length -= (argc + 2);
     }
@@ -81,7 +82,7 @@ void __not_in_flash_func(video_pico_16bpp::fill)(int x,int y,int w,int h,rgb c) 
     setRegion(x,y,w,h);
     int count = w*h;
     uint16_t packed = pack16(c);
-    if (count > 8) {
+    if (count >= 8) {
         uint16_t run[8] = { packed, packed, packed, packed, packed, packed, packed, packed };
         while (count >= 8) {
             spi_write_blocking(spi1,reinterpret_cast<const uint8_t*>(run),16);
@@ -161,12 +162,13 @@ void video_pico::initCommon(const uint8_t *memoryMode,size_t memoryModeSize) {
         0xC0, 2, 0x17, 0x15,          // Power Control 1
         0xC1, 1, 0x41,                // Power Control 2
         0xC5, 3, 0x00, 0x12, 0x80,    // VCOM Control
-        0x36, 1, 0x48,                // Memory Access Control (0x48=BGR, 0x40=RGB)
+        0x36, 1, 0x40,                // Memory Access Control (0x48=BGR, 0x40=RGB)
+        0x3A, 1, 0x55,
         0xB0, 1, 0x00,                // Interface Mode Control
 
         // Frame Rate Control
-        // 0xB1, 2, 0xD0, 0x11        // 60Hz
-        0xB1, 2, 0xD0, 0x14,          // 90Hz
+        0xB1, 2, 0xD0, 0x11,        // 60Hz
+        ///0xB1, 2, 0xD0, 0x14,          // 90Hz
         0x21, 0,                      // Invert colors on
         0xB4, 1, 0x02,                // Display Inversion Control
         0xB6, 3, 0x02, 0x02, 0x3B,    // Display Function Control
@@ -174,10 +176,12 @@ void video_pico::initCommon(const uint8_t *memoryMode,size_t memoryModeSize) {
         0xE9, 1, 0x00,
         0xF7, 4, 0xA9, 0x51, 0x2C, 0x82,  // Adjust Control 3
         0x11, 0,                      // Exit Sleep
+        0x29, 0,
     };
     sendCommands(initCommands,sizeof(initCommands));
-    sendCommands(memoryMode,memoryModeSize);
     sleep_ms(120);
+    //sendCommands((const uint8_t*)"\x29",2);
+    //sleep_ms(120);
     gpio_put(LCD_CS, 1);
 }
 
