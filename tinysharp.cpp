@@ -27,23 +27,25 @@ int main()
    for (int i=0; i<480; i+=8) {
         char buf[16];
         sprintf(buf,"Line %d",i); // Line textshould be blue
-        v->drawString(i/2,i,buf,hal::rgb { 0, 0, uint8_t(15 + i/2) }, hal::rgb{});
+        v->drawString(i/2,i,buf,hal::rgb { 0, 0, uint8_t(128 + i/4) }, hal::rgb{});
    }
 
-   uint8_t r = 128;
    int line = top;
+   uint8_t bat = k->getBattery();
     while (true) {
         char buf[40];
         sprintf(buf,"Scroll %d",line); // scroll should be red
-        v->drawString(100,0,buf,hal::rgb{uint8_t(line),0,0},hal::rgb{});
-        // k->getState(state);
-        sprintf(buf,"%08x%08x",state[0],state[1]);
+        v->drawString(100,0,buf,hal::rgb{255,0,0},hal::rgb{});
+        k->getState(state);
+        sprintf(buf,"%08x%08x bat %d",state[0],state[1],bat);
         v->drawString(100,8,buf,hal::rgb{255,255,255},hal::rgb{});
         sleep_ms(16);
        // v->fill(0,0,320,480,hal::rgb { 255,255,255 });
        // v->fill(0,0,320,480,hal::rgb { 0,0,0 });
        v->setScroll(line);
-       if (++line == top+middle)
+       if (++line == top+middle) {
         line = top;
+        bat = k->getBattery();
+       }
     }
 }
