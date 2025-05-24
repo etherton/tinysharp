@@ -125,7 +125,7 @@ void __not_in_flash_func(video_pico_24bpp::fill)(int x,int y,int w,int h,rgb c) 
     gpio_put(LCD_CS, 1);
 } 
 
-#define LCD_SPI_SPEED       25000000 // (105 * 1000000)
+#define LCD_SPI_SPEED       250000000 // (105 * 1000000)
 
 #define LATCLR              5
 #define LATSET              6
