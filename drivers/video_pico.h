@@ -19,7 +19,7 @@ public:
 	int getHeight() { return 320; }
 	int getScrollHeight() { return 480; }
 	void setScroll(int);
-	void setFixedRegions(int,int,int);
+	void setFixedRegions(int,int);
 protected:
 	static void sendCommands(const uint8_t *cmds,size_t length);
 	static inline void setRegion(int x,int y,int w,int h);
@@ -28,7 +28,7 @@ protected:
 
 class video_pico_3bpp: public video_pico {
 public:
-	void init() { initCommon((uint8_t*)"\x3A\x01\x61\x39",5); }
+	void init() { initCommon((uint8_t*)"\x3A\x01\x22\x39",5); }
 	int getBpp() { return 3; }
 	void draw(int,int,int,int,const void*);
 	void fill(int,int,int,int,rgb color);

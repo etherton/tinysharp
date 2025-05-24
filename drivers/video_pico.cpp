@@ -48,7 +48,10 @@ void video_pico::setScroll(int y) {
     gpio_put(LCD_CS, 1);
 }
 
-void video_pico::setFixedRegions(int top,int middle,int bottom) {
+void video_pico::setFixedRegions(int top,int bottom) {
+    int middle = 320 - top - bottom;
+    if (bottom)
+        bottom = 160 + bottom;
     uint8_t commands[] = { 0x33, 6, 
       uint8_t(top>>8), uint8_t(top), 
       uint8_t(middle>>8), uint8_t(middle),
