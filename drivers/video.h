@@ -21,6 +21,7 @@ public:
 	virtual int getBpp() = 0;
 	virtual int getScrollHeight() = 0;
 	virtual void setScroll(int) = 0;
+	virtual void setFixedRegions(int top,int middle,int bottom) = 0;
 	virtual void draw(int x,int y,int width,int height,const void *data) = 0;
 	virtual void fill(int x,int y,int width,int height,rgb color) = 0;
 	// this version uses multiple separate fill commands

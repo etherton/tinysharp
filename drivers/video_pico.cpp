@@ -41,8 +41,18 @@ void __not_in_flash_func(video_pico::setRegion)(int x1,int y1,int w,int h) {
     sendCommands(commands,sizeof(commands));
 }
 
-void __not_in_flash_func(video_pico::setScroll)(int y) {
+void video_pico::setScroll(int y) {
     uint8_t commands[] = { 0x37, 2, uint8_t(y>>8), uint8_t(y) };
+    gpio_put(LCD_CS, 0);
+    sendCommands(commands,sizeof(commands));
+    gpio_put(LCD_CS, 1);
+}
+
+void video_pico::setFixedRegions(int top,int middle,int bottom) {
+    uint8_t commands[] = { 0x33, 6, 
+      uint8_t(top>>8), uint8_t(top), 
+      uint8_t(middle>>8), uint8_t(middle),
+      uint8_t(bottom>>8), uint8_t(bottom) };
     gpio_put(LCD_CS, 0);
     sendCommands(commands,sizeof(commands));
     gpio_put(LCD_CS, 1);

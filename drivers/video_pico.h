@@ -19,6 +19,7 @@ public:
 	int getHeight() { return 320; }
 	int getScrollHeight() { return 480; }
 	void setScroll(int);
+	void setFixedRegions(int,int,int);
 protected:
 	static void sendCommands(const uint8_t *cmds,size_t length);
 	static inline void setRegion(int x,int y,int w,int h);
