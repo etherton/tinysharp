@@ -46,12 +46,6 @@ const uint8_t PGUP	= 0x94;
 const uint8_t PGDN	= 0x95;
 const uint8_t BREAK = 0x96;
 const uint8_t CAPSLOCK = 0x97;
-const uint8_t LSHIFT = 0x98;
-const uint8_t RSHIFT = 0x99;
-const uint8_t LCTRL = 0x9A;
-const uint8_t RCTRL = 0x9B;
-const uint8_t LALT  = 0x9C;
-const uint8_t RALT  = 0x9D;
 
 };
 
@@ -64,7 +58,7 @@ public:
 	virtual uint8_t getBattery() = 0;
 
 	static uint16_t sm_Modifiers;
-	static const char *sm_Labels[0x9E];
+	static const char *sm_Labels[0x98];
 };
 
 extern keyboard *g_keyboard;

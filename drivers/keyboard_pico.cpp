@@ -101,10 +101,10 @@ uint16_t keyboard_pico::getKeyEvent() {
   }
   auto remap = [](uint8_t k) -> uint8_t {
     switch (k) {
-      case 0xA1: return key::LALT;
-      case 0xA2: return key::LSHIFT;
-      case 0xA3: return key::RSHIFT;
-      case 0xA5: return key::LCTRL;
+      case 0xA1: return 0; // Alt
+      case 0xA2: return 0; // LeftShift
+      case 0xA3: return 0; // RightShift
+      case 0xA5: return 0; // LeftCtrl
       case 0x81: return key::F1;
       case 0x82: return key::F2;
       case 0x83: return key::F3;

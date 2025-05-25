@@ -6,7 +6,7 @@ keyboard *g_keyboard;
 
 uint16_t keyboard::sm_Modifiers;
 
-const char* keyboard::sm_Labels[0x9E] = {
+const char* keyboard::sm_Labels[0x98] = {
     "NUL",
     "Ctrl+A", "Ctrl+B", "Ctrl+C", "Ctrl+D", "Ctrl+E", "Ctrl+F", "Ctrl+G", "Ctrl+H",
     "Ctrl+I", "Ctrl+J", "Ctrl+K", "Ctrl+L", "Ctrl+M", "Ctrl+N", "Ctrl+O", "Ctrl+P",
@@ -24,7 +24,6 @@ const char* keyboard::sm_Labels[0x9E] = {
     "Up", "Down", "Left", "Right",
     "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
     "Home", "End", "Ins", "Del", "PgUp", "PgDn", "Brk", "Caps", 
-    "LeftShift", "RightShift", "LeftControl", "RightControl", "LeftAlt", "RightAlt"
 };
 
 }

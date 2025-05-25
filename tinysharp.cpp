@@ -61,7 +61,7 @@ int main()
     while (true) {
         v->drawStringf(100,0,hal::rgb{255,0,0},hal::rgb{},"Scroll %d",line);
         uint16_t thisEvent = k->getKeyEvent();
-        if (thisEvent)
+        if ((uint8_t)thisEvent)
             event = thisEvent;
         v->drawStringf(100,8,hal::rgb{255,255,255},hal::rgb{},"event %04x (%s) bat %d",event,event? hal::keyboard::sm_Labels[event & 255] : "???",bat);
         sleep_ms(16);
