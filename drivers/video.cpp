@@ -50,4 +50,13 @@ void video::drawStringf(int x,int y,rgb fore,const char *fmt,...) {
 	drawString(x,y,fore,line);
 }
 
+void video::drawStringf(int x,int y,rgb fore,rgb back,const char *fmt,...) {
+	va_list args;
+	char line[256];
+	va_start(args,fmt);
+	vsprintf(line,fmt,args);
+	va_end(args);
+	drawString(x,y,fore,back,line);
+}
+
 }

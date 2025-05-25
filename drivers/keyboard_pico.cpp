@@ -3,6 +3,7 @@
 #include "keyboard_pico.h"
 
 #include <hardware/gpio.h>
+#include <hardware/watchdog.h>
 #include <hardware/i2c.h>
 
 #include <stdio.h>
@@ -90,21 +91,46 @@ static void keyboard_check_special_keys(unsigned short value) {
 }
 #endif
 
+uint16_t i2c_kbd_read() {
+  uint8_t cmd = REG_ID_FIF;
+  i2c_write_timeout_us(KBD_MOD, KBD_ADDR, &cmd, 1, false, 500000);
+  uint16_t result = 0;
+  i2c_read_timeout_us(KBD_MOD, KBD_ADDR, (uint8_t*) &result, 2, false, 500000);
+  return result;
+}
+
 void keyboard_pico::init() {
   gpio_set_function(KBD_SCL, GPIO_FUNC_I2C);
   gpio_set_function(KBD_SDA, GPIO_FUNC_I2C);
   i2c_init(KBD_MOD, KBD_SPEED);
   gpio_pull_up(KBD_SCL);
   gpio_pull_up(KBD_SDA);
-  while (getKeyEvent());
+  while (i2c_kbd_read());
 }
 
 uint16_t keyboard_pico::getKeyEvent() {
-  uint8_t cmd = REG_ID_FIF;
-  i2c_write_timeout_us(KBD_MOD, KBD_ADDR, &cmd, 1, false, 500000);
-  uint16_t result;
-  i2c_read_timeout_us(KBD_MOD, KBD_ADDR, (uint8_t*) &result, 2, false, 500000);
-  return result;
+  uint16_t result = i2c_kbd_read();
+  switch (result) {
+    case 0x0000: return 0;
+    case 0xA101: sm_Modifiers |= mod::LALT; break;
+    case 0xA103: sm_Modifiers &= ~mod::LALT; break;
+    case 0xA201: sm_Modifiers |= mod::LSHIFT; break;
+    case 0xA203: sm_Modifiers &= ~mod::LSHIFT; break;
+    case 0xA301: sm_Modifiers |= mod::RSHIFT; break;
+    case 0xA303: sm_Modifiers &= ~mod::RSHIFT; break;
+    case 0xA501: sm_Modifiers |= mod::LCTRL; break;
+    case 0xA503: sm_Modifiers &= ~mod::LCTRL; break;
+    case 0xD403: // Ctrl+Alt+Delete?
+      if (sm_Modifiers == (mod::LCTRL | mod::LALT)) {
+        watchdog_reboot(0, 0, 0);
+        watchdog_enable(0, 1);
+      }
+      else break;
+  }
+  if ((result & 255) == 3)
+    return (result >> 8) | sm_Modifiers;
+  else
+    return (result >> 8) | sm_Modifiers | mod::PRESSED;
 }
 
 uint8_t keyboard_pico::getBattery() {

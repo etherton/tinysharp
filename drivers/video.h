@@ -33,6 +33,7 @@ public:
 	virtual void drawString(int x,int y,rgb fore,const char *string);
 	virtual void drawString(int x,int y,rgb fore,rgb back,const char *string);
 	void drawStringf(int x,int y,rgb fore,const char *fmt,...);
+	void drawStringf(int x,int y,rgb fore,rgb back,const char *fmt,...);
 protected:
 	static uint8_t sm_fontWidth, sm_fontHeight, sm_baseChar;
 	static const uint8_t *sm_fontDef;
