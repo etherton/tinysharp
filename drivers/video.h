@@ -9,6 +9,12 @@ struct rgb {
 	uint8_t r, g, b;
 };
 
+const rgb black = rgb { 0,0,0 };
+const rgb white = rgb { 255,255,255 };
+const rgb red = rgb { 255,0,0 };
+const rgb green = rgb { 0,255,0 };
+const rgb blue = rgb { 0,0,255 };
+
 class video {
 public:
 	static video *create(const char *options);

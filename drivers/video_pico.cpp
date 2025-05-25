@@ -87,6 +87,39 @@ void __not_in_flash_func(video_pico_3bpp::fill)(int x,int y,int w,int h,rgb c) {
     gpio_put(LCD_CS, 1);
 }
 
+void __not_in_flash_func(video_pico_3bpp::drawGlyph)(int x,int y,int width,int height,const uint8_t *glyph,rgb fore,rgb back) {
+    if ((width==6||width==8) && height<=8) {
+        uint8_t fPacked = pack3(fore);
+        uint8_t bPacked = pack3(back);
+        uint8_t lut[4] = { 
+            bPacked, 
+            uint8_t((fPacked & 56) | (bPacked & 7)),
+            uint8_t((bPacked & 56) | (fPacked & 7)),
+            fPacked
+        };
+        uint8_t buffer[32];
+        if (width==8)
+            for (int i=0; i<height; i++) {
+                uint8_t pix = glyph[i];
+                buffer[i*4+0] = lut[pix & 3];
+                buffer[i*4+1] = lut[(pix>>2) & 3];
+                buffer[i*4+2] = lut[(pix>>4) & 3];
+                buffer[i*4+3] = lut[(pix>>6) & 3];
+            }
+        else {
+            for (int i=0; i<height; i++) {
+                uint8_t pix = glyph[i];
+                buffer[i*3+0] = lut[pix & 3];
+                buffer[i*3+1] = lut[(pix>>2) & 3];
+                buffer[i*3+2] = lut[(pix>>4) & 3];
+            }            
+        }
+        draw(x,y,width,height,buffer);
+    }
+    else
+        return video::drawGlyph(x,y,width,height,glyph,fore,back);
+}
+
 void __not_in_flash_func(video_pico_16bpp::draw)(int x,int y,int w,int h,const void *data) {
     setRegion(x,y,w,h);
     spi_set_format(spi1, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
@@ -115,6 +148,21 @@ void __not_in_flash_func(video_pico_16bpp::fill)(int x,int y,int w,int h,rgb c) 
     spi_set_format(spi1, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
     gpio_put(LCD_CS, 1);
 }    
+
+void __not_in_flash_func(video_pico_16bpp::drawGlyph)(int x,int y,int width,int height,const uint8_t *glyph,rgb fore,rgb back) {
+    if (width<=8 && height<=8) {
+        uint16_t lut[2] = { pack16(back), pack16(fore) };
+        uint16_t buffer[64], *bp = buffer;
+        for (int i=0; i<height; i++) {
+            uint8_t pix = glyph[i];
+            for (int j=0; j<width; j++,pix>>=1)
+                *bp++ = lut[pix&1];
+        }
+        draw(x,y,width,height,buffer);
+    }
+    else
+        return video::drawGlyph(x,y,width,height,glyph,fore,back);
+}
 
 void __not_in_flash_func(video_pico_18bpp::draw)(int x,int y,int w,int h,const void *data) {
     setRegion(x,y,w,h);
