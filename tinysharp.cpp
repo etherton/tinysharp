@@ -63,7 +63,7 @@ int main()
        // v->fill(0,0,320,480,hal::rgb { 255,255,255 });
        // v->fill(0,0,320,480,hal::rgb { 0,0,0 });
        v->setScroll(line);
-       if (++line == top+middle) {
+       if (++line == (bottom? top+middle : 160 - top)) {
         line = top;
         bat = k->getBattery();
        }

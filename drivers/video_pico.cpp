@@ -280,13 +280,13 @@ void video_pico::initCommon(const uint8_t *memoryMode,size_t memoryModeSize) {
 video *video::create(const char *opts) {
     const char *bpp = strstr(opts,"bpp=");
     if (bpp && bpp[4]=='3')
-        return new video_pico_3bpp();
+        return g_video = new video_pico_3bpp();
     else if (bpp && bpp[4]=='1'&&bpp[5]=='8')
-        return new video_pico_18bpp();
+        return g_video = new video_pico_18bpp();
     else if (bpp && bpp[4]=='2')
-        return new video_pico_24bpp();
+        return g_video = new video_pico_24bpp();
     else
-        return new video_pico_16bpp();
+        return g_video = new video_pico_16bpp();
 }
 
 } // namespace hal

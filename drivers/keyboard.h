@@ -34,4 +34,6 @@ public:
 	static uint16_t sm_Modifiers;
 };
 
+extern keyboard *g_keyboard;
+
 }

@@ -6,6 +6,8 @@
 
 namespace hal {
 	
+video *g_video;
+
 uint8_t video::sm_fontWidth, video::sm_fontHeight, video::sm_baseChar;
 const uint8_t *video::sm_fontDef;
 

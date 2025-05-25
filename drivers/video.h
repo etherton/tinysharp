@@ -43,7 +43,8 @@ public:
 protected:
 	static uint8_t sm_fontWidth, sm_fontHeight, sm_baseChar;
 	static const uint8_t *sm_fontDef;
-
 };
+
+extern video *g_video;
 
 }
