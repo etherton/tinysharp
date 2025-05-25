@@ -146,22 +146,16 @@ void __not_in_flash_func(video_pico_24bpp::fill)(int x,int y,int w,int h,rgb c) 
 
 #define LCD_SPI_SPEED       250000000 // (105 * 1000000)
 
-#define LATCLR              5
-#define LATSET              6
+static inline void latclr(int pin) {
+    gpio_set_pulls(pin, false, false);
+    gpio_pull_down(pin);
+    gpio_put(pin, 0);
+}
 
-static void pin_set_bit(int pin, unsigned int offset) {
-  switch (offset) {
-    case LATCLR:
-      gpio_set_pulls(pin, false, false);
-      gpio_pull_down(pin);
-      gpio_put(pin, 0);
-      return;
-    case LATSET:
-      gpio_set_pulls(pin, false, false);
-      gpio_pull_up(pin);
-      gpio_put(pin, 1);
-      return;
-  }
+static inline void latset(int pin) {
+    gpio_set_pulls(pin, false, false);
+    gpio_pull_up(pin);
+    gpio_put(pin, 1);    
 }
 
 uint32_t actual_speed;
@@ -193,11 +187,11 @@ void video_pico::initCommon(const uint8_t *memoryMode,size_t memoryModeSize) {
     gpio_put(LCD_RST, 1);
 
     // Reset controller
-    pin_set_bit(LCD_RST, LATSET);
+    latset(LCD_RST);
     sleep_ms(10);
-    pin_set_bit(LCD_RST, LATCLR);
+    latclr(LCD_RST);
     sleep_ms(10);
-    pin_set_bit(LCD_RST, LATSET);
+    latset(LCD_RST);
     sleep_ms(200);
 
     // Setup LCD
