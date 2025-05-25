@@ -93,25 +93,25 @@ void __not_in_flash_func(video_pico_3bpp::drawGlyph)(int x,int y,int width,int h
         uint8_t bPacked = pack3(back);
         uint8_t lut[4] = { 
             bPacked, 
-            uint8_t((fPacked & 56) | (bPacked & 7)),
             uint8_t((bPacked & 56) | (fPacked & 7)),
+            uint8_t((fPacked & 56) | (bPacked & 7)),
             fPacked
         };
         uint8_t buffer[32];
         if (width==8)
             for (int i=0; i<height; i++) {
                 uint8_t pix = glyph[i];
-                buffer[i*4+0] = lut[pix & 3];
-                buffer[i*4+1] = lut[(pix>>2) & 3];
-                buffer[i*4+2] = lut[(pix>>4) & 3];
-                buffer[i*4+3] = lut[(pix>>6) & 3];
+                buffer[i*4+0] = lut[pix>>6];
+                buffer[i*4+1] = lut[(pix>>4) & 3];
+                buffer[i*4+2] = lut[(pix>>2) & 3];
+                buffer[i*4+3] = lut[pix & 3];
             }
         else {
             for (int i=0; i<height; i++) {
                 uint8_t pix = glyph[i];
-                buffer[i*3+0] = lut[pix & 3];
-                buffer[i*3+1] = lut[(pix>>2) & 3];
-                buffer[i*3+2] = lut[(pix>>4) & 3];
+                buffer[i*3+0] = lut[pix >> 6];
+                buffer[i*3+1] = lut[(pix>>4) & 3];
+                buffer[i*3+2] = lut[(pix>>2) & 3];
             }            
         }
         draw(x,y,width,height,buffer);
@@ -155,8 +155,8 @@ void __not_in_flash_func(video_pico_16bpp::drawGlyph)(int x,int y,int width,int 
         uint16_t buffer[64], *bp = buffer;
         for (int i=0; i<height; i++) {
             uint8_t pix = glyph[i];
-            for (int j=0; j<width; j++,pix>>=1)
-                *bp++ = lut[pix&1];
+            for (int j=0; j<width; j++,pix<<=1)
+                *bp++ = lut[pix>>7];
         }
         draw(x,y,width,height,buffer);
     }
@@ -286,7 +286,7 @@ video *video::create(const char *opts) {
     else if (bpp && bpp[4]=='2')
         return g_video = new video_pico_24bpp();
     else
-        return g_video = new video_pico_16bpp();
+        return g_video =new video_pico_16bpp();
 }
 
 } // namespace hal

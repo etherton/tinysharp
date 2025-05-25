@@ -4,7 +4,8 @@
 #include "drivers/keyboard.h"
 #include "drivers/timer.h"
 
-#include "font8x8_basic.h"
+#include "font-6x8.h"
+#include "font-8x8.h"
 
 namespace hal { extern uint32_t actual_speed; }
 
@@ -16,9 +17,9 @@ int main()
         printf("Hello, world!\n");
         sleep_ms(1000);
     } */
-   auto v = hal::video::create("bpp=16");
+   auto v = hal::video::create("bpp=18");
    v->init();
-   v->setFont(8,8,&font8x8_basic[0][0]);
+   v->setFont(6,8,console_font_6x8,0);
 
    uint32_t fillTime = hal::getUsTime32();
    v->fill(0,0,320,480,hal::green); // fill should be green
@@ -49,6 +50,8 @@ int main()
     
     auto k = hal::keyboard::create("");
     k->init();
+
+    v->setFont(8,8,console_font_8x8,0);
 
    int line = top;
    uint8_t bat = k->getBattery();
