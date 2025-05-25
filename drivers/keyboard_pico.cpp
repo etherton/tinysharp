@@ -61,7 +61,7 @@ enum {
   REG_ID_VER = 0x01,     // fw version
   REG_ID_CFG = 0x02,     // config
   REG_ID_INT = 0x03,     // interrupt status
-  REG_ID_KEY = 0x04,     // key status
+  REG_ID_KEY = 0x04,     // key status (lower 5 bits is count)
   REG_ID_BKL = 0x05,     // backlight
   REG_ID_DEB = 0x06,     // debounce cfg
   REG_ID_FRQ = 0x07,     // poll freq cfg
@@ -99,6 +99,13 @@ uint16_t i2c_kbd_read() {
   return result;
 }
 
+uint8_t i2c_kbd_status() {
+  uint8_t cmd = REG_ID_KEY;
+  i2c_write_timeout_us(KBD_MOD, KBD_ADDR, &cmd, 1, false, 500000);
+  i2c_read_timeout_us(KBD_MOD, KBD_ADDR, &cmd, 1, false, 500000);
+  return cmd;  
+}
+
 void keyboard_pico::init() {
   gpio_set_function(KBD_SCL, GPIO_FUNC_I2C);
   gpio_set_function(KBD_SDA, GPIO_FUNC_I2C);
@@ -109,6 +116,9 @@ void keyboard_pico::init() {
 }
 
 uint16_t keyboard_pico::getKeyEvent() {
+  uint8_t status = i2c_kbd_status();
+  if (!(status & 0x1F))
+    return 0;
   uint16_t result = i2c_kbd_read();
   switch (result) {
     case 0x0000: return 0;
@@ -121,12 +131,16 @@ uint16_t keyboard_pico::getKeyEvent() {
     case 0xA501: sm_Modifiers |= mod::LCTRL; break;
     case 0xA503: sm_Modifiers &= ~mod::LCTRL; break;
     case 0xD403: // Ctrl+Alt+Delete?
-      if (sm_Modifiers == (mod::LCTRL | mod::LALT)) {
+      if ((sm_Modifiers & ~mod::CAPSLOCK) == (mod::LCTRL | mod::LALT)) {
         watchdog_reboot(0, 0, 0);
         watchdog_enable(0, 1);
       }
       else break;
   }
+  if (status & 0x20)
+    sm_Modifiers |= mod::CAPSLOCK;
+  else
+    sm_Modifiers &= ~mod::CAPSLOCK;
   if ((result & 255) == 3)
     return (result >> 8) | sm_Modifiers;
   else
