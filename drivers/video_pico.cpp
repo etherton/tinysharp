@@ -88,7 +88,7 @@ void __not_in_flash_func(video_pico_3bpp::fill)(int x,int y,int w,int h,rgb c) {
 }
 
 void __not_in_flash_func(video_pico_3bpp::drawGlyph)(int x,int y,int width,int height,const uint8_t *glyph,rgb fore,rgb back) {
-    if ((width==6||width==8) && height<=8) {
+    if (((1<<width) & 0b1'0101'0000) && height<=8) {
         uint8_t fPacked = pack3(fore);
         uint8_t bPacked = pack3(back);
         uint8_t lut[4] = { 
@@ -106,7 +106,7 @@ void __not_in_flash_func(video_pico_3bpp::drawGlyph)(int x,int y,int width,int h
                 buffer[i*4+2] = lut[(pix>>2) & 3];
                 buffer[i*4+3] = lut[pix & 3];
             }
-        else {
+        else if (width==6) {
             for (int i=0; i<height; i++) {
                 uint8_t pix = glyph[i];
                 buffer[i*3+0] = lut[pix >> 6];
@@ -114,7 +114,13 @@ void __not_in_flash_func(video_pico_3bpp::drawGlyph)(int x,int y,int width,int h
                 buffer[i*3+2] = lut[(pix>>2) & 3];
             }            
         }
-        draw(x,y,width,height,buffer);
+        else {
+            for (int i=0; i<height; i++) {
+                uint8_t pix = glyph[i];
+                buffer[i*2+0] = lut[pix >> 6];
+                buffer[i*2+1] = lut[(pix>>4) & 3];
+            }            
+        }       draw(x,y,width,height,buffer);
     }
     else
         return video::drawGlyph(x,y,width,height,glyph,fore,back);

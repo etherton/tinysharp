@@ -1,4 +1,4 @@
-// https://github.com/idispatch/raster-fonts/blob/master/font-6x8.c
+// https://github.com/idispatch/raster-fonts/blob/master/font-8x8.c
 
 unsigned char console_font_8x8[] = {
 

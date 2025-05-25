@@ -6,6 +6,7 @@
 
 #include "font-6x8.h"
 #include "font-8x8.h"
+#include "font-4x6.h"
 
 namespace hal { extern uint32_t actual_speed; }
 
@@ -17,7 +18,7 @@ int main()
         printf("Hello, world!\n");
         sleep_ms(1000);
     } */
-   auto v = hal::video::create("bpp=18");
+   auto v = hal::video::create("bpp=3");
    v->init();
    v->setFont(6,8,console_font_6x8,0);
 
@@ -38,10 +39,11 @@ int main()
     v->drawStringf(100,100,hal::white,"Fill time %u us",fillTime);
     // v->drawStringf(100,120,hal::rgb{255,0,0},"actual spi speed %u",hal::actual_speed);
 
+    v->setFont(4,6,console_font_4x6,0);
 
     fillTime = hal::getUsTime32();
     for (int i=0; i<40; i++)
-        v->drawString(0,i*8,hal::white,hal::black,
+        v->drawString(0,i*v->getFontHeight(),hal::white,hal::black,
             "1234567890abcdefghijklmnopqrstuvwxyz!@#$");
     fillTime = hal::getUsTime32() - fillTime;
     v->drawStringf(100,140,hal::white,hal::blue,"%u us to draw chars",fillTime);
