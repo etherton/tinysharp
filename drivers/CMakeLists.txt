@@ -5,6 +5,8 @@ target_sources(drivers INTERFACE
 	video_pico.cpp video_pico.h
 	keyboard.cpp keyboard.h
 	keyboard_pico.cpp keyboard_pico.h
+	storage.cpp storage.h
+	storage_pico_flash.cpp storage_pico_flash.h
 	timer.cpp timer.h
 	)
 
