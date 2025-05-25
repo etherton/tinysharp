@@ -12,44 +12,6 @@ namespace hal {
 
 // lower byte: 0=idle,1=pressed,2=hold,3=released
 
-enum keycode_t {
-  KEY_ALT = 0xA1,
-  KEY_LSHIFT = 0xA2,
-  KEY_RSHIFT = 0xA3,
-  KEY_CONTROL = 0xA5,
-
-  KEY_BACKSPACE = '\b',
-  KEY_ENTER = '\n',
-
-  KEY_F1 = 0x81,
-  KEY_F2 = 0x82,
-  KEY_F3 = 0x83,
-  KEY_F4 = 0x84,
-  KEY_F5 = 0x85,
-  KEY_F6 = 0x86,
-  KEY_F7 = 0x87,
-  KEY_F8 = 0x88,
-  KEY_F9 = 0x89,
-  KEY_F10 = 0x90,
-
-  KEY_DELETE = 0xD4,
-  KEY_END = 0xD5,
-  KEY_CAPSLOCK = 0xC1,
-  KEY_TAB = 0x09,
-  KEY_HOME = 0xD2,
-  KEY_ESC = 0xB1,
-  KEY_BREAK = 0xd0,
-  KEY_PAUSE = 0xd0,
-  KEY_INSERT = 0xD1,
-  KEY_RIGHT = 0xb7,
-  KEY_UP = 0xb5,
-  KEY_DOWN = 0xb6,
-  KEY_LEFT = 0xb4,
-  KEY_PAGEUP = 0xd6,
-  KEY_PAGEDOWN = 0xd7,
-  KEY_ESCAPE = 0xB1,
-};
-
 #define KBD_MOD    i2c1
 #define KBD_SDA    6
 #define KBD_SCL    7
@@ -122,29 +84,62 @@ uint16_t keyboard_pico::getKeyEvent() {
   uint16_t result = i2c_kbd_read();
   switch (result) {
     case 0x0000: return 0;
-    case 0xA101: sm_Modifiers |= mod::LALT; break;
-    case 0xA103: sm_Modifiers &= ~mod::LALT; break;
-    case 0xA201: sm_Modifiers |= mod::LSHIFT; break;
-    case 0xA203: sm_Modifiers &= ~mod::LSHIFT; break;
-    case 0xA301: sm_Modifiers |= mod::RSHIFT; break;
-    case 0xA303: sm_Modifiers &= ~mod::RSHIFT; break;
-    case 0xA501: sm_Modifiers |= mod::LCTRL; break;
-    case 0xA503: sm_Modifiers &= ~mod::LCTRL; break;
+    case 0xA101: sm_Modifiers |= modifier::LALT_BIT; break;
+    case 0xA103: sm_Modifiers &= ~modifier::LALT_BIT; break;
+    case 0xA201: sm_Modifiers |= modifier::LSHIFT_BIT; break;
+    case 0xA203: sm_Modifiers &= ~modifier::LSHIFT_BIT; break;
+    case 0xA301: sm_Modifiers |= modifier::RSHIFT_BIT; break;
+    case 0xA303: sm_Modifiers &= ~modifier::RSHIFT_BIT; break;
+    case 0xA501: sm_Modifiers |= modifier::LCTRL_BIT; break;
+    case 0xA503: sm_Modifiers &= ~modifier::LCTRL_BIT; break;
     case 0xD403: // Ctrl+Alt+Delete?
-      if ((sm_Modifiers & ~mod::CAPSLOCK) == (mod::LCTRL | mod::LALT)) {
+      if ((sm_Modifiers & modifier::CTRL_BITS) && (sm_Modifiers & modifier::ALT_BITS)) {
         watchdog_reboot(0, 0, 0);
         watchdog_enable(0, 1);
       }
       else break;
   }
+  auto remap = [](uint8_t k) -> uint8_t {
+    switch (k) {
+      case 0xA1: return key::LALT;
+      case 0xA2: return key::LSHIFT;
+      case 0xA3: return key::RSHIFT;
+      case 0xA5: return key::LCTRL;
+      case 0x81: return key::F1;
+      case 0x82: return key::F2;
+      case 0x83: return key::F3;
+      case 0x84: return key::F4;
+      case 0x85: return key::F5;
+      case 0x86: return key::F6;
+      case 0x87: return key::F7;
+      case 0x88: return key::F8;
+      case 0x89: return key::F9;
+      case 0x90: return key::F10;
+      case 0xD4: return key::DEL;
+      case 0xD5: return key::END;
+      case 0xC1: return key::CAPSLOCK;
+      case 0xD2: return key::HOME;
+      case 0xB1: return 27;
+      case 0xD0: return key::BREAK;
+      case 0xD1: return key::INS;
+      case 0xB7: return key::RIGHT;
+      case 0xB5: return key::UP;
+      case 0xB6: return key::DOWN;
+      case 0xB4: return key::LEFT;
+      case 0xD6: return key::PGUP;
+      case 0xD7: return key::PGDN;
+      default: return k;
+    }
+  };
+  
   if (status & 0x20)
-    sm_Modifiers |= mod::CAPSLOCK;
+    sm_Modifiers |= modifier::CAPSLOCK_BIT;
   else
-    sm_Modifiers &= ~mod::CAPSLOCK;
+    sm_Modifiers &= ~modifier::CAPSLOCK_BIT;
   if ((result & 255) == 3)
-    return (result >> 8) | sm_Modifiers;
+    return remap(result >> 8) | sm_Modifiers;
   else
-    return (result >> 8) | sm_Modifiers | mod::PRESSED;
+    return remap(result >> 8) | sm_Modifiers | modifier::PRESSED_BIT;
 }
 
 uint8_t keyboard_pico::getBattery() {

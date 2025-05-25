@@ -63,7 +63,7 @@ int main()
         uint16_t thisEvent = k->getKeyEvent();
         if (thisEvent)
             event = thisEvent;
-        v->drawStringf(100,8,hal::rgb{255,255,255},hal::rgb{},"event %04x (%c) bat %d",event,event? event & 255 : ' ',bat);
+        v->drawStringf(100,8,hal::rgb{255,255,255},hal::rgb{},"event %04x (%s) bat %d",event,event? hal::keyboard::sm_Labels[event & 255] : "???",bat);
         sleep_ms(16);
        // v->fill(0,0,320,480,hal::rgb { 255,255,255 });
        // v->fill(0,0,320,480,hal::rgb { 0,0,0 });
