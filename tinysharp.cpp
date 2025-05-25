@@ -44,6 +44,9 @@ int main()
             "1234567890abcdefghijklmnopqrstuvwxyz!@#$");
     fillTime = hal::getUsTime32() - fillTime;
     v->drawStringf(100,140,hal::white,hal::blue,"%u us to draw chars",fillTime);
+    // 52.0ms for 16bpp with 8 bit writes
+    // 50.9ms for 16bpp with 16 bit writes
+    
     auto k = hal::keyboard::create("");
     k->init();
 
