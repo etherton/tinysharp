@@ -1,5 +1,9 @@
 #include "video.h"
 
+#include <string.h>
+#include <stdarg.h>
+#include <stdio.h>
+
 namespace hal {
 	
 uint8_t video::sm_fontWidth, video::sm_fontHeight, video::sm_baseChar;
@@ -27,14 +31,23 @@ void video::setFont(uint8_t width,uint8_t height,const uint8_t *fontDef,uint8_t 
 	sm_baseChar = baseChar;
 }
 
-void video::drawString(int x,int y,const char *string,rgb fore) {
+void video::drawString(int x,int y,rgb fore,const char *string) {
 	for (; *string; string++,x+=sm_fontWidth)
 		drawGlyph(x,y,sm_fontWidth,sm_fontHeight,sm_fontDef + sm_fontHeight * (*string - sm_baseChar),fore);
 }
 
-void video::drawString(int x,int y,const char *string,rgb fore,rgb back) {
+void video::drawString(int x,int y,rgb fore,rgb back,const char *string) {
 	for (; *string; string++,x+=sm_fontWidth)
 		drawGlyph(x,y,sm_fontWidth,sm_fontHeight,sm_fontDef + sm_fontHeight * (*string - sm_baseChar),fore,back);
+}
+
+void video::drawStringf(int x,int y,rgb fore,const char *fmt,...) {
+	va_list args;
+	char line[256];
+	va_start(args,fmt);
+	vsprintf(line,fmt,args);
+	va_end(args);
+	drawString(x,y,fore,line);
 }
 
 }

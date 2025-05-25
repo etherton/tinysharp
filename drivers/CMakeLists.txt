@@ -5,6 +5,7 @@ target_sources(drivers INTERFACE
 	video_pico.cpp video_pico.h
 	keyboard.cpp keyboard.h
 	keyboard_pico.cpp keyboard_pico.h
+	timer.cpp timer.h
 	)
 
 target_link_libraries(drivers INTERFACE

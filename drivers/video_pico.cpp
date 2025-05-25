@@ -74,10 +74,12 @@ void __not_in_flash_func(video_pico_3bpp::fill)(int x,int y,int w,int h,rgb c) {
     if (count==1)
         spi_write_blocking(spi1,&packed2,1);
     else {
-        uint8_t run[8] = { packed2, packed2, packed2, packed2, packed2, packed2, packed2, packed2 };
-        while (count >= 8) {
-            spi_write_blocking(spi1,run,8);
-            count-=8;
+        const int rl = 64;
+        uint8_t run[rl];
+        memset(run,packed2,count<rl?count:rl);
+        while (count >= rl) {
+            spi_write_blocking(spi1,run,rl);
+            count-=rl;
         }
         if (count)
             spi_write_blocking(spi1,run,count);
@@ -162,6 +164,8 @@ static void pin_set_bit(int pin, unsigned int offset) {
   }
 }
 
+uint32_t actual_speed;
+
 void video_pico::initCommon(const uint8_t *memoryMode,size_t memoryModeSize) {
     // Init GPIO
     gpio_init(LCD_SCK);
@@ -179,7 +183,7 @@ void video_pico::initCommon(const uint8_t *memoryMode,size_t memoryModeSize) {
     gpio_set_dir(LCD_RST, GPIO_OUT);
 
     // Init SPI
-    spi_init(spi1, LCD_SPI_SPEED);
+    actual_speed = spi_init(spi1, LCD_SPI_SPEED);
     gpio_set_function(LCD_SCK, GPIO_FUNC_SPI);
     gpio_set_function(LCD_TX, GPIO_FUNC_SPI);
     gpio_set_function(LCD_RX, GPIO_FUNC_SPI);

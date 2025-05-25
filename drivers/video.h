@@ -30,8 +30,9 @@ public:
 	virtual void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,rgb fore,rgb back);
 
 	void setFont(uint8_t width,uint8_t height,const uint8_t *fontDef,uint8_t baseChar = 32);
-	virtual void drawString(int x,int y,const char *string,rgb fore);
-	virtual void drawString(int x,int y,const char *string,rgb fore,rgb back);
+	virtual void drawString(int x,int y,rgb fore,const char *string);
+	virtual void drawString(int x,int y,rgb fore,rgb back,const char *string);
+	void drawStringf(int x,int y,rgb fore,const char *fmt,...);
 protected:
 	static uint8_t sm_fontWidth, sm_fontHeight, sm_baseChar;
 	static const uint8_t *sm_fontDef;
