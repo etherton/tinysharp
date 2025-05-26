@@ -9,6 +9,13 @@ struct rgb {
 	uint8_t r, g, b;
 };
 
+// This encodes the background and foreground colors in
+// a device-dependent format.
+union palette {
+	uint8_t as8[4];		// back/back, back/fore, fore/back, fore/fore
+	uint16_t as16[2];	// back,fore
+};
+
 const rgb black = rgb { 0,0,0 };
 const rgb white = rgb { 255,255,255 };
 const rgb red = rgb { 255,0,0 };
@@ -33,13 +40,15 @@ public:
 	// this version uses multiple separate fill commands
 	virtual void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,rgb fore);
 	// this version generates an unpacked blob and sends it to draw
-	virtual void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,rgb fore,rgb back);
+	virtual void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,palette p) = 0;
+	virtual void setColor(palette&dest,rgb fore,rgb back) = 0;
 
 	void setFont(uint8_t width,uint8_t height,const uint8_t *fontDef,uint8_t baseChar = 32);
 	virtual void drawString(int x,int y,rgb fore,const char *string);
-	virtual void drawString(int x,int y,rgb fore,rgb back,const char *string);
+	virtual void drawString(int x,int y,palette p,const char *string);
+	virtual void drawString(int x,int y,const palette *p,const uint8_t *attr,const char *string);
 	void drawStringf(int x,int y,rgb fore,const char *fmt,...);
-	void drawStringf(int x,int y,rgb fore,rgb back,const char *fmt,...);
+	void drawStringf(int x,int y,palette p,const char *fmt,...);
 
 	static uint8_t getFontWidth() {
 		return sm_fontWidth;

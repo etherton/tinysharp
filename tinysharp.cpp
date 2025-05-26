@@ -18,35 +18,41 @@ int main()
         printf("Hello, world!\n");
         sleep_ms(1000);
     } */
-   auto v = hal::video::create("bpp=3");
+   auto v = hal::video::create("bpp=16");
    v->init();
    v->setFont(6,8,console_font_6x8,0);
 
    uint32_t fillTime = hal::getUsTime32();
-   v->fill(0,0,320,480,hal::green); // fill should be green
+   v->fill(0,0,320,16,hal::black);
+   v->fill(0,16,320,480-16,hal::green); // fill should be green
    fillTime = hal::getUsTime32() - fillTime;
    // 21.2ms for 3bpp (14.0ms unrolled 32x, 12.6ms unrolled 64x)
    // 59.6ms for 16bpp
    // 167ms for 18bpp/24bpp
-
    int top = 24, bottom = 0, middle = 320 - top - bottom;
+   hal::palette wh, bl, gr, re;
+   v->setColor(wh, hal::white, hal::black);
+   v->setColor(bl, hal::blue, hal::white);
+   v->setColor(gr, hal::green, hal::black);
+   v->setColor(re, hal::red, hal::black);
+
    v->setFixedRegions(top,bottom);
-   for (int i=0; i<480; i+=8) {
+   for (int i=16; i<480; i+=8) {
         char buf[16];
-        v->drawStringf(i/2,i,hal::rgb { 0, 0, uint8_t(128 + i/4) }, hal::rgb{},"Line %d",i);
+        v->drawStringf(i/2,i,bl,"Line %d",i);
    }
 
     v->drawStringf(100,100,hal::white,"Fill time %u us",fillTime);
     // v->drawStringf(100,120,hal::rgb{255,0,0},"actual spi speed %u",hal::actual_speed);
 
-    v->setFont(4,6,console_font_4x6,0);
+    v->setFont(8,8,console_font_8x8,0);
 
     fillTime = hal::getUsTime32();
-    for (int i=0; i<40; i++)
-        v->drawString(0,i*v->getFontHeight(),hal::white,hal::black,
+    for (int i=2; i<40; i++)
+        v->drawString(0,i*v->getFontHeight(),wh,
             "1234567890abcdefghijklmnopqrstuvwxyz!@#$");
     fillTime = hal::getUsTime32() - fillTime;
-    v->drawStringf(100,140,hal::white,hal::blue,"%u us to draw chars",fillTime);
+    v->drawStringf(100,140,bl,"%u us to draw chars",fillTime);
     // 52.0ms for 16bpp with 8 bit writes
     // 50.9ms for 16bpp with 16 bit writes
     
@@ -59,11 +65,11 @@ int main()
    uint8_t bat = k->getBattery();
    uint16_t event = 0;
     while (true) {
-        v->drawStringf(100,0,hal::rgb{255,0,0},hal::rgb{},"Scroll %d",line);
+        //v->drawStringf(100,0,re,"Scroll %d",line);
         uint16_t thisEvent = k->getKeyEvent();
         if ((uint8_t)thisEvent)
             event = thisEvent;
-        v->drawStringf(100,8,hal::rgb{255,255,255},hal::rgb{},"event %04x (%s) bat %d",event,event? hal::keyboard::sm_Labels[event & 255] : "???",bat);
+        v->drawStringf(100,16,wh,"event %04x (%s) bat %d",event,event? hal::keyboard::sm_Labels[event & 255] : "???",bat);
         sleep_ms(16);
        // v->fill(0,0,320,480,hal::rgb { 255,255,255 });
        // v->fill(0,0,320,480,hal::rgb { 0,0,0 });
