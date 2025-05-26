@@ -63,6 +63,9 @@ public:
 		ev &= 255;
 		return ev<0x98?sm_Labels[ev] : "";
 	}
+	static bool getCapsLock() { 
+		return (sm_Modifiers & modifier::CAPSLOCK_BIT) != 0;
+	}
 
 protected:
 	virtual void init() = 0;

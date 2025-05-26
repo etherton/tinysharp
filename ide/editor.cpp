@@ -5,6 +5,7 @@
 #include "hal/timer.h"
 
 #include <string.h>
+#include <stdio.h>
 
 using namespace hal;
 
@@ -107,8 +108,12 @@ void editor::draw() {
     if (rowChars != m_heightChars)
         g_video->fill(m_xPix,m_yPix + rowChars * fh,m_widthChars * fw,(m_heightChars - rowChars)*fh,m_palette[TEXT]);
     
-    g_video->drawStringf(m_xPix,m_statusYPix,m_palette[STATUS],"Line:%4d Col:%3d",ss.m_cursorLine+1,ss.m_cursorColumn+1);
-    g_video->fill(m_xPix + 17*fw,m_statusYPix,(m_widthChars-17)*fw,fh,m_palette[STATUS]);
+    char temp[32];
+    sprintf(temp,"Line:%d Col:%d %s Bat:%03d%%",ss.m_cursorLine+1,ss.m_cursorColumn+1,keyboard::getCapsLock()?"CAPS":"    ",
+        g_keyboard->getBattery());
+    size_t sl = strlen(temp);
+    g_video->drawString(m_xPix,m_statusYPix,m_palette[STATUS],temp,sl);
+    g_video->fill(m_xPix + sl*fw,m_statusYPix,(m_widthChars-sl)*fw,fh,m_palette[STATUS]);
 }
 
 void editor::drawCursor() {

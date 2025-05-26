@@ -1,6 +1,7 @@
 // based on keyboard.c from https://github.com/benob/picocalc-umac/
 
 #include "keyboard_pico.h"
+#include "timer.h"
 
 #include <pico/bootrom.h>
 #include <hardware/gpio.h>
@@ -134,10 +135,16 @@ uint16_t keyboard_pico::getKeyEvent() {
 }
 
 uint8_t keyboard_pico::getBattery() {
-  uint8_t msg[2] = { REG_ID_BAT, 0 };
-  i2c_write_timeout_us(KBD_MOD, KBD_ADDR, msg, 1, false, 500000);
-  i2c_read_timeout_us(KBD_MOD, KBD_ADDR, msg, 2, false, 500000);
-  return msg[1];
+  static uint8_t lastBattery;
+  static uint64_t lastTime;
+  uint64_t now = getUsTime64();
+  if (!lastTime || now - lastTime > 10'000'000) { // poll every ten seconds
+    uint8_t msg[2] = { REG_ID_BAT, 0 };
+    i2c_write_timeout_us(KBD_MOD, KBD_ADDR, msg, 1, false, 500000);
+    i2c_read_timeout_us(KBD_MOD, KBD_ADDR, msg, 2, false, 500000);
+    lastBattery = msg[1];
+  }
+  return lastBattery;
 }
 
 keyboard* keyboard::create(const char * /*options*/) {
