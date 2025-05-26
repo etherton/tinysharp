@@ -214,7 +214,7 @@ void __not_in_flash_func(video_pico_16bpp::drawGlyph)(int x,int y,int width,int 
 void __not_in_flash_func(video_pico_16bpp::drawString)(int x,int y,const palette &p,const char *string) {
     size_t l = strlen(string);
     uint8_t fw = getFontWidth(), fh = getFontHeight();
-    if (x + l * fw > 320)
+    if (x + l * fw > getScreenWidth())
         l = (320 - x) / fw;
     setRegion(x,y,l*fw,fh);
     spi_set_format(spi1, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
@@ -383,6 +383,10 @@ void video_pico::initCommon(const uint8_t *memoryMode,size_t memoryModeSize) {
     sendCommands(initCommands2,sizeof(initCommands2));
     sleep_ms(120);
     gpio_put(LCD_CS, 1);
+
+    sm_screenWidth = 320;
+    sm_screenHeight = 320;
+    sm_scrollHeight = 480;
 }
 
 video *video::create(const char *opts) {

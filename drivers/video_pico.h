@@ -15,9 +15,6 @@ inline uint16_t pack16(rgb c) {
 
 class video_pico: public video {
 public:
-	int getWidth() { return 320; }
-	int getHeight() { return 320; }
-	int getScrollHeight() { return 480; }
 	void setScroll(int);
 	void setFixedRegions(int,int);
 protected:

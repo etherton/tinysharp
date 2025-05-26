@@ -30,10 +30,7 @@ public:
 	video() { }
 	
 	virtual void init() = 0;
-	virtual int getWidth() = 0;
-	virtual int getHeight() = 0;
 	virtual int getBpp() = 0;
-	virtual int getScrollHeight() = 0;
 	virtual void setScroll(int) = 0;
 	virtual void setFixedRegions(int top,int bottom) = 0;
 	virtual void draw(int x,int y,int width,int height,const void *data) = 0;
@@ -57,8 +54,18 @@ public:
 	static uint8_t getFontHeight() {
 		return sm_fontHeight;
 	}
+	static uint16_t getScreenWidth() {
+		return sm_screenWidth;
+	}
+	static uint16_t getScreenHeight() {
+		return sm_screenHeight;
+	}
+	static uint16_t getScrollHeight() {
+		return sm_scrollHeight;
+	}
 protected:
 	static uint8_t sm_fontWidth, sm_fontHeight, sm_baseChar;
+	static uint16_t sm_screenWidth, sm_screenHeight, sm_scrollHeight;
 	static const uint8_t *sm_fontDef;
 };
 

@@ -10,6 +10,7 @@ video *g_video;
 
 uint8_t video::sm_fontWidth, video::sm_fontHeight, video::sm_baseChar;
 const uint8_t *video::sm_fontDef;
+uint16_t video::sm_screenWidth, video::sm_screenHeight, video::sm_scrollHeight;
 
 void video::drawGlyph(int x,int y,int w,int h,const uint8_t *glyph,rgb fore) {
 	for (;h; h--,y++,glyph++) {
@@ -38,9 +39,7 @@ void video::drawString(int x,int y,const palette &p,const char *string) {
 
 void video::drawString(int x,int y,const palette *p,const uint8_t *attr,const char *string) {
 	for (; *string; string++,x+=sm_fontWidth,attr++)
-		drawGlyph(x,y,sm_fontWidth,sm_fontHeight,
-			sm_fontDef + sm_fontHeight * (*string - sm_baseChar),
-			p[*attr]);
+		drawGlyph(x,y,sm_fontWidth,sm_fontHeight,sm_fontDef + sm_fontHeight * (*string - sm_baseChar),p[*attr]);
 }
 void video::drawStringf(int x,int y,rgb fore,const char *fmt,...) {
 	va_list args;
