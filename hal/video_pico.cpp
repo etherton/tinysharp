@@ -396,6 +396,9 @@ video *video::create(const char *opts) {
     else
         g_video = new video_pico_16bpp();
     g_video->init();
+    palette b;
+    g_video->setColor(b,hal::black,hal::black);
+    g_video->fill(0,0,sm_screenWidth,sm_scrollHeight,b);
     return g_video;
 }
 
