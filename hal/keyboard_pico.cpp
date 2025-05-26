@@ -2,6 +2,7 @@
 
 #include "keyboard_pico.h"
 
+#include <pico/bootrom.h>
 #include <hardware/gpio.h>
 #include <hardware/watchdog.h>
 #include <hardware/i2c.h>
@@ -35,23 +36,7 @@ enum {
   REG_ID_C64_JS = 0x0d,  // joystick io bits
 };
 
-#if 0
-#include "pico/bootrom.h"
-#include "hardware/watchdog.h"
 
-static void keyboard_check_special_keys(unsigned short value) {
-  if ((value & 0xff) == KEY_STATE_RELEASED && keyboard_modifiers == (MOD_CONTROL|MOD_ALT)) {
-    if ((value >> 8) == KEY_F1) {
-      printf("rebooting to usb boot\n");
-      reset_usb_boot(0, 0);
-    } else if ((value >> 8) == KEY_DELETE) {
-      printf("rebooting via watchdog\n");
-      watchdog_reboot(0, 0, 0);
-      watchdog_enable(0, 1);
-    }
-  }
-}
-#endif
 
 uint16_t i2c_kbd_read() {
   uint8_t cmd = REG_ID_FIF;
@@ -97,8 +82,14 @@ uint16_t keyboard_pico::getKeyEvent() {
         watchdog_reboot(0, 0, 0);
         watchdog_enable(0, 1);
       }
-      else break;
-  }
+      else 
+        break;
+    case 0x8103: // Ctrl+Alt+F1, boolset
+      if ((sm_Modifiers & modifier::CTRL_BITS) && (sm_Modifiers & modifier::ALT_BITS))
+          reset_usb_boot(0, 0);
+      else 
+        break;
+    }
   auto remap = [](uint8_t k) -> uint8_t {
     switch (k) {
       case 0xA1: return 0; // Alt

@@ -29,6 +29,7 @@ public:
 	bool quickSave();
 	bool quickLoad(bool readOnly);
 	void draw();
+	void update(uint16_t keyEvent);
 
 	hal::storage *m_storage;
 	char *m_document;

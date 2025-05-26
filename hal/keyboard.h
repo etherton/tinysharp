@@ -57,6 +57,8 @@ public:
 	virtual uint16_t getKeyEvent() = 0; // lower 8 bits are ascii, upper 8 are modifiers
 	virtual uint8_t getBattery() = 0;
 
+	uint16_t waitKeyEvent();
+
 	static uint16_t sm_Modifiers;
 	static const char *sm_Labels[0x98];
 };

@@ -1,10 +1,20 @@
 #include "keyboard.h"
+#include "timer.h"
 
 namespace hal {
 
 keyboard *g_keyboard;
 
 uint16_t keyboard::sm_Modifiers;
+
+uint16_t keyboard::waitKeyEvent() {
+    uint16_t ev = getKeyEvent();
+    while (!ev) {
+        sleepMs(1);
+        ev = getKeyEvent();
+    }
+    return ev;
+}
 
 const char* keyboard::sm_Labels[0x98] = {
     "NUL",
