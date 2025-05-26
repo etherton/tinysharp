@@ -140,8 +140,10 @@ uint8_t keyboard_pico::getBattery() {
   return msg[1];
 }
 
-keyboard* keyboard::create(const char *options) {
-	return g_keyboard = new keyboard_pico();
+keyboard* keyboard::create(const char * /*options*/) {
+	g_keyboard = new keyboard_pico();
+  g_keyboard->init();
+  return g_keyboard;
 }
 
 }

@@ -19,7 +19,6 @@ int main()
         sleep_ms(1000);
     } */
    auto v = hal::video::create("bpp=3");
-   v->init();
    v->setFont(6,8,console_font_6x8,0);
 
    uint32_t fillTime = hal::getUsTime32();
@@ -60,8 +59,6 @@ int main()
     // 93.1ms for 18bpp/24bpp
     
     auto k = hal::keyboard::create("");
-    k->init();
-
     v->setFont(8,8,console_font_8x8,0);
 
    int line = top;

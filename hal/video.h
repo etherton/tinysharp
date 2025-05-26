@@ -26,10 +26,7 @@ const rgb blue = rgb { 0,0,255 };
 class video {
 public:
 	static video *create(const char *options);
-
-	video() { }
-	
-	virtual void init() = 0;
+		
 	virtual int getBpp() = 0;
 	virtual void setScroll(int) = 0;
 	virtual void setFixedRegions(int top,int bottom) = 0;
@@ -64,6 +61,7 @@ public:
 		return sm_scrollHeight;
 	}
 protected:
+	virtual void init() = 0;
 	static uint8_t sm_fontWidth, sm_fontHeight, sm_baseChar;
 	static uint16_t sm_screenWidth, sm_screenHeight, sm_scrollHeight;
 	static const uint8_t *sm_fontDef;
