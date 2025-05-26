@@ -59,6 +59,11 @@ public:
 
 	uint16_t waitKeyEvent();
 
+	static const char *getKeyCap(uint16_t ev) {
+		ev &= 255;
+		return ev<0x98?sm_Labels[ev] : "";
+	}
+
 protected:
 	virtual void init() = 0;
 	static uint16_t sm_Modifiers;
