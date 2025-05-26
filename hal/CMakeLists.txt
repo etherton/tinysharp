@@ -1,6 +1,6 @@
-add_library(drivers INTERFACE)
+add_library(hal INTERFACE)
 
-target_sources(drivers INTERFACE
+target_sources(hal INTERFACE
 	video.cpp video.h
 	video_pico.cpp video_pico.h
 	keyboard.cpp keyboard.h
@@ -10,11 +10,11 @@ target_sources(drivers INTERFACE
 	timer.cpp timer.h
 	)
 
-target_link_libraries(drivers INTERFACE
+target_link_libraries(hal INTERFACE
 	pico_stdlib 
 	hardware_spi
 	hardware_i2c
 	)
 
-target_include_directories(drivers INTERFACE ${CMAKE_CURRENT_LIST_DIR})
+target_include_directories(hal INTERFACE ${CMAKE_CURRENT_LIST_DIR})
 

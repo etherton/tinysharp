@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
-#include "drivers/video.h"
-#include "drivers/keyboard.h"
-#include "drivers/timer.h"
+#include "hal/video.h"
+#include "hal/keyboard.h"
+#include "hal/timer.h"
 
 #include "font-6x8.h"
 #include "font-8x8.h"

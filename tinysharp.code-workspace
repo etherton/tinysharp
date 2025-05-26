@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "hal"
+		},
+		{
+			"path": "ide"
+		},
+		{
+			"path": "language"
+		}
+	]
+}
