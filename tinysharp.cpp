@@ -18,9 +18,6 @@ int main()
     auto v = hal::video::create("bpp=3");
 
     v->setFont(8,8,console_font_8x8,0);
-    v->fill(0,0,hal::video::getScreenWidth(),hal::video::getScreenHeight(),hal::blue);
-    hal::palette p;
-    v->setColor(p,hal::red,hal::white);
 
     ide::editor e(hal::storage::create("flash"));
 

@@ -96,7 +96,7 @@ void editor::draw() {
         }
         g_video->drawString(xPix,m_yPix+rowChars*fh,m_palette[TEXT],m_document + i,j-i);
         if (j-i < widthChars)
-            g_video->fill(xPix + (j-i)*fw,m_yPix+rowChars*fh,(widthChars-(j-i))*fw,fh,hal::black);
+            g_video->fill(xPix + (j-i)*fw,m_yPix+rowChars*fh,(widthChars-(j-i))*fw,fh,m_palette[TEXT]);
         if (m_document[j]==10)
             ++j;
         ++rowChars;
@@ -105,8 +105,10 @@ void editor::draw() {
         i=j;
     }
     if (rowChars != m_heightChars)
-        g_video->fill(m_xPix,m_yPix + rowChars * fh,m_widthChars * fw,(m_heightChars - rowChars)*fh,hal::black);
-    g_video->drawStringf(m_xPix,m_statusYPix,m_palette[STATUS],"Line: %d Col: %d  Offset %u",ss.m_cursorLine+1,ss.m_cursorColumn+1,m_cursorOffset);
+        g_video->fill(m_xPix,m_yPix + rowChars * fh,m_widthChars * fw,(m_heightChars - rowChars)*fh,m_palette[TEXT]);
+    
+    g_video->drawStringf(m_xPix,m_statusYPix,m_palette[STATUS],"Line:%4d Col:%3d",ss.m_cursorLine+1,ss.m_cursorColumn+1);
+    g_video->fill(m_xPix + 17*fw,m_statusYPix,(m_widthChars-17)*fw,fh,m_palette[STATUS]);
 }
 
 void editor::drawCursor() {
@@ -182,12 +184,12 @@ void editor::update(uint16_t event) {
     uint8_t key = uint8_t(event);
     bool error = false;
 
-    if (key)
+    /* if (key)
         g_video->drawStringf(160,m_statusYPix-8,m_palette[STATUS],"%s%s%s%s     ",
             event & modifier::CTRL_BITS?"Ctrl+":"",
             event & modifier::ALT_BITS?"Alt+":"",
             event & modifier::SHIFT_BITS?"Shift+":"",
-            keyboard::getKeyCap(event));
+            keyboard::getKeyCap(event)); */
     
     // anything other than up or down resets the desired column to the actual column
     if (key != key::UP && key != key::DOWN)
@@ -272,7 +274,7 @@ void editor::update(uint16_t event) {
         updateCursorFromVerticalMove();
     }
     if (error) {
-        g_video->fill(m_xPix,m_yPix,m_widthChars * video::getFontWidth(),m_heightChars * video::getFontHeight(),hal::red);
+        g_video->fill(m_xPix,m_yPix,m_widthChars * video::getFontWidth(),m_heightChars * video::getFontHeight(),m_palette[CURSOR]);
         draw();
     }
 }

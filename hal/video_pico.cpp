@@ -67,16 +67,15 @@ void __not_in_flash_func(video_pico_3bpp::draw)(int x,int y,int w,int h,const vo
     gpio_put(LCD_CS, 1);
 }
 
-void __not_in_flash_func(video_pico_3bpp::fill)(int x,int y,int w,int h,rgb c) {
+void __not_in_flash_func(video_pico_3bpp::fill)(int x,int y,int w,int h,const palette &p) {
     setRegion(x,y,w,h);
     int count = ((w * h) + 1)  >> 1;
-    uint8_t packed2 = pack3(c);
     if (count==1)
-        spi_write_blocking(spi1,&packed2,1);
+        spi_write_blocking(spi1,&p.as8[0],1);
     else {
         const int rl = 64;
         uint8_t run[rl];
-        memset(run,packed2,count<rl?count:rl);
+        memset(run,p.as8[0],count<rl?count:rl);
         while (count >= rl) {
             spi_write_blocking(spi1,run,rl);
             count-=rl;
@@ -174,13 +173,12 @@ void __not_in_flash_func(video_pico_16bpp::draw)(int x,int y,int w,int h,const v
     gpio_put(LCD_CS, 1);
 }
 
-void __not_in_flash_func(video_pico_16bpp::fill)(int x,int y,int w,int h,rgb c) {
+void __not_in_flash_func(video_pico_16bpp::fill)(int x,int y,int w,int h,const palette &p) {
     setRegion(x,y,w,h);
     int count = w*h;
-    uint16_t packed = pack16(c);
     spi_set_format(spi1, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
     if (count >= 8) {
-        uint16_t run[8] = { packed, packed, packed, packed, packed, packed, packed, packed };
+        uint16_t run[8] = { p.as16[0], p.as16[0], p.as16[0], p.as16[0], p.as16[0], p.as16[0], p.as16[0], p.as16[0] };
         while (count >= 8) {
             spi_write16_blocking(spi1,run,8);
             count -= 8;
@@ -190,7 +188,7 @@ void __not_in_flash_func(video_pico_16bpp::fill)(int x,int y,int w,int h,rgb c) 
     }
     else
         while (count--)
-            spi_write16_blocking(spi1,&packed,1);
+            spi_write16_blocking(spi1,&p.as16[0],1);
     spi_set_format(spi1, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
     gpio_put(LCD_CS, 1);
 }    
@@ -274,11 +272,11 @@ void __not_in_flash_func(video_pico_18bpp::draw)(int x,int y,int w,int h,const v
     gpio_put(LCD_CS, 1);
 }
 
-void __not_in_flash_func(video_pico_18bpp::fill)(int x,int y,int w,int h,rgb c) {
+void __not_in_flash_func(video_pico_18bpp::fill)(int x,int y,int w,int h,const palette &p) {
     setRegion(x,y,w,h);
     int count = w*h;
     while (count--)
-      spi_write_blocking(spi1,&c.r,3);
+      spi_write_blocking(spi1,&p.asRgb[0].r,3);
     gpio_put(LCD_CS, 1);
 } 
 
