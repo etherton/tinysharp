@@ -3,12 +3,17 @@
 #include "hal/storage_pico_flash.h"
 #include "hal/timer.h"
 
+/* #include <stdio.h>
+#include "pico/stdlib.h" */
+
 #include "ide/editor.h"
 
 #include "font-8x8.h"
 
 int main()
 {
+    // stdio_init_all();
+
     auto k = hal::keyboard::create("");
     auto v = hal::video::create("bpp=3");
 
@@ -19,13 +24,17 @@ int main()
 
     ide::editor e(hal::storage::create("flash"));
 
-    if (!e.quickLoad(true))
+    if (!e.quickLoad(false))
         e.newFile();
-    int n = 0;
+    e.draw();
     for (;;) {
-        e.draw();
-        auto ev = k->waitKeyEvent();
-        e.update(ev);
-        v->drawStringf(280,300,p,"%d",++n);
+        auto ev = k->waitKeyEvent(100);
+        if (ev) {
+            e.update(ev);
+            e.draw();
+        }
+        else
+            e.drawCursor();
+        // printf("heartbeat\n");
     }
 }

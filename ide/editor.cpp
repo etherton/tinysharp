@@ -2,6 +2,7 @@
 #include "hal/keyboard.h"
 #include "hal/video.h"
 #include "hal/storage.h"
+#include "hal/timer.h"
 
 #include <string.h>
 
@@ -18,6 +19,7 @@ editor::editor(storage *s) {
     g_video->setColor(m_palette[TEXT],hal::green,hal::black);
     g_video->setColor(m_palette[LNUM],hal::blue,hal::black);
     g_video->setColor(m_palette[STATUS],hal::black,hal::white);
+    g_video->setColor(m_palette[CURSOR],hal::black,hal::green);
 
     newFile();
 }
@@ -79,28 +81,37 @@ bool editor::quickLoad(bool readOnly) {
 void editor::draw() {
     uint32_t i = m_topOffset, line = ss.m_topLine;
     uint8_t fw = video::getFontWidth(), fh = video::getFontHeight();
-    int row = m_y;
+    int row = 0;
     while (i < ss.m_documentSize) {
         uint32_t j=i;
         while (m_document[j]!=10 && j<ss.m_documentSize)
             j++;
         ++line;
-        int x = m_x;
+        int x = m_x, width = m_width;
         if (ss.m_showLineNumbers) {
-            g_video->drawStringf(x,row,m_palette[LNUM],"%3d ",line);
+            g_video->drawStringf(x,m_y+row*fh,m_palette[LNUM],"%3d ",line);
             x+=4*fw;
+            width-=4*fw;
         }
-        g_video->drawString(x,row,m_palette[TEXT],m_document + i,j-i);
-        if (j-i < m_width-x)
-            g_video->fill(x + (j-i)*fw,row,(m_width-(j-i))*fw,fh,hal::black);
+        g_video->drawString(x,m_y+row*fh,m_palette[TEXT],m_document + i,j-i);
+        if (j-i < width)
+            g_video->fill(x + (j-i)*fw,m_y+row*fh,(width-(j-i))*fw,fh,hal::black);
         if (m_document[j]==10)
             ++j;
-        row+=fh;
+        ++row;
         if (row >= m_height * fh)
             break;
         i=j;
     }
     g_video->drawStringf(0,m_statusY,m_palette[STATUS],"Line: %d Col: %d  Offset %u",ss.m_cursorLine+1,ss.m_cursorColumn+1,m_cursorOffset);
+}
+
+void editor::drawCursor() {
+    uint8_t fw = video::getFontWidth(), fh = video::getFontHeight();
+    g_video->drawString(
+        m_x + (ss.m_showLineNumbers? 4*fw : 0) + ss.m_cursorColumn * fw,
+        m_y + (ss.m_cursorLine - ss.m_topLine) * fh,m_palette[getUsTime32() & 0x40000? TEXT:CURSOR],
+        &m_document[m_cursorOffset],1);
 }
 
 void editor::updateCursor() {
@@ -114,6 +125,19 @@ void editor::updateCursor() {
             column=0,++line;
         else
             ++column;
+    }
+}
+
+void editor::updateCursorFromOffset() {
+    ss.m_cursorLine = 0;
+    ss.m_cursorColumn = 0;
+    for (uint32_t i=0; i<m_cursorOffset;i++) {
+        if (m_document[i]==10) {
+            ss.m_cursorLine++;
+            ss.m_cursorColumn = 0;
+        }
+        else
+            ss.m_cursorColumn++;
     }
 }
 
@@ -133,18 +157,65 @@ void editor::update(uint16_t event) {
     if (event & modifier::ALT_BITS) {
         if (key == 'S')
             error = !quickSave();
+        else if (key == 'N')
+            newFile();
     }
     else if (key==10 || (key >= 32 && key < 127)) {
         if (m_readOnly || ss.m_documentSize == ss.m_documentCapacity)
             error = true;
         else {
+            // This is by far the common case so do it manually instead of calling updateCursor.
             if (m_cursorOffset != ss.m_documentSize)
                 memmove(m_document + m_cursorOffset + 1,m_document + m_cursorOffset,ss.m_documentSize - m_cursorOffset);
             m_document[m_cursorOffset++] = key;
             ss.m_cursorColumn++;
             ss.m_documentSize++;
-            if (key==10)
+            if (key==10) {
+                ss.m_cursorColumn = 0;
                 ss.m_cursorLine++;
+            }
+        }
+    }
+    else if (key == 8) {
+        if (m_cursorOffset) {
+            --m_cursorOffset;
+            --ss.m_documentSize;
+            memmove(m_document + m_cursorOffset,m_document + m_cursorOffset + 1,ss.m_documentSize - m_cursorOffset);
+            updateCursorFromOffset();
+        }
+        else
+            error = true;
+    }
+    else if (key == key::DEL) {
+        if (m_cursorOffset != ss.m_documentSize) {
+            memmove(m_document + m_cursorOffset,m_document + m_cursorOffset + 1,ss.m_documentSize - m_cursorOffset);
+            --ss.m_documentSize;
+            updateCursorFromOffset();
+        }
+        else
+            error = true;
+    }
+    else if (key == key::LEFT) {
+        if (ss.m_cursorColumn) {
+            --m_cursorOffset;
+            --ss.m_cursorColumn;
+        }
+        else if (m_cursorOffset) {
+            --ss.m_cursorLine;
+            updateCursorFromOffset();
+        }
+        else
+            error = true;
+    }
+    else if (key == key::RIGHT) {
+        if (m_cursorOffset == ss.m_documentSize)
+            error = true;
+        else {
+            if (m_document[m_cursorOffset]==10) {
+                ss.m_cursorColumn = 0;
+                ss.m_cursorLine++;
+            }
+            m_cursorOffset++;
         }
     }
     else if (key == key::UP) {

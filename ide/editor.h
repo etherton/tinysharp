@@ -32,13 +32,15 @@ public:
 	bool quickSave();
 	bool quickLoad(bool readOnly);
 	void draw();
+	void drawCursor();
 	void update(uint16_t keyEvent);
 private:
 	void updateCursor();
+	void updateCursorFromOffset();
 	hal::storage *m_storage;
 	char *m_document;
 	hal::palette m_palette[4];
-	enum { TEXT, LNUM, STATUS };
+	enum { TEXT, LNUM, STATUS, CURSOR };
 	bool m_resident, m_readOnly;
 	union {
 		savestate ss;
