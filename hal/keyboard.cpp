@@ -7,11 +7,13 @@ keyboard *g_keyboard;
 
 uint16_t keyboard::sm_Modifiers;
 
-uint16_t keyboard::waitKeyEvent() {
+uint16_t keyboard::waitKeyEvent(uint32_t timeout) {
     uint16_t ev = getKeyEvent();
     while (!ev) {
         sleepMs(1);
         ev = getKeyEvent();
+        if (timeout && --timeout)
+            break;
     }
     return ev;
 }

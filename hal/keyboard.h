@@ -57,7 +57,7 @@ public:
 	virtual uint16_t getKeyEvent() = 0; // lower 8 bits are ascii, upper 8 are modifiers
 	virtual uint8_t getBattery() = 0;
 
-	uint16_t waitKeyEvent();
+	uint16_t waitKeyEvent(uint32_t timeout = 0); /* zero means forever; just call getKeyEvent if you want to poll */
 
 	static const char *getKeyCap(uint16_t ev) {
 		ev &= 255;
