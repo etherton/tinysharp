@@ -33,6 +33,7 @@ public:
 	void draw(int,int,int,int,const void*);
 	void fill(int,int,int,int,rgb color);
 	void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,rgb fore,rgb back);
+	void drawString(int x,int y,rgb fore,rgb back,const char *string);
 };
 
 class video_pico_16bpp: public video_pico {

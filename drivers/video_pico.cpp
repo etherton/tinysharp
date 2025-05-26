@@ -120,10 +120,61 @@ void __not_in_flash_func(video_pico_3bpp::drawGlyph)(int x,int y,int width,int h
                 buffer[i*2+0] = lut[pix >> 6];
                 buffer[i*2+1] = lut[(pix>>4) & 3];
             }            
-        }       draw(x,y,width,height,buffer);
+        }   
+        draw(x,y,width,height,buffer);
     }
     else
         return video::drawGlyph(x,y,width,height,glyph,fore,back);
+}
+
+void __not_in_flash_func(video_pico_3bpp::drawString)(int x,int y,rgb fore,rgb back,const char *string) {
+    size_t l = strlen(string);
+    uint8_t fw = getFontWidth(), fh = getFontHeight();
+    if (x + l * fw > 320)
+        l = (320 - x) / fw;
+    setRegion(x,y,l*fw,fh);
+    uint8_t fPacked = pack3(fore);
+    uint8_t bPacked = pack3(back);
+    uint8_t lut[4] = { 
+        bPacked, 
+        uint8_t((bPacked & 56) | (fPacked & 7)),
+        uint8_t((fPacked & 56) | (bPacked & 7)),
+        fPacked
+    };
+    uint8_t buffer[160];
+    if (fw==8) {
+        for (int r=0; r<fh; r++) {
+            for (int i=0; i<l; i++) {
+                uint8_t pix = sm_fontDef[(string[i] - sm_baseChar) * fh + r];
+                buffer[i*4+0] = lut[pix>>6];
+                buffer[i*4+1] = lut[(pix>>4) & 3];
+                buffer[i*4+2] = lut[(pix>>2) & 3];
+                buffer[i*4+3] = lut[pix & 3];
+            }
+            spi_write_blocking(spi1,buffer,((l*fw)+1)>>1);
+        }
+    }
+    else if (fw==6) {
+        for (int r=0; r<fh; r++) {
+            for (int i=0; i<l; i++) {
+                uint8_t pix = sm_fontDef[(string[i] - sm_baseChar) * fh + r];
+                buffer[i*3+0] = lut[pix>>6];
+                buffer[i*3+1] = lut[(pix>>4) & 3];
+                buffer[i*3+2] = lut[(pix>>2) & 3];
+            }
+            spi_write_blocking(spi1,buffer,((l*fw)+1)>>1);
+        }
+    }
+    else if (fw==4) {
+        for (int r=0; r<fh; r++) {
+            for (int i=0; i<l; i++) {
+                uint8_t pix = sm_fontDef[(string[i] - sm_baseChar) * fh + r];
+                buffer[i*2+0] = lut[pix>>6];
+                buffer[i*2+1] = lut[(pix>>4) & 3];
+            }
+            spi_write_blocking(spi1,buffer,((l*fw)+1)>>1);
+        }
+    }    gpio_put(LCD_CS, 1);
 }
 
 void __not_in_flash_func(video_pico_16bpp::draw)(int x,int y,int w,int h,const void *data) {
