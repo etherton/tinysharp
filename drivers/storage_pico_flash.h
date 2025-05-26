@@ -12,6 +12,7 @@ public:
 	size_t getBlockCount() const;
 	bool readBlock(size_t index,void *dest);
 	bool writeBlock(size_t index,const void *dest);
+	const void *memoryMap(size_t index,size_t blockCount);
 };
 
 } // namespace hal

@@ -14,6 +14,7 @@ public:
 	virtual size_t getBlockCount() const = 0;
 	virtual bool readBlock(size_t index,void *dest) = 0;
 	virtual bool writeBlock(size_t index,const void *dest) = 0;
+	virtual const void *memoryMap(size_t index,size_t blockCount) = 0;
 };
 
 } // namespace hal

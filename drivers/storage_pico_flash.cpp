@@ -79,4 +79,8 @@ bool storage_pico_flash::readBlock(size_t index,void *data) {
     return true;
 }
 
+const void* storage_pico_flash::memoryMap(size_t index,size_t /*blockCount*/) {
+    return s2a(index);
+}
+
 }
