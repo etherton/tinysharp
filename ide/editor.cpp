@@ -12,10 +12,10 @@ namespace ide {
 
 editor::editor(storage *s) {
     m_storage = s;
-    m_x = m_y = 0;
-    m_width = video::getScreenWidth() / video::getFontWidth();
-    m_height = video::getScreenHeight() / video::getFontHeight() - 1;
-    m_statusY = video::getScreenHeight() - video::getFontHeight();
+    m_xPix = m_yPix = 0;
+    m_widthChars = video::getScreenWidth() / video::getFontWidth();
+    m_heightChars = video::getScreenHeight() / video::getFontHeight() - 1;
+    m_statusYPix = video::getScreenHeight() - video::getFontHeight();
     g_video->setColor(m_palette[TEXT],hal::green,hal::black);
     g_video->setColor(m_palette[LNUM],hal::blue,hal::black);
     g_video->setColor(m_palette[STATUS],hal::black,hal::white);
@@ -81,37 +81,42 @@ bool editor::quickLoad(bool readOnly) {
 void editor::draw() {
     uint32_t i = m_topOffset, line = ss.m_topLine;
     uint8_t fw = video::getFontWidth(), fh = video::getFontHeight();
-    int row = 0;
+    int rowChars = 0;
     while (i < ss.m_documentSize) {
         uint32_t j=i;
         while (m_document[j]!=10 && j<ss.m_documentSize)
             j++;
         ++line;
-        int x = m_x, width = m_width;
+        int xPix = m_xPix, widthChars = m_widthChars;
         if (ss.m_showLineNumbers) {
-            g_video->drawStringf(x,m_y+row*fh,m_palette[LNUM],"%3d ",line);
-            x+=4*fw;
-            width-=4*fw;
+            g_video->drawStringf(xPix,m_yPix+rowChars*fh,m_palette[LNUM],"%3d ",line);
+            xPix+=4*fw;
+            widthChars-=4;
         }
-        g_video->drawString(x,m_y+row*fh,m_palette[TEXT],m_document + i,j-i);
-        if (j-i < width)
-            g_video->fill(x + (j-i)*fw,m_y+row*fh,(width-(j-i))*fw,fh,hal::black);
+        g_video->drawString(xPix,m_yPix+rowChars*fh,m_palette[TEXT],m_document + i,j-i);
+        if (j-i < widthChars)
+            g_video->fill(xPix + (j-i)*fw,m_yPix+rowChars*fh,(widthChars-(j-i))*fw,fh,hal::black);
         if (m_document[j]==10)
             ++j;
-        ++row;
-        if (row >= m_height * fh)
+        ++rowChars;
+        if (rowChars >= m_heightChars)
             break;
         i=j;
     }
-    g_video->drawStringf(0,m_statusY,m_palette[STATUS],"Line: %d Col: %d  Offset %u",ss.m_cursorLine+1,ss.m_cursorColumn+1,m_cursorOffset);
+    if (rowChars != m_heightChars)
+        g_video->fill(m_xPix,m_yPix + rowChars * fh,m_widthChars * fw,(m_heightChars - rowChars)*fh,hal::black);
+    g_video->drawStringf(m_xPix,m_statusYPix,m_palette[STATUS],"Line: %d Col: %d  Offset %u",ss.m_cursorLine+1,ss.m_cursorColumn+1,m_cursorOffset);
 }
 
 void editor::drawCursor() {
     uint8_t fw = video::getFontWidth(), fh = video::getFontHeight();
+    char c = m_document[m_cursorOffset];
+    if (c == 10)
+        c = 32;
     g_video->drawString(
-        m_x + (ss.m_showLineNumbers? 4*fw : 0) + ss.m_cursorColumn * fw,
-        m_y + (ss.m_cursorLine - ss.m_topLine) * fh,m_palette[getUsTime32() & 0x40000? TEXT:CURSOR],
-        &m_document[m_cursorOffset],1);
+        m_xPix + (ss.m_showLineNumbers? 4*fw : 0) + ss.m_cursorColumn * fw,
+        m_yPix + (ss.m_cursorLine - ss.m_topLine) * fh,m_palette[getUsTime32() & 0x40000? TEXT:CURSOR],
+        &c,1);
 }
 
 void editor::updateCursor() {
@@ -148,7 +153,7 @@ void editor::update(uint16_t event) {
     bool error = false;
 
     if (key)
-        g_video->drawStringf(160,m_statusY-8,m_palette[STATUS],"%s%s%s%s     ",
+        g_video->drawStringf(160,m_statusYPix-8,m_palette[STATUS],"%s%s%s%s     ",
             event & modifier::CTRL_BITS?"Ctrl+":"",
             event & modifier::ALT_BITS?"Alt+":"",
             event & modifier::SHIFT_BITS?"Shift+":"",
@@ -165,8 +170,7 @@ void editor::update(uint16_t event) {
             error = true;
         else {
             // This is by far the common case so do it manually instead of calling updateCursor.
-            if (m_cursorOffset != ss.m_documentSize)
-                memmove(m_document + m_cursorOffset + 1,m_document + m_cursorOffset,ss.m_documentSize - m_cursorOffset);
+            memmove(m_document + m_cursorOffset + 1,m_document + m_cursorOffset,ss.m_documentSize - m_cursorOffset);
             m_document[m_cursorOffset++] = key;
             ss.m_cursorColumn++;
             ss.m_documentSize++;
@@ -177,7 +181,7 @@ void editor::update(uint16_t event) {
         }
     }
     else if (key == 8) {
-        if (m_cursorOffset) {
+        if (!m_readOnly && m_cursorOffset) {
             --m_cursorOffset;
             --ss.m_documentSize;
             memmove(m_document + m_cursorOffset,m_document + m_cursorOffset + 1,ss.m_documentSize - m_cursorOffset);
@@ -187,10 +191,9 @@ void editor::update(uint16_t event) {
             error = true;
     }
     else if (key == key::DEL) {
-        if (m_cursorOffset != ss.m_documentSize) {
-            memmove(m_document + m_cursorOffset,m_document + m_cursorOffset + 1,ss.m_documentSize - m_cursorOffset);
+        if (!m_readOnly && m_cursorOffset != ss.m_documentSize) {
             --ss.m_documentSize;
-            updateCursorFromOffset();
+            memmove(m_document + m_cursorOffset,m_document + m_cursorOffset + 1,ss.m_documentSize - m_cursorOffset);
         }
         else
             error = true;
@@ -201,7 +204,7 @@ void editor::update(uint16_t event) {
             --ss.m_cursorColumn;
         }
         else if (m_cursorOffset) {
-            --ss.m_cursorLine;
+            --m_cursorOffset;
             updateCursorFromOffset();
         }
         else
@@ -215,6 +218,8 @@ void editor::update(uint16_t event) {
                 ss.m_cursorColumn = 0;
                 ss.m_cursorLine++;
             }
+            else
+                ss.m_cursorColumn++;
             m_cursorOffset++;
         }
     }
@@ -229,7 +234,7 @@ void editor::update(uint16_t event) {
             error = true;
     }
     if (error) {
-        g_video->fill(m_x,m_y,m_width * video::getFontWidth(),m_height * video::getFontHeight(),hal::red);
+        g_video->fill(m_xPix,m_yPix,m_widthChars * video::getFontWidth(),m_heightChars * video::getFontHeight(),hal::red);
         draw();
     }
 }

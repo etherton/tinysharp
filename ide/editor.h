@@ -47,7 +47,7 @@ private:
 		char blockPadding[512];
 	};
 	uint32_t m_topOffset, m_cursorOffset;
-	uint16_t m_x, m_y, m_width, m_height, m_statusY;
+	uint16_t m_xPix, m_yPix, m_widthChars, m_heightChars, m_statusYPix;
 };
 
 } // namespace ide
