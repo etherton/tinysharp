@@ -94,7 +94,7 @@ void video_pico_3bpp::setColor(palette &dest,rgb fore,rgb back) {
     dest.as8[3] = pack3(fore);
 }
 
-void __not_in_flash_func(video_pico_3bpp::drawGlyph)(int x,int y,int width,int height,const uint8_t *glyph,palette p) {
+void __not_in_flash_func(video_pico_3bpp::drawGlyph)(int x,int y,int width,int height,const uint8_t *glyph,const palette &p) {
     uint8_t buffer[32];
     if (width==8)
         for (int i=0; i<height; i++) {
@@ -122,7 +122,7 @@ void __not_in_flash_func(video_pico_3bpp::drawGlyph)(int x,int y,int width,int h
     draw(x,y,width,height,buffer);
 }
 
-void __not_in_flash_func(video_pico_3bpp::drawString)(int x,int y,palette p,const char *string) {
+void __not_in_flash_func(video_pico_3bpp::drawString)(int x,int y,const palette &p,const char *string) {
     size_t l = strlen(string);
     uint8_t fw = getFontWidth(), fh = getFontHeight();
     if (x + l * fw > 320)
@@ -198,7 +198,7 @@ void video_pico_16bpp::setColor(palette &dest,rgb fore,rgb back) {
     dest.as16[1] = pack16(fore);
 }
 
-void __not_in_flash_func(video_pico_16bpp::drawGlyph)(int x,int y,int width,int height,const uint8_t *glyph,palette p) {
+void __not_in_flash_func(video_pico_16bpp::drawGlyph)(int x,int y,int width,int height,const uint8_t *glyph,const palette &p) {
     uint16_t buffer[64], *bp = buffer;
     for (int i=0; i<height; i++) {
         uint8_t pix = glyph[i];
@@ -222,19 +222,21 @@ void __not_in_flash_func(video_pico_18bpp::fill)(int x,int y,int w,int h,rgb c) 
     gpio_put(LCD_CS, 1);
 } 
 
-void __not_in_flash_func(video_pico_24bpp::draw)(int x,int y,int w,int h,const void *data) {
-    setRegion(x,y,w,h);
-    spi_write_blocking(spi1,static_cast<const uint8_t*>(data),w*h*3);
-    gpio_put(LCD_CS, 1);
+void video_pico_18bpp::setColor(palette &dest,rgb fore,rgb back) {
+    dest.asRgb[0] = back;
+    dest.asRgb[1] = fore;
 }
 
-void __not_in_flash_func(video_pico_24bpp::fill)(int x,int y,int w,int h,rgb c) {
-    setRegion(x,y,w,h);
-    int count = w*h;
-    while (count--)
-      spi_write_blocking(spi1,&c.r,3);
-    gpio_put(LCD_CS, 1);
-} 
+void video_pico_18bpp::drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,const palette &p) {
+    rgb buffer[64], *bp = buffer;
+    for (int i=0; i<height; i++) {
+        uint8_t pix = glyph[i];
+        for (int j=0; j<width; j++,pix<<=1)
+            *bp++ = p.asRgb[pix>>7];
+    }
+    draw(x,y,width,height,buffer);    
+}
+
 
 #define LCD_SPI_SPEED       250000000 // (105 * 1000000)
 
@@ -325,10 +327,10 @@ video *video::create(const char *opts) {
     const char *bpp = strstr(opts,"bpp=");
     if (bpp && bpp[4]=='3')
         return g_video = new video_pico_3bpp();
-    /* else if (bpp && bpp[4]=='1'&&bpp[5]=='8')
+    else if (bpp && bpp[4]=='1'&&bpp[5]=='8')
         return g_video = new video_pico_18bpp();
     else if (bpp && bpp[4]=='2')
-        return g_video = new video_pico_24bpp(); */
+        return g_video = new video_pico_24bpp();
     else
         return g_video =new video_pico_16bpp();
 }

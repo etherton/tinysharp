@@ -18,7 +18,7 @@ int main()
         printf("Hello, world!\n");
         sleep_ms(1000);
     } */
-   auto v = hal::video::create("bpp=16");
+   auto v = hal::video::create("bpp=18");
    v->init();
    v->setFont(6,8,console_font_6x8,0);
 
@@ -55,6 +55,9 @@ int main()
     v->drawStringf(100,140,bl,"%u us to draw chars",fillTime);
     // 52.0ms for 16bpp with 8 bit writes
     // 50.9ms for 16bpp with 16 bit writes
+    // 11.2ms for 3bpp
+    // 49.8ms for 16bpp
+    // 93.1ms for 18bpp
     
     auto k = hal::keyboard::create("");
     k->init();

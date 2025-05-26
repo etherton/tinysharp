@@ -31,7 +31,7 @@ void video::drawString(int x,int y,rgb fore,const char *string) {
 		drawGlyph(x,y,sm_fontWidth,sm_fontHeight,sm_fontDef + sm_fontHeight * (*string - sm_baseChar),fore);
 }
 
-void video::drawString(int x,int y,palette p,const char *string) {
+void video::drawString(int x,int y,const palette &p,const char *string) {
 	for (; *string; string++,x+=sm_fontWidth)
 		drawGlyph(x,y,sm_fontWidth,sm_fontHeight,sm_fontDef + sm_fontHeight * (*string - sm_baseChar),p);
 }
@@ -51,7 +51,7 @@ void video::drawStringf(int x,int y,rgb fore,const char *fmt,...) {
 	drawString(x,y,fore,line);
 }
 
-void video::drawStringf(int x,int y,palette p,const char *fmt,...) {
+void video::drawStringf(int x,int y,const palette &p,const char *fmt,...) {
 	va_list args;
 	char line[256];
 	va_start(args,fmt);
