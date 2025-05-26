@@ -83,4 +83,10 @@ const void* storage_pico_flash::memoryMap(size_t index,size_t /*blockCount*/) {
     return s2a(index);
 }
 
+storage* storage::create(const char*) {
+    auto result = new storage_pico_flash;
+    result->init();
+    return result;
+}
+
 }

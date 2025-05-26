@@ -13,8 +13,11 @@ editor::editor(storage *s) {
     m_storage = s;
     m_x = m_y = 0;
     m_width = video::getScreenWidth() / video::getFontWidth();
-    m_height = video::getScreenHeight() / video::getFontHeight();
-    g_video->setColor(m_palette[0],hal::green,hal::black);
+    m_height = video::getScreenHeight() / video::getFontHeight() - 1;
+    m_statusY = video::getScreenHeight() - video::getFontHeight();
+    g_video->setColor(m_palette[TEXT],hal::green,hal::black);
+    g_video->setColor(m_palette[LNUM],hal::blue,hal::black);
+    g_video->setColor(m_palette[STATUS],hal::black,hal::white);
 
     newFile();
 }
@@ -25,6 +28,7 @@ void editor::newFile() {
     ss.m_topLine = 0;
     ss.m_cursorLine = 0;
     ss.m_cursorColumn = 0;
+    ss.m_showLineNumbers = true;
 
     m_document = new char[512];
     m_resident = true;
@@ -73,16 +77,22 @@ bool editor::quickLoad(bool readOnly) {
 }
 
 void editor::draw() {
-    uint32_t i = m_topOffset;
+    uint32_t i = m_topOffset, line = ss.m_topLine;
     uint8_t fw = video::getFontWidth(), fh = video::getFontHeight();
     int row = m_y;
     while (i < ss.m_documentSize) {
         uint32_t j=i;
         while (m_document[j]!=10 && j<ss.m_documentSize)
             j++;
-        g_video->drawString(m_x,row,m_palette[0],m_document + i,j-i);
-        if (j-i < m_width)
-            g_video->fill(m_x + (j-i)*fw,row,(m_width-(j-i))*fw,fh,hal::black);
+        ++line;
+        int x = m_x;
+        if (ss.m_showLineNumbers) {
+            g_video->drawStringf(x,row,m_palette[LNUM],"%3d ",line);
+            x+=4*fw;
+        }
+        g_video->drawString(x,row,m_palette[TEXT],m_document + i,j-i);
+        if (j-i < m_width-x)
+            g_video->fill(x + (j-i)*fw,row,(m_width-(j-i))*fw,fh,hal::black);
         if (m_document[j]==10)
             ++j;
         row+=fh;
@@ -90,6 +100,7 @@ void editor::draw() {
             break;
         i=j;
     }
+    g_video->drawStringf(0,m_statusY,m_palette[STATUS],"Line: %d Col: %d  Offset %u",ss.m_cursorLine+1,ss.m_cursorColumn+1,m_cursorOffset);
 }
 
 void editor::updateCursor() {
@@ -111,13 +122,29 @@ void editor::update(uint16_t event) {
         return;
     uint8_t key = uint8_t(event);
     bool error = false;
-    if (key==10 || (key >= 32 && key < 127)) {
+
+    if (key)
+        g_video->drawStringf(160,m_statusY-8,m_palette[STATUS],"%s%s%s%s     ",
+            event & modifier::CTRL_BITS?"Ctrl+":"",
+            event & modifier::ALT_BITS?"Alt+":"",
+            event & modifier::SHIFT_BITS?"Shift+":"",
+            keyboard::getKeyCap(event));
+    
+    if (event & modifier::ALT_BITS) {
+        if (key == 'S')
+            error = !quickSave();
+    }
+    else if (key==10 || (key >= 32 && key < 127)) {
         if (m_readOnly || ss.m_documentSize == ss.m_documentCapacity)
             error = true;
         else {
-            memmove(m_document + m_cursorOffset + 1,m_document + m_cursorOffset,ss.m_documentSize - m_cursorOffset);
+            if (m_cursorOffset != ss.m_documentSize)
+                memmove(m_document + m_cursorOffset + 1,m_document + m_cursorOffset,ss.m_documentSize - m_cursorOffset);
             m_document[m_cursorOffset++] = key;
             ss.m_cursorColumn++;
+            ss.m_documentSize++;
+            if (key==10)
+                ss.m_cursorLine++;
         }
     }
     else if (key == key::UP) {

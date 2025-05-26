@@ -37,14 +37,15 @@ private:
 	void updateCursor();
 	hal::storage *m_storage;
 	char *m_document;
-	hal::palette m_palette[1];
+	hal::palette m_palette[4];
+	enum { TEXT, LNUM, STATUS };
 	bool m_resident, m_readOnly;
 	union {
 		savestate ss;
 		char blockPadding[512];
 	};
 	uint32_t m_topOffset, m_cursorOffset;
-	uint16_t m_x, m_y, m_width, m_height;
+	uint16_t m_x, m_y, m_width, m_height, m_statusY;
 };
 
 } // namespace ide
