@@ -11,11 +11,12 @@ namespace ide {
 
 class editor {
 	struct savestate {
-		static const size_t magicValue = 0xDCE00001;
+		static const size_t magicValue = 0xDCE00002;
 		size_t m_magic;
 		size_t m_documentSize, m_documentCapacity;
 		uint32_t m_topLine;
 		uint32_t m_cursorLine, m_cursorColumn; // these are zero-based but display as one-based.
+		uint32_t m_desiredCursorColumn; // for when we're on a line shorter than the one before.
 		bool m_showLineNumbers;
 		bool m_insert;
 	};
@@ -37,6 +38,7 @@ public:
 private:
 	void updateCursor();
 	void updateCursorFromOffset();
+	void updateCursorFromVerticalMove();
 	hal::storage *m_storage;
 	char *m_document;
 	hal::palette m_palette[4];

@@ -30,6 +30,7 @@ void editor::newFile() {
     ss.m_topLine = 0;
     ss.m_cursorLine = 0;
     ss.m_cursorColumn = 0;
+    ss.m_desiredCursorColumn = 0;
     ss.m_showLineNumbers = true;
 
     m_document = new char[512];
@@ -110,7 +111,7 @@ void editor::draw() {
 
 void editor::drawCursor() {
     uint8_t fw = video::getFontWidth(), fh = video::getFontHeight();
-    char c = m_document[m_cursorOffset];
+    char c = m_cursorOffset==ss.m_documentSize? 32 : m_document[m_cursorOffset];
     if (c == 10)
         c = 32;
     g_video->drawString(
@@ -146,6 +147,35 @@ void editor::updateCursorFromOffset() {
     }
 }
 
+void editor::updateCursorFromVerticalMove() {
+    uint32_t line = 0, column = 0;
+    for (m_cursorOffset=0; m_cursorOffset<ss.m_documentSize; m_cursorOffset++) {
+        if (line==ss.m_cursorLine && column==ss.m_cursorColumn) {
+            // try to reach the desired column again
+            while (ss.m_cursorColumn < ss.m_desiredCursorColumn && m_cursorOffset<ss.m_documentSize && m_document[m_cursorOffset]!=10)
+                ++ss.m_cursorColumn,++m_cursorOffset;
+            return;
+        }
+        if (m_document[m_cursorOffset]==10) {
+            // if the line we're on isn't as long as the one we left, remember
+            // the desired column (otherwise the test below would happen first)
+            if (line == ss.m_cursorLine) {
+                ss.m_desiredCursorColumn = ss.m_cursorColumn;
+                ss.m_cursorColumn = column;
+                return;
+            }
+            line++;
+            column = 0;
+        }
+        else
+            column++;
+    }
+    // we might end up here if we tried to move down past end of document
+    ss.m_desiredCursorColumn = ss.m_cursorColumn;
+    ss.m_cursorColumn = column;
+    ss.m_cursorLine = line;
+}
+
 void editor::update(uint16_t event) {
     if (!(event & modifier::PRESSED_BIT)) // todo: could update status here
         return;
@@ -159,6 +189,10 @@ void editor::update(uint16_t event) {
             event & modifier::SHIFT_BITS?"Shift+":"",
             keyboard::getKeyCap(event));
     
+    // anything other than up or down resets the desired column to the actual column
+    if (key != key::UP && key != key::DOWN)
+            ss.m_desiredCursorColumn = ss.m_cursorColumn;
+
     if (event & modifier::ALT_BITS) {
         if (key == 'S')
             error = !quickSave();
@@ -228,10 +262,14 @@ void editor::update(uint16_t event) {
             if (ss.m_topLine == ss.m_cursorLine)
                 --ss.m_topLine;
             --ss.m_cursorLine;
-            updateCursor();
+            updateCursorFromVerticalMove();
         }
         else
             error = true;
+    }
+    else if (key == key::DOWN) {
+        ++ss.m_cursorLine;
+        updateCursorFromVerticalMove();
     }
     if (error) {
         g_video->fill(m_xPix,m_yPix,m_widthChars * video::getFontWidth(),m_heightChars * video::getFontHeight(),hal::red);
