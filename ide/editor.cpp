@@ -1,4 +1,5 @@
 #include "editor.h"
+#include "hal/keyboard.h"
 #include "hal/video.h"
 #include "hal/storage.h"
 
@@ -13,6 +14,7 @@ editor::editor(storage *s) {
     m_x = m_y = 0;
     m_width = video::getScreenWidth() / video::getFontWidth();
     m_height = video::getScreenHeight() / video::getFontHeight();
+    g_video->setColor(m_palette[0],hal::green,hal::black);
 
     newFile();
 }
@@ -28,7 +30,10 @@ void editor::newFile() {
     m_resident = true;
     ss.m_documentSize = 0;
     ss.m_documentCapacity = 512;
-    ss.m_readOnly = false;
+    m_readOnly = false;
+    ss.m_insert = true;
+
+    updateCursor();
 }
 
 bool editor::quickSave() {
@@ -62,8 +67,73 @@ bool editor::quickLoad(bool readOnly) {
                 return false;
             }
     }
-    ss.m_readOnly = readOnly;
+    m_readOnly = readOnly;
+    updateCursor();
     return true;  
+}
+
+void editor::draw() {
+    uint32_t i = m_topOffset;
+    uint8_t fw = video::getFontWidth(), fh = video::getFontHeight();
+    int row = m_y;
+    while (i < ss.m_documentSize) {
+        uint32_t j=i;
+        while (m_document[j]!=10 && j<ss.m_documentSize)
+            j++;
+        g_video->drawString(m_x,row,m_palette[0],m_document + i,j-i);
+        if (j-i < m_width)
+            g_video->fill(m_x + (j-i)*fw,row,(m_width-(j-i))*fw,fh,hal::black);
+        if (m_document[j]==10)
+            ++j;
+        row+=fh;
+        if (row >= m_height * fh)
+            break;
+        i=j;
+    }
+}
+
+void editor::updateCursor() {
+    // this could be much smarter.
+    m_cursorOffset = m_topOffset = 0;
+    uint32_t line = 0, column = 0;
+    for (;m_cursorOffset < ss.m_documentSize && (line != ss.m_cursorLine || column != ss.m_cursorColumn);++m_cursorOffset) {
+        if (!column && line==ss.m_topLine)
+            m_topOffset = m_cursorOffset;
+        if (m_document[m_cursorOffset]==10)
+            column=0,++line;
+        else
+            ++column;
+    }
+}
+
+void editor::update(uint16_t event) {
+    if (!(event & modifier::PRESSED_BIT)) // todo: could update status here
+        return;
+    uint8_t key = uint8_t(event);
+    bool error = false;
+    if (key==10 || (key >= 32 && key < 127)) {
+        if (m_readOnly || ss.m_documentSize == ss.m_documentCapacity)
+            error = true;
+        else {
+            memmove(m_document + m_cursorOffset + 1,m_document + m_cursorOffset,ss.m_documentSize - m_cursorOffset);
+            m_document[m_cursorOffset++] = key;
+            ss.m_cursorColumn++;
+        }
+    }
+    else if (key == key::UP) {
+        if (ss.m_cursorLine) {
+            if (ss.m_topLine == ss.m_cursorLine)
+                --ss.m_topLine;
+            --ss.m_cursorLine;
+            updateCursor();
+        }
+        else
+            error = true;
+    }
+    if (error) {
+        g_video->fill(m_x,m_y,m_width * video::getFontWidth(),m_height * video::getFontHeight(),hal::red);
+        draw();
+    }
 }
 
 }

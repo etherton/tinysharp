@@ -30,7 +30,7 @@ public:
 	void draw(int,int,int,int,const void*);
 	void fill(int,int,int,int,rgb color);
 	void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,const palette &p);
-	void drawString(int x,int y,const palette &p,const char *string);
+	void drawString(int x,int y,const palette &p,const char *string,size_t len);
 	void setColor(palette&p,rgb fore,rgb back);
 };
 
@@ -41,7 +41,7 @@ public:
 	void draw(int,int,int,int,const void*);
 	void fill(int,int,int,int,rgb color);
 	void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,const palette &p);
-	void drawString(int x,int y,const palette &p,const char *string);
+	void drawString(int x,int y,const palette &p,const char *string,size_t len);
 	void setColor(palette&p,rgb fore,rgb back);
 };
 

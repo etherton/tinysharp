@@ -122,8 +122,7 @@ void __not_in_flash_func(video_pico_3bpp::drawGlyph)(int x,int y,int width,int h
     draw(x,y,width,height,buffer);
 }
 
-void __not_in_flash_func(video_pico_3bpp::drawString)(int x,int y,const palette &p,const char *string) {
-    size_t l = strlen(string);
+void __not_in_flash_func(video_pico_3bpp::drawString)(int x,int y,const palette &p,const char *string,size_t l) {
     uint8_t fw = getFontWidth(), fh = getFontHeight();
     if (x + l * fw > 320)
         l = (320 - x) / fw;
@@ -211,8 +210,7 @@ void __not_in_flash_func(video_pico_16bpp::drawGlyph)(int x,int y,int width,int 
     draw(x,y,width,height,buffer);
 }
 
-void __not_in_flash_func(video_pico_16bpp::drawString)(int x,int y,const palette &p,const char *string) {
-    size_t l = strlen(string);
+void __not_in_flash_func(video_pico_16bpp::drawString)(int x,int y,const palette &p,const char *string,size_t l) {
     uint8_t fw = getFontWidth(), fh = getFontHeight();
     if (x + l * fw > getScreenWidth())
         l = (320 - x) / fw;

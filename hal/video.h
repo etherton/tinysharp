@@ -43,8 +43,8 @@ public:
 
 	void setFont(uint8_t width,uint8_t height,const uint8_t *fontDef,uint8_t baseChar = 32);
 	virtual void drawString(int x,int y,rgb fore,const char *string);
-	virtual void drawString(int x,int y,const palette &p,const char *string);
-	virtual void drawString(int x,int y,const palette *p,const uint8_t *attr,const char *string);
+	virtual void drawString(int x,int y,const palette &p,const char *string,size_t len);
+	virtual void drawString(int x,int y,const palette *p,const uint8_t *attr,const char *string,size_t len);
 	void drawStringf(int x,int y,rgb fore,const char *fmt,...);
 	void drawStringf(int x,int y,const palette &p,const char *fmt,...);
 
