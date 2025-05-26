@@ -131,35 +131,38 @@ void __not_in_flash_func(video_pico_3bpp::drawString)(int x,int y,const palette 
     uint8_t buffer[160];
     if (fw==8) {
         for (int r=0; r<fh; r++) {
+            uint8_t *b = buffer;
             for (int i=0; i<l; i++) {
                 uint8_t pix = sm_fontDef[(string[i] - sm_baseChar) * fh + r];
-                buffer[i*4+0] = p.as8[pix>>6];
-                buffer[i*4+1] = p.as8[(pix>>4) & 3];
-                buffer[i*4+2] = p.as8[(pix>>2) & 3];
-                buffer[i*4+3] = p.as8[pix & 3];
+                *b++ = p.as8[pix>>6];
+                *b++ = p.as8[(pix>>4) & 3];
+                *b++ = p.as8[(pix>>2) & 3];
+                *b++ = p.as8[pix & 3];
             }
-            spi_write_blocking(spi1,buffer,((l*fw)+1)>>1);
+            spi_write_blocking(spi1,buffer,((l*8)+1)>>1);
         }
     }
     else if (fw==6) {
         for (int r=0; r<fh; r++) {
+            uint8_t *b = buffer;
             for (int i=0; i<l; i++) {
                 uint8_t pix = sm_fontDef[(string[i] - sm_baseChar) * fh + r];
-                buffer[i*3+0] = p.as8[pix>>6];
-                buffer[i*3+1] = p.as8[(pix>>4) & 3];
-                buffer[i*3+2] = p.as8[(pix>>2) & 3];
+                *b++ = p.as8[pix>>6];
+                *b++ = p.as8[(pix>>4) & 3];
+                *b++ = p.as8[(pix>>2) & 3];
             }
-            spi_write_blocking(spi1,buffer,((l*fw)+1)>>1);
+            spi_write_blocking(spi1,buffer,((l*6)+1)>>1);
         }
     }
     else if (fw==4) {
         for (int r=0; r<fh; r++) {
+            uint8_t *b = buffer;
             for (int i=0; i<l; i++) {
                 uint8_t pix = sm_fontDef[(string[i] - sm_baseChar) * fh + r];
-                buffer[i*2+0] = p.as8[pix>>6];
-                buffer[i*2+1] = p.as8[(pix>>4) & 3];
+                *b++ = p.as8[pix>>6];
+                *b++ = p.as8[(pix>>4) & 3];
             }
-            spi_write_blocking(spi1,buffer,((l*fw)+1)>>1);
+            spi_write_blocking(spi1,buffer,((l*4)+1)>>1);
         }
     }    gpio_put(LCD_CS, 1);
 }
@@ -206,6 +209,65 @@ void __not_in_flash_func(video_pico_16bpp::drawGlyph)(int x,int y,int width,int 
             *bp++ = p.as16[pix>>7];
     }
     draw(x,y,width,height,buffer);
+}
+
+void __not_in_flash_func(video_pico_16bpp::drawString)(int x,int y,const palette &p,const char *string) {
+    size_t l = strlen(string);
+    uint8_t fw = getFontWidth(), fh = getFontHeight();
+    if (x + l * fw > 320)
+        l = (320 - x) / fw;
+    setRegion(x,y,l*fw,fh);
+    spi_set_format(spi1, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+    uint16_t buffer[320];
+    if (fw == 8) {
+        for (int r=0; r<fh; r++) {
+            uint16_t *b = buffer;
+            for (int i=0; i<l; i++) {
+                uint8_t pix = sm_fontDef[(string[i] - sm_baseChar) * fh + r];
+                *b++ = p.as16[pix>>7];
+                *b++ = p.as16[(pix>>6)&1];
+                *b++ = p.as16[(pix>>5)&1];
+                *b++ = p.as16[(pix>>4)&1];
+                *b++ = p.as16[(pix>>3)&1];
+                *b++ = p.as16[(pix>>2)&1];
+                *b++ = p.as16[(pix>>1)&1];
+                *b++ = p.as16[pix&1];
+            }
+            spi_write16_blocking(spi1,buffer,l*8);
+        }
+    }
+    else if (fw == 6) {
+       for (int r=0; r<fh; r++) {
+            uint16_t *b = buffer;
+            for (int i=0; i<l; i++) {
+                uint8_t pix = sm_fontDef[(string[i] - sm_baseChar) * fh + r];
+                *b++ = p.as16[pix>>7];
+                *b++ = p.as16[(pix>>6)&1];
+                *b++ = p.as16[(pix>>5)&1];
+                *b++ = p.as16[(pix>>4)&1];
+                *b++ = p.as16[(pix>>3)&1];
+                *b++ = p.as16[(pix>>2)&1];
+            }
+            spi_write16_blocking(spi1,buffer,l*6);
+        }
+    }
+    else if (fw == 4) {
+       for (int r=0; r<fh; r++) {
+            uint16_t *b = buffer;
+            for (int i=0; i<l; i++) {
+                uint8_t pix = sm_fontDef[(string[i] - sm_baseChar) * fh + r];
+                *b++ = p.as16[pix>>7];
+                *b++ = p.as16[(pix>>6)&1];
+                *b++ = p.as16[(pix>>5)&1];
+                *b++ = p.as16[(pix>>4)&1];
+                *b++ = p.as16[(pix>>3)&1];
+                *b++ = p.as16[(pix>>2)&1];
+            }
+            spi_write16_blocking(spi1,buffer,l*4);
+        }        
+    }
+    spi_set_format(spi1, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+    gpio_put(LCD_CS, 1);
 }
 
 void __not_in_flash_func(video_pico_18bpp::draw)(int x,int y,int w,int h,const void *data) {
