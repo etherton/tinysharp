@@ -11,7 +11,7 @@ struct rgb {
 
 // This encodes the background and foreground colors in
 // a device-dependent format.
-union palette {
+struct palette {
 	uint8_t as8[4];		// back/back, back/fore, fore/back, fore/fore
 	uint16_t as16[2];	// back,fore
 	rgb asRgb[2];		// back,fore
@@ -26,7 +26,8 @@ const rgb blue = rgb { 0,0,255 };
 class video {
 public:
 	static video *create(const char *options);
-		
+	
+	virtual void reinit() = 0;
 	virtual int getBpp() = 0;
 	virtual void setScroll(int) = 0;
 	virtual void setFixedRegions(int top,int bottom) = 0;
@@ -35,7 +36,7 @@ public:
 	virtual void drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,const palette &p) = 0;
 	virtual void setColor(palette&dest,rgb fore,rgb back) = 0;
 
-	void setFont(uint8_t width,uint8_t height,const uint8_t *fontDef,uint8_t baseChar = 32);
+	static void setFont(uint8_t width,uint8_t height,const uint8_t *fontDef,uint8_t baseChar = 32);
 	virtual void drawString(int x,int y,const palette &p,const char *string);
 	virtual void drawString(int x,int y,const palette &p,const char *string,size_t len);
 	virtual void drawString(int x,int y,const palette *p,const uint8_t *attr,const char *string,size_t len);

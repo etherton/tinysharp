@@ -7,6 +7,7 @@
 #include "hardware/spi.h"
 
 #include <string.h>
+#include <new>
 
 namespace hal {
 
@@ -16,6 +17,11 @@ namespace hal {
 #define LCD_CS  13
 #define LCD_DC  14
 #define LCD_RST 15
+
+const uint8_t video_pico_3bpp::sm_modeString[5] = { 0x3A, 0x01, 0x22, 0x39, 0x00 };
+const uint8_t video_pico_16bpp::sm_modeString[5] = { 0x3A, 0x01, 0x55, 0x38, 0x00 };
+const uint8_t video_pico_18bpp::sm_modeString[5] = { 0x3A, 0x01, 0x66, 0x38, 0x00 };
+const uint8_t video_pico_24bpp::sm_modeString[5] = { 0x3A, 0x01, 0x77, 0x38, 0x00 };
 
 void __not_in_flash_func(video_pico::sendCommands)(const uint8_t *commands,size_t length) {
     while (length) {
@@ -86,11 +92,15 @@ void __not_in_flash_func(video_pico_3bpp::fill)(int x,int y,int w,int h,const pa
     gpio_put(LCD_CS, 1);
 }
 
-void video_pico_3bpp::setColor(palette &dest,rgb fore,rgb back) {
+void video_pico::setColor(palette &dest,rgb fore,rgb back) {
     dest.as8[0] = pack3(back);
     dest.as8[1] = (pack3(back) & 56) | (pack3(fore) & 7);
     dest.as8[2] = (pack3(fore) & 56) | (pack3(back) & 7);
     dest.as8[3] = pack3(fore);
+    dest.as16[0] = pack16(back);
+    dest.as16[1] = pack16(fore);
+    dest.asRgb[0] = back;
+    dest.asRgb[1] = fore;
 }
 
 void __not_in_flash_func(video_pico_3bpp::drawGlyph)(int x,int y,int width,int height,const uint8_t *glyph,const palette &p) {
@@ -193,11 +203,6 @@ void __not_in_flash_func(video_pico_16bpp::fill)(int x,int y,int w,int h,const p
     gpio_put(LCD_CS, 1);
 }    
 
-void video_pico_16bpp::setColor(palette &dest,rgb fore,rgb back) {
-    dest.as16[0] = pack16(back);
-    dest.as16[1] = pack16(fore);
-}
-
 void __not_in_flash_func(video_pico_16bpp::drawGlyph)(int x,int y,int width,int height,const uint8_t *glyph,const palette &p) {
     uint16_t buffer[64], *bp = buffer;
     for (int i=0; i<height; i++) {
@@ -279,11 +284,6 @@ void __not_in_flash_func(video_pico_18bpp::fill)(int x,int y,int w,int h,const p
       spi_write_blocking(spi1,&p.asRgb[0].r,3);
     gpio_put(LCD_CS, 1);
 } 
-
-void video_pico_18bpp::setColor(palette &dest,rgb fore,rgb back) {
-    dest.asRgb[0] = back;
-    dest.asRgb[1] = fore;
-}
 
 void video_pico_18bpp::drawGlyph(int x,int y,int width,int height,const uint8_t *glyph,const palette &p) {
     rgb buffer[64], *bp = buffer;
@@ -385,16 +385,19 @@ void video_pico::initCommon(const uint8_t *memoryMode,size_t memoryModeSize) {
     sm_scrollHeight = 480;
 }
 
+static void *s_virtualPointer;
+
 video *video::create(const char *opts) {
     const char *bpp = strstr(opts,"bpp=");
+    g_video = (video*)&s_virtualPointer;
     if (bpp && bpp[4]=='3')
-        g_video = new video_pico_3bpp();
+        new(g_video) video_pico_3bpp();
     else if (bpp && bpp[4]=='1'&&bpp[5]=='8')
-        g_video = new video_pico_18bpp();
+        new(g_video) video_pico_18bpp();
     else if (bpp && bpp[4]=='2')
-        g_video = new video_pico_24bpp();
+        new(g_video) video_pico_24bpp();
     else
-        g_video = new video_pico_16bpp();
+        new(g_video) video_pico_16bpp();
     g_video->init();
     palette b;
     g_video->setColor(b,hal::black,hal::black);
