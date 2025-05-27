@@ -261,8 +261,7 @@ void __not_in_flash_func(video_pico_16bpp::drawString)(int x,int y,const palette
                 *b++ = p.as16[(pix>>6)&1];
                 *b++ = p.as16[(pix>>5)&1];
                 *b++ = p.as16[(pix>>4)&1];
-                *b++ = p.as16[(pix>>3)&1];
-                *b++ = p.as16[(pix>>2)&1];
+ 
             }
             spi_write16_blocking(spi1,buffer,l*4);
         }        
