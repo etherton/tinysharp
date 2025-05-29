@@ -161,7 +161,7 @@ void __not_in_flash_func(video_pico_3bpp::drawString)(int x,int y,const palette 
             }
             spi_write_blocking(spi1,buffer,((l*6)+1)>>1);
         }
-    }
+    }    
     else if (fw==4) {
         for (int r=0; r<fh; r++) {
             uint8_t *b = buffer;
@@ -172,7 +172,32 @@ void __not_in_flash_func(video_pico_3bpp::drawString)(int x,int y,const palette 
             }
             spi_write_blocking(spi1,buffer,((l*4)+1)>>1);
         }
-    }    gpio_put(LCD_CS, 1);
+    }   
+    else {
+        uint8_t *b = buffer;
+        int pixels = l * fw * fh;
+        uint8_t bitcount = 0, pix = 0;
+        int i=0,j=0;
+        while (pixels > 0) {
+            if (bitcount < 2) {
+                pix |= sm_fontDef[(string[i] - sm_baseChar) * fh + j] >> bitcount;
+                if (++i==l)
+                    ++j,i=0;
+                bitcount += fw;
+            }
+            *b++ = p.as8[pix >> 6];
+            pix <<= 2;
+            bitcount -= 2;
+            pixels -= 2;
+            if (b == buffer + sizeof(buffer)) {
+                spi_write_blocking(spi1,buffer,sizeof(buffer));
+                b = buffer;
+            }
+        }
+        if (b != buffer)
+            spi_write_blocking(spi1,buffer,b - buffer);
+    }
+    gpio_put(LCD_CS, 1);
 }
 
 void __not_in_flash_func(video_pico_16bpp::draw)(int x,int y,int w,int h,const void *data) {
@@ -252,7 +277,20 @@ void __not_in_flash_func(video_pico_16bpp::drawString)(int x,int y,const palette
             spi_write16_blocking(spi1,buffer,l*6);
         }
     }
-    else if (fw == 4) {
+    else if (fw == 5) {
+       for (int r=0; r<fh; r++) {
+            uint16_t *b = buffer;
+            for (int i=0; i<l; i++) {
+                uint8_t pix = sm_fontDef[(string[i] - sm_baseChar) * fh + r];
+                *b++ = p.as16[pix>>7];
+                *b++ = p.as16[(pix>>6)&1];
+                *b++ = p.as16[(pix>>5)&1];
+                *b++ = p.as16[(pix>>4)&1];
+                *b++ = p.as16[(pix>>3)&1];
+            }
+            spi_write16_blocking(spi1,buffer,l*5);
+        }
+    }    else if (fw == 4) {
        for (int r=0; r<fh; r++) {
             uint16_t *b = buffer;
             for (int i=0; i<l; i++) {

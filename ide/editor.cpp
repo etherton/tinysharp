@@ -109,7 +109,7 @@ void editor::draw() {
         g_video->fill(m_xPix,m_yPix + rowChars * fh,m_widthChars * fw,(m_heightChars - rowChars)*fh,m_palette[TEXT]);
     
     char temp[32];
-    sprintf(temp,"Line:%d Col:%d %s Bat:%03d%%",ss.m_cursorLine+1,ss.m_cursorColumn+1,keyboard::getCapsLock()?"CAPS":"    ",
+    sprintf(temp,"Line:%d Col:%d %s Bat:%3d%%",ss.m_cursorLine+1,ss.m_cursorColumn+1,keyboard::getCapsLock()?"CAPS":"    ",
         g_keyboard->getBattery());
     size_t sl = strlen(temp);
     g_video->drawString(m_xPix,m_statusYPix,m_palette[STATUS],temp,sl);
