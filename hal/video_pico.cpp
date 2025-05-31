@@ -67,6 +67,12 @@ void video_pico::setFixedRegions(int top,int bottom) {
     gpio_put(LCD_CS, 1);
 }
 
+void video_pico::setMode(const uint8_t *commands,size_t length) {
+    gpio_put(LCD_CS, 0);
+    sendCommands(commands,length);
+    gpio_put(LCD_CS, 1);
+}
+
 void __not_in_flash_func(video_pico_3bpp::draw)(int x,int y,int w,int h,const void *data) {
     setRegion(x,y,w,h);
     spi_write_blocking(spi1,static_cast<const uint8_t*>(data),((w*h)+1)>>1);
@@ -426,6 +432,7 @@ static void *s_virtualPointer;
 
 video *video::create(const char *opts) {
     const char *bpp = strstr(opts,"bpp=");
+    bool first = !g_video;
     g_video = (video*)&s_virtualPointer;
     if (bpp && bpp[4]=='3')
         new(g_video) video_pico_3bpp();
@@ -435,7 +442,10 @@ video *video::create(const char *opts) {
         new(g_video) video_pico_24bpp();
     else
         new(g_video) video_pico_16bpp();
-    g_video->init();
+    if (first)
+        g_video->init();
+    else
+        g_video->reinit();
     palette b;
     g_video->setColor(b,hal::black,hal::black);
     g_video->fill(0,0,sm_screenWidth,sm_scrollHeight,b);

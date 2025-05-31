@@ -18,7 +18,7 @@ int main()
     // stdio_init_all();
 
     auto k = hal::keyboard::create("");
-    hal::video::create("bpp=16");
+    hal::video::create("bpp=3");
 
     hal::video::setFont(6,8,console_font_6x8,0);
 
