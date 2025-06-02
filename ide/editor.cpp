@@ -81,6 +81,10 @@ bool editor::quickLoad(bool readOnly) {
 }
 
 void editor::draw() {
+    m_widthChars = video::getScreenWidth() / video::getFontWidth();
+    m_heightChars = video::getScreenHeight() / video::getFontHeight() - 1;
+    m_statusYPix = video::getScreenHeight() - video::getFontHeight();
+
     uint32_t i = m_topOffset, line = ss.m_topLine;
     uint8_t fw = video::getFontWidth(), fh = video::getFontHeight();
     int rowChars = 0;
@@ -105,8 +109,9 @@ void editor::draw() {
             break;
         i=j;
     }
-    if (rowChars != m_heightChars)
-        g_video->fill(m_xPix,m_yPix + rowChars * fh,m_widthChars * fw,(m_heightChars - rowChars)*fh,m_palette[TEXT]);
+    int fillHeight = m_statusYPix - (m_yPix + rowChars * fh);
+    if (fillHeight)
+        g_video->fill(m_xPix,m_yPix + rowChars * fh,m_widthChars * fw,fillHeight,m_palette[TEXT]);
     
     char temp[32];
     sprintf(temp,"Line:%d Col:%d %s Bat:%3d%%",ss.m_cursorLine+1,ss.m_cursorColumn+1,keyboard::getCapsLock()?"CAPS":"    ",
