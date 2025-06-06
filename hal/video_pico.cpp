@@ -139,6 +139,8 @@ void __not_in_flash_func(video_pico_3bpp::drawGlyph)(int x,int y,int width,int h
 
 void __not_in_flash_func(video_pico_3bpp::drawString)(int x,int y,const palette &p,const char *string,size_t l) {
     uint8_t fw = getFontWidth(), fh = getFontHeight();
+    if (x >= 320 || y >= 320)
+        return;
     if (x + l * fw > 320)
         l = (320 - x) / fw;
     setRegion(x,y,l*fw,fh);
