@@ -39,6 +39,7 @@ private:
 	void updateCursor();
 	void updateCursorFromOffset();
 	void updateCursorFromVerticalMove();
+	void updateVisibleRegion();
 	hal::storage *m_storage;
 	char *m_document;
 	hal::palette m_palette[4];

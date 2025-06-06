@@ -99,7 +99,7 @@ void editor::draw() {
             xPix+=4*fw;
             widthChars-=4;
         }
-        g_video->drawString(xPix,m_yPix+rowChars*fh,m_palette[TEXT],m_document + i,j-i);
+        g_video->drawString(xPix,m_yPix+rowChars*fh,m_palette[TEXT],m_document + i,j-i<widthChars?j-i:widthChars);
         if (j-i < widthChars)
             g_video->fill(xPix + (j-i)*fw,m_yPix+rowChars*fh,(widthChars-(j-i))*fw,fh,m_palette[TEXT]);
         if (m_document[j]==10)
@@ -188,6 +188,16 @@ void editor::updateCursorFromVerticalMove() {
     ss.m_cursorLine = line;
 }
 
+void editor::updateVisibleRegion() {
+    bool updated = false;
+    if (ss.m_cursorLine < ss.m_topLine)
+        updated = true, ss.m_topLine = ss.m_cursorLine;
+    else if (ss.m_cursorLine >= ss.m_topLine + m_heightChars)
+        updated = true, ss.m_topLine = ss.m_cursorLine - m_heightChars + 1;
+    if (updated)
+        updateCursor();
+}
+
 void editor::update(uint16_t event) {
     if (!(event & modifier::PRESSED_BIT)) // todo: could update status here
         return;
@@ -232,6 +242,7 @@ void editor::update(uint16_t event) {
             --ss.m_documentSize;
             memmove(m_document + m_cursorOffset,m_document + m_cursorOffset + 1,ss.m_documentSize - m_cursorOffset);
             updateCursorFromOffset();
+            updateVisibleRegion();
         }
         else
             error = true;
@@ -255,6 +266,7 @@ void editor::update(uint16_t event) {
         }
         else
             error = true;
+        updateVisibleRegion();
     }
     else if (key == key::RIGHT) {
         if (m_cursorOffset == ss.m_documentSize)
@@ -268,13 +280,13 @@ void editor::update(uint16_t event) {
                 ss.m_cursorColumn++;
             m_cursorOffset++;
         }
+        updateVisibleRegion();
     }
     else if (key == key::UP) {
         if (ss.m_cursorLine) {
-            if (ss.m_topLine == ss.m_cursorLine)
-                --ss.m_topLine;
             --ss.m_cursorLine;
             updateCursorFromVerticalMove();
+            updateVisibleRegion();
         }
         else
             error = true;
@@ -282,6 +294,7 @@ void editor::update(uint16_t event) {
     else if (key == key::DOWN) {
         ++ss.m_cursorLine;
         updateCursorFromVerticalMove();
+        updateVisibleRegion();
     }
     if (error) {
         g_video->fill(m_xPix,m_yPix,m_widthChars * video::getFontWidth(),m_heightChars * video::getFontHeight(),m_palette[CURSOR]);
