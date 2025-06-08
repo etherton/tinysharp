@@ -85,6 +85,13 @@ void editor::draw() {
     m_heightChars = video::getScreenHeight() / video::getFontHeight() - 1;
     m_statusYPix = video::getScreenHeight() - video::getFontHeight();
 
+    if (ss.m_asHex)
+        drawHex();
+    else
+        drawText();
+}
+
+void editor::drawText() {
     uint32_t i = m_topOffset, line = ss.m_topLine;
     uint8_t fw = video::getFontWidth(), fh = video::getFontHeight();
     int rowChars = 0;
@@ -99,9 +106,11 @@ void editor::draw() {
             xPix+=4*fw;
             widthChars-=4;
         }
-        g_video->drawString(xPix,m_yPix+rowChars*fh,m_palette[TEXT],m_document + i,j-i<widthChars?j-i:widthChars);
-        if (j-i < widthChars)
-            g_video->fill(xPix + (j-i)*fw,m_yPix+rowChars*fh,(widthChars-(j-i))*fw,fh,m_palette[TEXT]);
+        int drawLen = j-i<widthChars?j-i:widthChars;
+        g_video->drawString(xPix,m_yPix+rowChars*fh,m_palette[TEXT],m_document + i,drawLen);
+        int right = (xPix + drawLen * fw);
+        if (right < hal::video::getScreenWidth())
+            g_video->fill(xPix + right,m_yPix+rowChars*fh,hal::video::getScreenWidth() - right,fh,m_palette[TEXT]);
         if (m_document[j]==10)
             ++j;
         ++rowChars;
@@ -109,6 +118,12 @@ void editor::draw() {
             break;
         i=j;
     }
+    postDraw(rowChars);
+}
+
+void editor::postDraw(int rowChars) {
+    int fw = hal::video::getFontWidth();
+    int fh = hal::video::getFontHeight();
     int fillHeight = m_statusYPix - (m_yPix + rowChars * fh);
     if (fillHeight)
         g_video->fill(m_xPix,m_yPix + rowChars * fh,m_widthChars * fw,fillHeight,m_palette[TEXT]);
@@ -119,6 +134,41 @@ void editor::draw() {
     size_t sl = strlen(temp);
     g_video->drawString(m_xPix,m_statusYPix,m_palette[STATUS],temp,sl);
     g_video->fill(m_xPix + sl*fw,m_statusYPix,(m_widthChars-sl)*fw,fh,m_palette[STATUS]);
+}
+
+void editor::drawHex() {
+    uint8_t perRow = (m_widthChars - 6) / 4; // XXXX nn nn ... cccc
+    int rowChars = 0;
+    if (perRow >= 64)
+        perRow = 64;
+    else if (perRow >= 32)
+        perRow = 32;
+    else if (perRow >= 16)
+        perRow = 16;
+    else
+        perRow = 8;
+    uint32_t i = m_topOffset;
+    while (i < ss.m_documentSize && rowChars < m_heightChars) {
+        char hexBuf[256];
+        sprintf(hexBuf,"%04x ",i);
+        for (uint32_t o=0; o<perRow; o++) {
+            if (i+o < ss.m_documentSize)
+                sprintf(hexBuf + 5 + 3*o,"%02x ",m_document[i+o]);
+            else
+                strcpy(hexBuf + 5 + 3*o,"   ");
+        }
+        hexBuf[5 + perRow * 3] = ' ';
+        for (uint32_t o=0; o<perRow; o++)
+            hexBuf[5 + perRow*3 + o] = i+o<ss.m_documentSize? m_document[i+o] : 32;
+        g_video->drawString(m_xPix,m_yPix + rowChars * hal::video::getFontHeight(),m_palette[TEXT],hexBuf,perRow*4 + 6);
+        int right = m_xPix + (perRow*4 + 6) * hal::video::getFontWidth();
+        if (right < hal::video::getScreenWidth())
+            g_video->fill(right,m_yPix + rowChars * hal::video::getFontHeight(),hal::video::getScreenWidth() - right,
+                hal::video::getFontHeight(),m_palette[TEXT]);
+        i += perRow;
+        ++rowChars;
+    }
+    postDraw(rowChars);
 }
 
 void editor::drawCursor() {
@@ -220,6 +270,11 @@ void editor::update(uint16_t event) {
             error = !quickSave();
         else if (key == 'N')
             newFile();
+        else if (key == 'H')
+            ss.m_asHex = !ss.m_asHex;
+        else if (key == 'L')
+            ss.m_showLineNumbers = !ss.m_showLineNumbers;
+        
     }
     else if (key==10 || (key >= 32 && key < 127)) {
         if (m_readOnly || ss.m_documentSize == ss.m_documentCapacity)

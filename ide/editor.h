@@ -19,6 +19,7 @@ class editor {
 		uint32_t m_desiredCursorColumn; // for when we're on a line shorter than the one before.
 		bool m_showLineNumbers;
 		bool m_insert;
+		bool m_asHex;
 	};
 public:
 	editor(hal::storage *s);
@@ -36,6 +37,9 @@ public:
 	void drawCursor();
 	void update(uint16_t keyEvent);
 private:
+	void drawText();
+	void drawHex();
+	void postDraw(int rowChars);
 	void updateCursor();
 	void updateCursorFromOffset();
 	void updateCursorFromVerticalMove();

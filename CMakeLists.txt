@@ -35,6 +35,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
+add_subdirectory(fs)
 add_subdirectory(hal)
 add_subdirectory(ide)
 add_subdirectory(language)
@@ -49,6 +50,7 @@ pico_enable_stdio_usb(tinysharp 1)
 
 # Add the standard library to the build
 target_link_libraries(tinysharp
+	fs
 	hal
 	ide
 	language

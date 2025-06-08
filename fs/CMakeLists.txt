@@ -1,4 +1,4 @@
-add_library(fs 
+add_library(fs
 	volume.cpp volume.h
 	fat.h
 	)
