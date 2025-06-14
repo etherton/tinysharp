@@ -1,6 +1,6 @@
 // based on keyboard.c from https://github.com/benob/picocalc-umac/
 
-#include "keyboard_pico.h"
+#include "keyboard_picocalc.h"
 #include "timer.h"
 
 #include <pico/bootrom.h>

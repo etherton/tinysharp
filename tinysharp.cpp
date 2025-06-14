@@ -3,8 +3,8 @@
 #include "hal/storage_pico_flash.h"
 #include "hal/timer.h"
 
-/* #include <stdio.h>
-#include "pico/stdlib.h" */
+#include <stdio.h>
+#include "pico/stdlib.h"
 
 #include "ide/editor.h"
 
@@ -15,7 +15,7 @@
 
 int main()
 {
-    // stdio_init_all();
+    stdio_init_all();
 
     auto k = hal::keyboard::create("");
     hal::video::create("bpp=3");

@@ -2,11 +2,12 @@ add_library(hal INTERFACE)
 
 target_sources(hal INTERFACE
 	video.cpp video.h
-	video_pico.cpp video_pico.h
+	video_picocalc.cpp video_picocalc.h
 	keyboard.cpp keyboard.h
-	keyboard_pico.cpp keyboard_pico.h
+	keyboard_picocalc.cpp keyboard_picocalc.h
 	storage.cpp storage.h
 	storage_pico_flash.cpp storage_pico_flash.h
+	storage_pico_sdcard.cpp storage_pico_sdcard.h
 	timer.cpp timer.h
 	)
 

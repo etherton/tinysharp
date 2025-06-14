@@ -1,6 +1,6 @@
 // Based on lcd.c from https://github.com/benob/picocalc-umac/
 
-#include "video_pico.h"
+#include "video_picocalc.h"
 
 #include "pico/time.h"
 #include "hardware/gpio.h"
