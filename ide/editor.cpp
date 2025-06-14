@@ -157,11 +157,10 @@ void editor::drawHex() {
             else
                 strcpy(hexBuf + 5 + 3*o,"   ");
         }
-        hexBuf[5 + perRow * 3] = ' ';
         for (uint32_t o=0; o<perRow; o++)
             hexBuf[5 + perRow*3 + o] = i+o<ss.m_documentSize? m_document[i+o] : 32;
-        g_video->drawString(m_xPix,m_yPix + rowChars * hal::video::getFontHeight(),m_palette[TEXT],hexBuf,perRow*4 + 6);
-        int right = m_xPix + (perRow*4 + 6) * hal::video::getFontWidth();
+        g_video->drawString(m_xPix,m_yPix + rowChars * hal::video::getFontHeight(),m_palette[TEXT],hexBuf,perRow*4 + 5);
+        int right = m_xPix + (perRow*4 + 5) * hal::video::getFontWidth();
         if (right < hal::video::getScreenWidth())
             g_video->fill(right,m_yPix + rowChars * hal::video::getFontHeight(),hal::video::getScreenWidth() - right,
                 hal::video::getFontHeight(),m_palette[TEXT]);
