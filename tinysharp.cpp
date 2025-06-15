@@ -37,6 +37,16 @@ int main()
         fs::mbr &m = *(fs::mbr*)f;
         printf("signature %x (%u)\n",m.signature.get(),sizeof(m));
         printf("partition 1 type %d lba %u size %u\n",m.partitions[0].type,m.partitions[0].lba.get(),m.partitions[0].sizeInSectors.get());
+        sd->readBlock(m.partitions[0].lba.get(),f);
+        fs::bootSector &b = *(fs::bootSector*)f;
+        printf("signature %x os [%s] volume [%11.11s]\n",b.signature.get(),b.osName,b.getVolumeLabel());
+        printf("%u bytes per sector\n",b.bytesPerSector.get());
+        printf("%u sectors per cluster\n",b.sectorsPerCluster);
+        printf("%u reserved sectors\n",b.reservedSectors.get());
+        printf("%u FAT copies\n",b.numberOfFatCopies);
+        printf("%u sectors per FAT\n",b.sectorsPerFat.get()?b.sectorsPerFat.get():b.fat32.logicalSectorsPerFat.get());
+        printf("%u hidden sectors\n",b.hiddenSectors.get());
+        printf("%u sectors per disk\n",b.smallNumberOfSectors.get()?b.smallNumberOfSectors.get():b.largeNumberOfSectors.get());
     }
     else if (!e.quickLoad(false))
         e.newFile();
