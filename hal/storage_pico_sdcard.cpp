@@ -2,6 +2,7 @@
 
 #include <hardware/gpio.h>
 #include <hardware/spi.h>
+#include <pico/time.h>
 
 #include <stdio.h>
 
@@ -21,8 +22,7 @@
 #define R1_ADDRESS_ERROR        (1 << 5)
 #define R1_PARAMETER_ERROR      (1 << 6)
 
-enum cmd_supported {
-    CMD_NOT_SUPPORTED = -1,             /**< Command not supported error */
+enum cmds : uint8_t {
     CMD0_GO_IDLE_STATE = 0,             /**< Resets the SD Memory Card */
     CMD1_SEND_OP_COND = 1,              /**< Sends host capacity support */
     CMD6_SWITCH_FUNC = 6,               /**< Check and Switches card function */
@@ -58,6 +58,14 @@ enum cmd_supported {
     ACMD51_SEND_SCR = 51,
 };
 
+enum sdcard_type: uint8_t {
+   SDCARD_NONE  = 0,
+   SDCARD_V1    = 1,
+   SDCARD_V2    = 2,
+   SDCARD_V2HC  = 3,
+   CARD_UNKNOWN = 4,
+};
+
 #define PACKET_SIZE   6  // SD Packet size CMD+ARG+CRC
 
 
@@ -75,31 +83,200 @@ inline void storage_pico_sdcard::_postclock_then_deselect() {
     gpio_put(m_cs_pin, 1);
 }
 
-inline void storage_pico_sdcard::_cmd(int cmd, uint32_t arg, bool is_acmd, uint32_t *outOptResp) {
+inline uint8_t storage_pico_sdcard::_spi_write_read(uint8_t value) {
+    uint8_t resp;
+    spi_write_read_blocking(m_spi_inst,&value,&resp,1);
+    return resp;
+}
+
+inline bool storage_pico_sdcard::_wait_token(uint8_t token,uint32_t timeoutMs) {
+    uint32_t stop = to_ms_since_boot(get_absolute_time() + timeoutMs);
+    do {
+        if (token == _spi_write_read())
+            return true;
+    } while (to_ms_since_boot(get_absolute_time()) < stop);
+    return false;
 
 }
 
+uint8_t storage_pico_sdcard::_cmd_spi(uint8_t cmd, uint32_t arg) {
+    uint8_t response;
+    uint8_t cmd_packet[PACKET_SIZE] = {0};
+
+    // Prepare the command packet
+    cmd_packet[0] = SPI_CMD(cmd);
+    cmd_packet[1] = (arg >> 24);
+    cmd_packet[2] = (arg >> 16);
+    cmd_packet[3] = (arg >> 8);
+    cmd_packet[4] = (arg >> 0);
+
+    /*if (config->enable_crc) {
+        uint8_t crc = _crc7(cmd_packet, 5);
+        cmd_packet[5] = (crc << 1) | 0x01;
+    } else*/ {
+        switch (cmd) {
+        case CMD0_GO_IDLE_STATE:
+            cmd_packet[5] = 0x95;
+            break;
+        case CMD8_SEND_IF_COND:
+            cmd_packet[5] = 0x87;
+            break;
+        default:
+            cmd_packet[5] = 0xFF;    // Make sure bit 0-End bit is high
+            break;
+        }
+    }
+
+    // send a command
+    spi_write_blocking(m_spi_inst, cmd_packet, PACKET_SIZE);
+
+    // The received byte immediataly following CMD12 is a stuff byte,
+    // it should be discarded before receive the response of the CMD12.
+    if (cmd == CMD12_STOP_TRANSMISSION)
+        spi_write_blocking(m_spi_inst, &SPI_FILL_CHAR, 1);
+
+    // Loop for response: Response is sent back within command response time (NCR), 0 to 8 bytes for SDC
+    for (int i = 0; i < 16; i++) {
+        spi_write_read_blocking(m_spi_inst, &SPI_FILL_CHAR, &response, 1);
+        if (!(response & R1_RESPONSE_RECV)) {
+            break;
+        }
+    }
+    return response;
+}
+
+int storage_pico_sdcard::_cmd(uint8_t cmd, uint32_t arg, bool is_acmd, uint32_t *resp) {
+    int32_t status = 0;
+    uint32_t response;
+
+    _preclock_then_select();
+    // No need to wait for card to be ready when sending the stop command
+    if (cmd != CMD12_STOP_TRANSMISSION) {
+        if (!_wait_ready()) {
+            printf("Card not ready yet \n");
+        }
+    }
+
+    // Re-try command
+    for (int i = 0; i < 3; i++) {
+        // Send CMD55 for APP command first
+        if (is_acmd) {
+            response = _cmd_spi(CMD55_APP_CMD, false);
+            // Wait for card to be ready after CMD55
+            if (!_wait_ready()) {
+                printf("Card not ready yet (retry)\n");
+            }
+        }
+
+        // Send command over SPI interface
+        response = _cmd_spi(cmd, arg);
+        if (response == R1_NO_RESPONSE) {
+            printf("No response CMD:%d \n", cmd);
+            continue;
+        }
+        break;
+    }
+
+    // Pass the response to the command call if required
+    if (resp)
+        *resp = response;
+
+    // Process the response R1  : Exit on CRC/Illegal command error/No response
+    if (response == R1_NO_RESPONSE) {
+        _postclock_then_deselect();
+        printf("No response CMD:%d response: 0x%x\n", cmd, response);
+        return -1;         // No device
+    }
+    if (response & R1_COM_CRC_ERROR) {
+        _postclock_then_deselect();
+        printf("CRC error CMD:%d response 0x%x\n", cmd, response);
+        return -1;                // CRC error
+    }
+    if (response & R1_ILLEGAL_COMMAND) {
+        _postclock_then_deselect();
+        printf("Illegal command CMD:%d response 0x%x\n", cmd, response);
+        //if (cmd == CMD8_SEND_IF_COND) {                  // Illegal command is for Ver1 or not SD Card
+        //    config->card_type = CARD_UNKNOWN;
+        //}
+        return -1;      // Command not supported
+    }
+
+    printf("CMD:%d \t arg:0x%x \t Response:0x%x\n", cmd, arg, response);
+    // Set status for other errors
+    if ((response & R1_ERASE_RESET) || (response & R1_ERASE_SEQUENCE_ERROR)) {
+        status = -1;            // Erase error
+    } else if ((response & R1_ADDRESS_ERROR) || (response & R1_PARAMETER_ERROR)) {
+        // Misaligned address / invalid address block length
+        status = -1;
+    }
+
+    // Get rest of the response part for other commands
+    switch (cmd) {
+        case CMD8_SEND_IF_COND:             // Response R7
+            printf("V2-Version Card\n");
+            m_cardType = SDCARD_V2; // fallthrough
+        // Note: No break here, need to read rest of the response
+        case CMD58_READ_OCR:                // Response R3
+            response  = (_spi_write_read() << 24);
+            response |= (_spi_write_read() << 16);
+            response |= (_spi_write_read() << 8);
+            response |= _spi_write_read();
+            printf("R3/R7: 0x%x\n", response);
+            break;
+
+        case CMD12_STOP_TRANSMISSION:       // Response R1b
+        case CMD38_ERASE:
+            _wait_ready();
+            break;
+
+        case ACMD13_SD_STATUS:             // Response R2
+            response = _spi_write_read();
+            printf("R2: 0x%x\n", response);
+            break;
+
+        default:                            // Response R1
+            break;
+    }
+
+    // Pass the updated response to the command
+    if (resp)
+        *resp = response;
+
+    // Do not deselect card if read is in progress.
+    if (((CMD9_SEND_CSD == cmd) || (ACMD22_SEND_NUM_WR_BLOCKS == cmd) ||
+            (CMD24_WRITE_BLOCK == cmd) || (CMD25_WRITE_MULTIPLE_BLOCK == cmd) ||
+            (CMD17_READ_SINGLE_BLOCK == cmd) || (CMD18_READ_MULTIPLE_BLOCK == cmd))
+            && (!status)) {
+        return 0;
+    }
+    // Deselect card
+    _postclock_then_deselect();
+    return status;
+}
+
+
 storage_pico_sdcard* storage_pico_sdcard::create(uint8_t spi,
-		uint8_t sd_clk_pin,uint8_t sd_mosi_pin,uint8_t sd_miso_pin,
+		uint8_t sd_sclk_pin,uint8_t sd_mosi_pin,uint8_t sd_miso_pin,
 		uint8_t sd_cs_pin,uint8_t sd_det_pin) {
     
     storage_pico_sdcard *result = new storage_pico_sdcard;
     struct spi_inst *spi_inst = spi? spi1 : spi0;
     result->m_spi_inst = spi_inst;
-    result->m_clk_pin = sd_clk_pin;
+    result->m_sclk_pin = sd_sclk_pin;
     result->m_mosi_pin = sd_mosi_pin;
     result->m_miso_pin = sd_miso_pin;
     result->m_cs_pin = sd_cs_pin;
     result->m_det_pin = sd_det_pin;
+    result->m_cardType = SDCARD_NONE;
 
     gpio_set_function(sd_mosi_pin, GPIO_FUNC_SPI);
     gpio_set_function(sd_miso_pin, GPIO_FUNC_SPI);
-    gpio_set_function(sd_clk_pin, GPIO_FUNC_SPI);
+    gpio_set_function(sd_sclk_pin, GPIO_FUNC_SPI);
     gpio_init(sd_cs_pin);
     gpio_set_dir(sd_cs_pin, GPIO_OUT);
     gpio_pull_up(sd_miso_pin);
     gpio_set_drive_strength(sd_mosi_pin, GPIO_DRIVE_STRENGTH_4MA);
-    gpio_set_drive_strength(sd_clk_pin, GPIO_DRIVE_STRENGTH_4MA);
+    gpio_set_drive_strength(sd_sclk_pin, GPIO_DRIVE_STRENGTH_4MA);
     spi_init(spi_inst, 10'000'000);
     spi_set_format(spi_inst, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
 

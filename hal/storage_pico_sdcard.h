@@ -18,18 +18,22 @@ public:
 
 	static storage_pico_sdcard *create(
 		uint8_t spi = 0,
-		uint8_t sd_clk_pin = 18,
+		uint8_t sd_sclk_pin = 18,
 		uint8_t sd_mosi_pin = 19,
 		uint8_t sd_miso_pin = 16,
 		uint8_t sd_cs_pin = 17,
 		uint8_t sd_det_pin = 22);
 private:
 	struct spi_inst *m_spi_inst;
-	uint8_t m_clk_pin, m_mosi_pin, m_miso_pin, m_cs_pin, m_det_pin;
+	uint8_t m_sclk_pin, m_mosi_pin, m_miso_pin, m_cs_pin, m_det_pin;
+	uint8_t m_cardType;
 	inline void _preclock_then_select();
 	inline void _postclock_then_deselect();
-	
-	void _cmd(int cmd, uint32_t arg, bool is_acmd, uint32_t *outOptResp);
+	inline uint8_t _spi_write_read(uint8_t value = 0xFF);
+	int _cmd(uint8_t cmd, uint32_t arg, bool is_acmd, uint32_t *outOptResp);
+	uint8_t _cmd_spi(uint8_t cmd,uint32_t arg);
+	bool _wait_token(uint8_t token,uint32_t timeout = 300);
+	inline bool _wait_ready() { return _wait_token(0xFF, 5000); }
 };
 
 } // namespace hal
