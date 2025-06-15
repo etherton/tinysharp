@@ -36,6 +36,9 @@ public:
 	void draw();
 	void drawCursor();
 	void update(uint16_t keyEvent);
+	void setHex() {
+		ss.m_asHex = true;
+	}
 private:
 	void drawText();
 	void drawHex();

@@ -1,18 +1,8 @@
 #pragma once
 
-#include <stdint.h>
+#include "types.h"
 
 namespace fs {
-
-struct word {
-	uint8_t lo, hi;
-	operator uint16_t get() const { return lo | (hi << 8); }
-};
-
-struct dword {
-	word lo, hi;
-	operator uint32_t const { return lo | (hi << 16); }
-};
 
 struct bootSector {
 	uint8_t jmp[3];			// 0x000
@@ -23,12 +13,12 @@ struct bootSector {
 	uint8_t numberOfFatCopies;	// 0x010
 	word numberOfPossRootEntries;	// 0x011
 	word smallNumberOfSectors;	// 0x013 - used when fits in 16 bits
-	uint8_t mediaDescriptor:	// 0x015 - 0xF8, "fixed disk"
+	uint8_t mediaDescriptor;	// 0x015 - 0xF8, "fixed disk"
 	word sectorsPerFat;		// 0x016 
 	word sectorsPerTrack;		// 0x018
 	word numberOfHeads;		// 0x01A
 	dword hiddenSectors;		// 0x01C
-	dword largeNumberOfSectrors;	// 0x020
+	dword largeNumberOfSectors;	// 0x020
 	uint8_t driveNumber;		// 0x024
 	uint8_t reserved;		// 0x025 - if nonzero, needs integrity check
 	uint8_t extendedBootSignature;	// 0x026 - should contain 0x29
@@ -49,7 +39,13 @@ enum class fat16: uint16_t {
 	eofMax = 0xFFFF
 };
 
-enum class fat32 {
+enum class fat32: uint32_t {
+	free = 0x0,
+	nextClusterMin = 0x1,
+	nextClusterMax = 0xFFFF'FFF5,
+	badClusterMin = 0xFFFF'FFF6,
+	badClusterMax = 0xFFFF'FFF7,
+	eof = 0xFFFF'FFFF
 };
 
 struct time_t {

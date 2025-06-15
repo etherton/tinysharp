@@ -27,6 +27,7 @@ private:
 	struct spi_inst *m_spi_inst;
 	uint8_t m_sclk_pin, m_mosi_pin, m_miso_pin, m_cs_pin, m_det_pin;
 	uint8_t m_cardType;
+	uint32_t m_blockCount;
 	inline void _preclock_then_select();
 	inline void _postclock_then_deselect();
 	inline uint8_t _spi_write_read(uint8_t value = 0xFF);

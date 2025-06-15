@@ -58,13 +58,31 @@ enum cmds : uint8_t {
     ACMD51_SEND_SCR = 51,
 };
 
+/* R3 Response : OCR Register */
+#define OCR_HCS_CCS             (1 << 30)
+#define OCR_LOW_VOLTAGE         (1 << 24)
+#define OCR_3_3V                (1 << 20)
+
 enum sdcard_type: uint8_t {
    SDCARD_NONE  = 0,
    SDCARD_V1    = 1,
    SDCARD_V2    = 2,
    SDCARD_V2HC  = 3,
-   CARD_UNKNOWN = 4,
+   SDCARD_UNKNOWN = 4,
 };
+
+#define SD_BLOCK_DEVICE_ERROR_OK                  0
+#define SD_BLOCK_DEVICE_ERROR_WOULD_BLOCK        -5001  /*!< operation would block */
+#define SD_BLOCK_DEVICE_ERROR_UNSUPPORTED        -5002  /*!< unsupported operation */
+#define SD_BLOCK_DEVICE_ERROR_PARAMETER          -5003  /*!< invalid parameter */
+#define SD_BLOCK_DEVICE_ERROR_NO_INIT            -5004  /*!< uninitialized */
+#define SD_BLOCK_DEVICE_ERROR_NO_DEVICE          -5005  /*!< device is missing or not connected */
+#define SD_BLOCK_DEVICE_ERROR_WRITE_PROTECTED    -5006  /*!< write protected */
+#define SD_BLOCK_DEVICE_ERROR_UNUSABLE           -5007  /*!< unusable card */
+#define SD_BLOCK_DEVICE_ERROR_NO_RESPONSE        -5008  /*!< No response from device */
+#define SD_BLOCK_DEVICE_ERROR_CRC                -5009  /*!< CRC error */
+#define SD_BLOCK_DEVICE_ERROR_ERASE              -5010  /*!< Erase error: reset/sequence */
+#define SD_BLOCK_DEVICE_ERROR_WRITE              -5011  /*!< SPI Write error: !SPI_DATA_ACCEPTED */
 
 #define PACKET_SIZE   6  // SD Packet size CMD+ARG+CRC
 
@@ -90,7 +108,7 @@ inline uint8_t storage_pico_sdcard::_spi_write_read(uint8_t value) {
 }
 
 inline bool storage_pico_sdcard::_wait_token(uint8_t token,uint32_t timeoutMs) {
-    uint32_t stop = to_ms_since_boot(get_absolute_time() + timeoutMs);
+    uint32_t stop = to_ms_since_boot(get_absolute_time()) + timeoutMs;
     do {
         if (token == _spi_write_read())
             return true;
@@ -163,9 +181,8 @@ int storage_pico_sdcard::_cmd(uint8_t cmd, uint32_t arg, bool is_acmd, uint32_t 
         if (is_acmd) {
             response = _cmd_spi(CMD55_APP_CMD, false);
             // Wait for card to be ready after CMD55
-            if (!_wait_ready()) {
+            if (!_wait_ready())
                 printf("Card not ready yet (retry)\n");
-            }
         }
 
         // Send command over SPI interface
@@ -185,12 +202,12 @@ int storage_pico_sdcard::_cmd(uint8_t cmd, uint32_t arg, bool is_acmd, uint32_t 
     if (response == R1_NO_RESPONSE) {
         _postclock_then_deselect();
         printf("No response CMD:%d response: 0x%x\n", cmd, response);
-        return -1;         // No device
+        return SD_BLOCK_DEVICE_ERROR_NO_DEVICE;         // No device
     }
     if (response & R1_COM_CRC_ERROR) {
         _postclock_then_deselect();
         printf("CRC error CMD:%d response 0x%x\n", cmd, response);
-        return -1;                // CRC error
+        return SD_BLOCK_DEVICE_ERROR_CRC;                // CRC error
     }
     if (response & R1_ILLEGAL_COMMAND) {
         _postclock_then_deselect();
@@ -198,17 +215,16 @@ int storage_pico_sdcard::_cmd(uint8_t cmd, uint32_t arg, bool is_acmd, uint32_t 
         //if (cmd == CMD8_SEND_IF_COND) {                  // Illegal command is for Ver1 or not SD Card
         //    config->card_type = CARD_UNKNOWN;
         //}
-        return -1;      // Command not supported
+        return SD_BLOCK_DEVICE_ERROR_UNSUPPORTED;      // Command not supported
     }
 
     printf("CMD:%d \t arg:0x%x \t Response:0x%x\n", cmd, arg, response);
     // Set status for other errors
-    if ((response & R1_ERASE_RESET) || (response & R1_ERASE_SEQUENCE_ERROR)) {
-        status = -1;            // Erase error
-    } else if ((response & R1_ADDRESS_ERROR) || (response & R1_PARAMETER_ERROR)) {
+    if ((response & R1_ERASE_RESET) || (response & R1_ERASE_SEQUENCE_ERROR))
+        status = SD_BLOCK_DEVICE_ERROR_ERASE;            // Erase error
+    else if ((response & R1_ADDRESS_ERROR) || (response & R1_PARAMETER_ERROR))
         // Misaligned address / invalid address block length
-        status = -1;
-    }
+        status = SD_BLOCK_DEVICE_ERROR_PARAMETER;
 
     // Get rest of the response part for other commands
     switch (cmd) {
@@ -247,20 +263,26 @@ int storage_pico_sdcard::_cmd(uint8_t cmd, uint32_t arg, bool is_acmd, uint32_t 
             (CMD24_WRITE_BLOCK == cmd) || (CMD25_WRITE_MULTIPLE_BLOCK == cmd) ||
             (CMD17_READ_SINGLE_BLOCK == cmd) || (CMD18_READ_MULTIPLE_BLOCK == cmd))
             && (!status)) {
-        return 0;
+        return SD_BLOCK_DEVICE_ERROR_OK;
     }
     // Deselect card
     _postclock_then_deselect();
     return status;
 }
 
+uint32_t bit_extract(uint8_t csd[16],uint8_t msb,uint8_t lsb) {
+    uint32_t result = 0;
+    for (; msb>=lsb; --msb)
+        result = (result << 1) | ((csd[15 - (msb>>3)] >> (msb & 7)) & 1);
+    return result;
+}
 
 storage_pico_sdcard* storage_pico_sdcard::create(uint8_t spi,
 		uint8_t sd_sclk_pin,uint8_t sd_mosi_pin,uint8_t sd_miso_pin,
 		uint8_t sd_cs_pin,uint8_t sd_det_pin) {
     
     storage_pico_sdcard *result = new storage_pico_sdcard;
-    struct spi_inst *spi_inst = spi? spi1 : spi0;
+    struct spi_inst *spi_inst = SPI_INSTANCE(spi);
     result->m_spi_inst = spi_inst;
     result->m_sclk_pin = sd_sclk_pin;
     result->m_mosi_pin = sd_mosi_pin;
@@ -296,7 +318,74 @@ storage_pico_sdcard* storage_pico_sdcard::create(uint8_t spi,
         return nullptr;
     }
 
-    printf("sdcard - created\n");
+    int err = result->_cmd(CMD8_SEND_IF_COND,0x1AA,false,&response);
+    if (err && err != SD_BLOCK_DEVICE_ERROR_UNSUPPORTED) {
+        printf("cmd8 failed\n");
+        delete result;
+        return nullptr;
+    }
+
+    err = result->_cmd(CMD58_READ_OCR, 0, false,&response);
+    if (err) {
+        printf("READ_OCR failed\n");
+        delete result;
+        return nullptr;
+    }
+    if (!(response & OCR_3_3V)) {
+        printf("cannot use 3.3V\n");
+        result->m_cardType = SDCARD_UNKNOWN;
+        delete result;
+        return nullptr;
+    }
+    uint32_t arg = result->m_cardType==SDCARD_V2? OCR_HCS_CCS : 0;
+    do {
+        err = result->_cmd(ACMD41_SD_SEND_OP_COND, arg, true, &response);
+    } while (response & R1_IDLE_STATE);
+
+    if (!err && result->m_cardType==SDCARD_V2) {
+        err = result->_cmd(CMD58_READ_OCR, 0, false, &response);
+        if (response & OCR_HCS_CCS)
+            result->m_cardType = SDCARD_V2HC;
+        printf("V2 card\n");
+    }
+    else
+        result->m_cardType = SDCARD_V1;
+        
+    err = result->_cmd(CMD9_SEND_CSD, 0, false, nullptr);
+    if (err) {
+        printf("error in reading size\n");
+        delete result;
+        return nullptr;
+    }
+    uint8_t csd[16] = {0}, cs[2];
+    if (!result->_wait_token(0xFE)) {
+        printf("wait_token timed out\n");
+        delete result;
+        return nullptr;
+    }
+    spi_read_blocking(result->m_spi_inst,0xFF,csd,16);
+    spi_read_blocking(result->m_spi_inst,0xFF,cs,2);
+    uint32_t READ_BL_LEN = 0, C_SIZE = 0, C_SIZE_MULT = 0;
+    uint32_t BLOCKNR = 0;
+    printf("CSD - %02x %02x %02x %02x  .... %02x\n",csd[0],csd[1],csd[2],csd[3],csd[15]);
+    switch (bit_extract(csd,127,126)) {
+        case 0:
+            READ_BL_LEN = bit_extract(csd,83,80);
+            C_SIZE = bit_extract(csd,73,62);
+            C_SIZE_MULT = bit_extract(csd,49,47);
+            BLOCKNR = (C_SIZE+1) << (C_SIZE_MULT + 2 + READ_BL_LEN - 9);
+            break;
+        case 1:
+            BLOCKNR = (bit_extract(csd,69,48) + 1) << 10;
+            break;
+        case 2:
+            BLOCKNR = (bit_extract(csd,75,48) + 1) << 10;
+            break;
+    }
+    static const char *cards[] = { "none", "v1", "v2", "v2_hc", "unknown" };
+    printf("sdcard - created %s, %u blocks %uk\n",cards[result->m_cardType],BLOCKNR,(BLOCKNR >> 1));
+    result->m_blockCount = BLOCKNR;
+    result->_postclock_then_deselect();
     return result;
 }
 
@@ -311,11 +400,25 @@ size_t storage_pico_sdcard::getBlockSize() const {
 }
 
 size_t storage_pico_sdcard::getBlockCount() const {
-    return 0;
+    return m_blockCount;
 }
 
 bool storage_pico_sdcard::readBlock(size_t index,void *dest) {
-    return false;
+    if (m_cardType != SDCARD_V2HC)
+        index <<= 9;
+    if (_cmd(CMD17_READ_SINGLE_BLOCK, (uint32_t)index, false,nullptr)) {
+        printf("readBlock - cmd failed");
+        return false;
+    }
+    if (!_wait_token(0xFE)) {
+        printf("readBlock - wait timeout\n");
+        return false;
+    }
+    spi_read_blocking(m_spi_inst,0xFF,(uint8_t*)dest,512);
+    uint8_t cs[2];
+    spi_read_blocking(m_spi_inst,0xFF,cs,2);
+    printf("readBlock - %02x ...\n",*(uint8_t*)dest);
+    return true;
 }
 
 bool storage_pico_sdcard::writeBlock(size_t index,const void *dest) {

@@ -4,6 +4,9 @@
 #include "hal/storage_pico_sdcard.h"
 #include "hal/timer.h"
 
+#include "fs/mbr.h"
+#include "fs/fat.h"
+
 #include <stdio.h>
 #include "pico/stdlib.h"
 
@@ -25,9 +28,17 @@ int main()
 
     ide::editor e(hal::storage::create("flash"));
 
-    hal::storage_pico_sdcard::create();
-
-    if (!e.quickLoad(false))
+    auto sd = hal::storage_pico_sdcard::create();
+    if (sd) {
+        char *f = new char[512];
+        e.setFile(f,512,512,true);
+        e.setHex();
+        sd->readBlock(0,f);
+        fs::mbr &m = *(fs::mbr*)f;
+        printf("signature %x (%u)\n",m.signature.get(),sizeof(m));
+        printf("partition 1 type %d lba %u size %u\n",m.partitions[0].type,m.partitions[0].lba.get(),m.partitions[0].sizeInSectors.get());
+    }
+    else if (!e.quickLoad(false))
         e.newFile();
     e.draw();
     for (;;) {
