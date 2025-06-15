@@ -1,6 +1,7 @@
 #include "hal/video.h"
 #include "hal/keyboard.h"
 #include "hal/storage_pico_flash.h"
+#include "hal/storage_pico_sdcard.h"
 #include "hal/timer.h"
 
 #include <stdio.h>
@@ -23,6 +24,8 @@ int main()
     hal::video::setFont(6,8,console_font_6x8,0);
 
     ide::editor e(hal::storage::create("flash"));
+
+    hal::storage_pico_sdcard::create();
 
     if (!e.quickLoad(false))
         e.newFile();

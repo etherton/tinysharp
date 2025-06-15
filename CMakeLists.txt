@@ -46,7 +46,7 @@ pico_set_program_version(tinysharp "0.1")
 
 # Modify the below lines to enable/disable output over UART/USB
 pico_enable_stdio_uart(tinysharp 1)
-pico_enable_stdio_usb(tinysharp 1)
+pico_enable_stdio_usb(tinysharp 0)
 
 # Add the standard library to the build
 target_link_libraries(tinysharp
@@ -54,6 +54,8 @@ target_link_libraries(tinysharp
 	hal
 	ide
 	language
+	hardware_flash
+	hardware_gpio
         pico_stdlib)
 
 # Add the standard include files to the build
