@@ -6,6 +6,7 @@ target_sources(hal INTERFACE
 	keyboard.cpp keyboard.h
 	keyboard_picocalc.cpp keyboard_picocalc.h
 	storage.cpp storage.h
+	storage_inner.h
 	storage_pico_flash.cpp storage_pico_flash.h
 	storage_pico_sdcard.cpp storage_pico_sdcard.h
 	timer.cpp timer.h

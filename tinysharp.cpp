@@ -5,7 +5,8 @@
 #include "hal/timer.h"
 
 #include "fs/mbr.h"
-#include "fs/fat.h"
+#include "fs/fat_structs.h"
+#include "fs/volume_fat.h"
 
 #include <stdio.h>
 #include "pico/stdlib.h"
@@ -29,33 +30,9 @@ int main()
     ide::editor e(hal::storage::create("flash"));
 
     auto sd = hal::storage_pico_sdcard::create();
-    if (sd) {
-        char *f = new char[512];
-        e.setFile(f,512,512,true);
-        e.setHex();
-        sd->readBlock(0,f);
-        fs::mbr &m = *(fs::mbr*)f;
-        printf("signature %x (%u)\n",m.signature.get(),sizeof(m));
-        printf("partition 1 type %d lba %u size %u\n",m.partitions[0].type,m.partitions[0].lba.get(),m.partitions[0].sizeInSectors.get());
-        sd->readBlock(m.partitions[0].lba.get(),f);
-        fs::bootSector &b = *(fs::bootSector*)f;
-        printf("signature %x os [%s] volume [%11.11s] type [%8.8s]\n",b.signature.get(),b.osName,
-            b.getVolumeLabel(),b.getFilesystemType());
-        printf("%u bytes per sector\n",b.bytesPerSector.get());
-        printf("%u sectors per cluster\n",b.sectorsPerCluster);
-        printf("%u reserved sectors\n",b.reservedSectors.get());
-        printf("%u FAT copies\n",b.numberOfFatCopies);
-        printf("%u sectors per FAT\n",b.sectorsPerFat.get()?b.sectorsPerFat.get():b.fat32.logicalSectorsPerFat.get());
-        printf("%u hidden sectors\n",b.hiddenSectors.get());
-        printf("%u sectors per disk\n",b.smallNumberOfSectors.get()?b.smallNumberOfSectors.get():b.largeNumberOfSectors.get());
-        printf("%u total blocks (%uMiB)\n",sd->getBlockCount(),sd->getBlockCount()>>11);
-        printf("root directory at sector %u\n",b.getRootDirectory());
-        sd->readBlock(/* m.partitions[0].lba.get() +*/ b.getRootDirectory(),f);
-        fs::dirEntry *d = (fs::dirEntry*)f;
-        for (int i=0; i<16; i++)
-            printf("%8.8s.%3.3s\n",d[i].filename,d[i].ext);
-    }
-    else if (!e.quickLoad(false))
+    auto volume = fs::volumeFat::create(sd);
+
+    if (!e.quickLoad(false))
         e.newFile();
     e.draw();
     for (;;) {
