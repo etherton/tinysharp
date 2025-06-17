@@ -4,6 +4,7 @@
 
 namespace fs {
 
+// https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system#EBPB
 struct bootSector {
 	uint8_t jmp[3];			// 0x000
 	char osName[8];			// 0x003
@@ -16,13 +17,13 @@ struct bootSector {
 	uint8_t mediaDescriptor;	// 0x015 - 0xF8, "fixed disk"
 	word sectorsPerFat;			// 0x016 (only in FAT16)
 	word sectorsPerTrack;		// 0x018
-	word numberOfHeads;		// 0x01A
-	dword hiddenSectors;		// 0x01C
+	word numberOfHeads;			// 0x01A
+	dword hiddenSectors;		// 0x01C - number of sectors before this partition
 	dword largeNumberOfSectors;	// 0x020 - used when larger then 16 bits, else zero
 	union {
 		struct {
 			uint8_t driveNumber;		// 0x024
-			uint8_t reserved;		// 0x025 - if nonzero, needs integrity check
+			uint8_t reserved;			// 0x025 - if nonzero, needs integrity check
 			uint8_t extendedBootSignature;	// 0x026 - should contain 0x29 if it's this variant
 			dword volumeSerialNumber;	// 0x027
 			char volumeLabel[11];		// 0x02B
@@ -48,8 +49,26 @@ struct bootSector {
 	};
 	bool isFat16() const { return fat16.extendedBootSignature == 0x29; }
 	bool isFat32() const { return !isFat16() && fat32.extendedBootSignature == 0x29; }
+	uint32_t getRootDirectory() const {
+		return isFat16()
+			? hiddenSectors.get() + reservedSectors.get() + numberOfFatCopies * sectorsPerFat.get() 
+			: hiddenSectors.get() + reservedSectors.get() + numberOfFatCopies * fat32.logicalSectorsPerFat.get() + 
+				(fat32.rootDirectoryStart.get() - 2) * sectorsPerCluster;
+	}
+	uint32_t getCluster2() const {
+		return isFat16()
+			? hiddenSectors.get() + reservedSectors.get() + numberOfFatCopies * sectorsPerFat.get()
+				+ ((numberOfPossRootEntries.get() * 32 + bytesPerSector.get() - 1) / bytesPerSector.get())
+			: hiddenSectors.get() + reservedSectors.get() + numberOfFatCopies * fat32.logicalSectorsPerFat.get();
+	}
+	uint32_t getClusterSector(uint32_t cl) const {
+		return getCluster2() + (cl-2) * sectorsPerCluster;
+	}
 	const char *getVolumeLabel() const {
 		return isFat16()? fat16.volumeLabel : isFat32()? fat32.volumeLabel : "none";
+	}
+	const char *getFilesystemType() const {
+		return isFat16()? fat16.filesystemType : isFat32()? fat32.filesystemType : "none";
 	}
 	word signature;			// 0x1FE -- 0xAA55
 };
@@ -103,10 +122,10 @@ enum class fat16: uint16_t {
 enum class fat32: uint32_t {
 	free = 0x0,
 	nextClusterMin = 0x1,
-	nextClusterMax = 0xFFFF'FFF5,
-	badClusterMin = 0xFFFF'FFF6,
-	badClusterMax = 0xFFFF'FFF7,
-	eof = 0xFFFF'FFFF
+	nextClusterMax = 0x0FFF'FFF5,
+	badClusterMin = 0x0FFF'FFF6,
+	badClusterMax = 0x0FFF'FFF7,
+	eof = 0x0FFF'FFFF
 };
 
 struct time_t {
