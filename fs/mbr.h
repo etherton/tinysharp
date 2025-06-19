@@ -20,8 +20,9 @@ enum class partitionType: uint8_t {
 
 	aix,
 	aixBootable,
+	os2,
 	fat32_chs,
-	fat32_lba, // 11
+	fat32_lba,
 	d,
 	fat16_lba,
 	extendedPartition,
