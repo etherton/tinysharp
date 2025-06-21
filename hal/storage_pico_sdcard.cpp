@@ -406,7 +406,7 @@ size_t storage_pico_sdcard::getBlockCount() const {
 bool storage_pico_sdcard::readBlock(size_t index,void *dest) {
     if (m_cardType != SDCARD_V2HC)
         index <<= 9;
-    if (_cmd(CMD17_READ_SINGLE_BLOCK, (uint32_t)index, false,nullptr)) {
+    if (_cmd(CMD17_READ_SINGLE_BLOCK, (uint32_t)index,false,nullptr)) {
         printf("readBlock - cmd failed");
         return false;
     }
@@ -418,11 +418,39 @@ bool storage_pico_sdcard::readBlock(size_t index,void *dest) {
     uint8_t cs[2];
     spi_read_blocking(m_spi_inst,0xFF,cs,2);
     // printf("readBlock - %02x ...\n",*(uint8_t*)dest);
+    _postclock_then_deselect();
     return true;
 }
 
-bool storage_pico_sdcard::writeBlock(size_t index,const void *dest) {
-    return false;
+bool storage_pico_sdcard::writeBlock(size_t index,const void *src) {
+    if (m_cardType != SDCARD_V2HC)
+        index <<= 9;
+    if (_cmd(CMD24_WRITE_BLOCK, (uint32_t)index,false,nullptr)) {
+        printf("readBlock - cmd failed");
+        return false;
+    }
+
+    // indicate start of block
+    _spi_write_read(0xFE);
+
+    // write the data
+    spi_write_blocking(m_spi_inst, (uint8_t*)src, 512);
+
+    uint16_t crc = 0;
+    /* if (config->enable_crc) {
+        crc = _crc16(buffer, length);
+    } */
+
+    // write the checksum CRC-16
+    _spi_write_read(crc >> 8);
+    _spi_write_read(crc);
+
+    // check the response token
+    uint8_t response = _spi_write_read(SPI_FILL_CHAR);
+    //printf("write response = %x\n",response);
+    bool result = (response & 0x1F) != 5 || !_wait_ready();
+    _postclock_then_deselect();
+    return result;
 }
 
 const void *storage_pico_sdcard::memoryMap(size_t index,size_t blockCount) {
