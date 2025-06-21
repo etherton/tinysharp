@@ -44,6 +44,19 @@ void editor::newFile() {
     updateCursor();
 }
 
+void editor::convertNewlines() {
+    uint32_t docSize = ss.m_documentSize;
+    for (uint32_t i=0; i+1<docSize;) {
+        if (m_document[i]==13 && m_document[i+1]==10) {
+            memmove(m_document+i,m_document+i+1,docSize-i);
+            --docSize;
+        }
+        else
+            ++i;
+    }
+    ss.m_documentSize = docSize;
+}
+
 bool editor::quickSave() {
     if (!m_storage->writeBlock(0,&ss))
         return false;

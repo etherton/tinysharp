@@ -55,6 +55,7 @@ int main()
         char *s = new char[roundedSize];
         volume->readFile(de,s,0,de.size);
         e.setFile(s,de.size,roundedSize);
+        e.convertNewlines();
     }
     else if (!e.quickLoad(false))
         e.newFile();

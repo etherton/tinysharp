@@ -33,6 +33,7 @@ public:
 	void newFile();
 	bool quickSave();
 	bool quickLoad(bool readOnly);
+	void convertNewlines();
 	void draw();
 	void drawCursor();
 	void update(uint16_t keyEvent);
