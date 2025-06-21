@@ -51,15 +51,15 @@ struct bootSector {
 	bool isFat32() const { return !isFat16() && fat32.extendedBootSignature == 0x29; }
 	uint32_t getRootDirectory() const {
 		return isFat16()
-			? hiddenSectors.get() + reservedSectors.get() + numberOfFatCopies * sectorsPerFat.get() 
-			: hiddenSectors.get() + reservedSectors.get() + numberOfFatCopies * fat32.logicalSectorsPerFat.get() + 
+			? reservedSectors.get() + numberOfFatCopies * sectorsPerFat.get() 
+			: reservedSectors.get() + numberOfFatCopies * fat32.logicalSectorsPerFat.get() + 
 				(fat32.rootDirectoryStart.get() - 2) * sectorsPerCluster;
 	}
 	uint32_t getCluster2() const {
 		return isFat16()
-			? hiddenSectors.get() + reservedSectors.get() + numberOfFatCopies * sectorsPerFat.get()
+			? reservedSectors.get() + numberOfFatCopies * sectorsPerFat.get()
 				+ ((numberOfPossRootEntries.get() * 32 + bytesPerSector.get() - 1) / bytesPerSector.get())
-			: hiddenSectors.get() + reservedSectors.get() + numberOfFatCopies * fat32.logicalSectorsPerFat.get();
+			: reservedSectors.get() + numberOfFatCopies * fat32.logicalSectorsPerFat.get();
 	}
 	uint32_t getClusterSector(uint32_t cl) const {
 		return getCluster2() + (cl-2) * sectorsPerCluster;
@@ -151,6 +151,7 @@ struct dirEntry {
 	word startingClusterLo;		// 0x1A
 	dword fileSizeBytes;		// 0x1C
 };
+static_assert(sizeof(dirEntry)==32);
 
 // lfnEntry's are stored just BEFORE the matching legacy entry, in descending order (highest ordinal first)
 struct lfnEntry {
@@ -159,10 +160,11 @@ struct lfnEntry {
 	uint8_t attributes;		// 0x0B
 	uint8_t reservedZeroByte;	// 0x0C
 	uint8_t checksum;		// 0x0D - value = rotRight(value) + value (of the 8.3 name, incl. spaces)
-	word unicode_6_11[5];		// 0x0E
+	word unicode_6_11[6];		// 0x0E
 	word reservedZeroWord;		// 0x1A
 	word unicode_12_13[2];		// 0x1C
 };
+static_assert(sizeof(lfnEntry)==32);
 
 enum class attributes_t: uint8_t  {
 	readOnly = 1,

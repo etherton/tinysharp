@@ -9,6 +9,7 @@
 #include "fs/volume_fat.h"
 
 #include <stdio.h>
+#include <string.h>
 #include "pico/stdlib.h"
 
 #include "ide/editor.h"
@@ -17,6 +18,20 @@
 #include "font-5x8.h"
 #include "font-6x8.h"
 #include "font-8x8.h"
+
+void walkTree(fs::volume &v,fs::directoryEntry *de,uint8_t level) {
+    fs::directory d;
+    if (v.openDir(d,de)) {
+        fs::directoryEntry e;
+        while (v.readDir(d,e)) {
+            for (uint8_t i=0; i<level; i++)
+                printf(" ");
+            printf("[%s]\n",e.filename);
+            if (e.directory && strcmp(e.filename,".") && strcmp(e.filename,".."))
+                walkTree(v,&e,level+1);
+        }
+    }
+}
 
 int main()
 {
@@ -31,6 +46,7 @@ int main()
 
     auto sd = hal::storage_pico_sdcard::create();
     auto volume = fs::volumeFat::create(sd);
+    walkTree(*volume,nullptr,0);
 
     if (!e.quickLoad(false))
         e.newFile();

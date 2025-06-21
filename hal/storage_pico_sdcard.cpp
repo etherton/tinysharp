@@ -218,7 +218,7 @@ int storage_pico_sdcard::_cmd(uint8_t cmd, uint32_t arg, bool is_acmd, uint32_t 
         return SD_BLOCK_DEVICE_ERROR_UNSUPPORTED;      // Command not supported
     }
 
-    printf("CMD:%d \t arg:0x%x \t Response:0x%x\n", cmd, arg, response);
+    // printf("CMD:%d \t arg:0x%x \t Response:0x%x\n", cmd, arg, response);
     // Set status for other errors
     if ((response & R1_ERASE_RESET) || (response & R1_ERASE_SEQUENCE_ERROR))
         status = SD_BLOCK_DEVICE_ERROR_ERASE;            // Erase error
@@ -237,7 +237,7 @@ int storage_pico_sdcard::_cmd(uint8_t cmd, uint32_t arg, bool is_acmd, uint32_t 
             response |= (_spi_write_read() << 16);
             response |= (_spi_write_read() << 8);
             response |= _spi_write_read();
-            printf("R3/R7: 0x%x\n", response);
+            //printf("R3/R7: 0x%x\n", response);
             break;
 
         case CMD12_STOP_TRANSMISSION:       // Response R1b
@@ -247,7 +247,7 @@ int storage_pico_sdcard::_cmd(uint8_t cmd, uint32_t arg, bool is_acmd, uint32_t 
 
         case ACMD13_SD_STATUS:             // Response R2
             response = _spi_write_read();
-            printf("R2: 0x%x\n", response);
+            //printf("R2: 0x%x\n", response);
             break;
 
         default:                            // Response R1
@@ -367,7 +367,7 @@ storage_pico_sdcard* storage_pico_sdcard::create(uint8_t spi,
     spi_read_blocking(result->m_spi_inst,0xFF,cs,2);
     uint32_t READ_BL_LEN = 0, C_SIZE = 0, C_SIZE_MULT = 0;
     uint32_t BLOCKNR = 0;
-    printf("CSD - %02x %02x %02x %02x  .... %02x\n",csd[0],csd[1],csd[2],csd[3],csd[15]);
+    //printf("CSD - %02x %02x %02x %02x  .... %02x\n",csd[0],csd[1],csd[2],csd[3],csd[15]);
     switch (bit_extract(csd,127,126)) {
         case 0:
             READ_BL_LEN = bit_extract(csd,83,80);
@@ -417,7 +417,7 @@ bool storage_pico_sdcard::readBlock(size_t index,void *dest) {
     spi_read_blocking(m_spi_inst,0xFF,(uint8_t*)dest,512);
     uint8_t cs[2];
     spi_read_blocking(m_spi_inst,0xFF,cs,2);
-    printf("readBlock - %02x ...\n",*(uint8_t*)dest);
+    // printf("readBlock - %02x ...\n",*(uint8_t*)dest);
     return true;
 }
 
