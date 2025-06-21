@@ -13,6 +13,8 @@ volumeFat* volumeFat::create(hal::storage *s) {
     if (s->readBlock(0,&m) && m.signature.get() == 0xaa55) {
         for (int i=0; i<4; i++) {
             switch (m.partitions[i].type) {
+                case partitionType::unused: // unassigned
+                    break;
                 case partitionType::fat12:
                     printf("do not support fat12, reformat to fat16\n");
                     break;
@@ -22,6 +24,7 @@ volumeFat* volumeFat::create(hal::storage *s) {
                 case partitionType::fat16_smaller32M:
                 case partitionType::fat16_larger32M:
                 case partitionType::fat16_lba:
+                case partitionType::fat32_chs:
                 case partitionType::fat32_lba:
                     volumeFat *v = new volumeFat;
                     if (v->init(new hal::storage_inner(s,m.partitions[i].lba.get(),m.partitions[i].sizeInSectors.get())))
@@ -78,8 +81,8 @@ bool volumeFat::init(hal::storage *s) {
     }
     m_storage = s;
     bootSector &b = *(bootSector*)getSector(0);
-    printf("%u reserved sectors, %u fat copies, %u sectors per fat, poss. root entries %u\n",
-        b.reservedSectors.get(), b.numberOfFatCopies, b.sectorsPerFat.get()?b.sectorsPerFat.get():b.fat32.logicalSectorsPerFat.get(), b.numberOfPossRootEntries.get());
+    //printf("%u reserved sectors, %u fat copies, %u sectors per fat, poss. root entries %u\n",
+    //    b.reservedSectors.get(), b.numberOfFatCopies, b.sectorsPerFat.get()?b.sectorsPerFat.get():b.fat32.logicalSectorsPerFat.get(), b.numberOfPossRootEntries.get());
     m_sectorsPerCluster = b.sectorsPerCluster;
     m_numberOfFatCopies = b.numberOfFatCopies;
     m_sectorsPerFat = b.sectorsPerFat.get()? b.sectorsPerFat.get() : b.fat32.logicalSectorsPerFat.get();
@@ -109,6 +112,7 @@ bool volumeFat::openDir(directory &d,directoryEntry const * const de) {
 }
 
 bool volumeFat::readDir(directory &d,directoryEntry &de) {
+    // zero out entire name; makes sure end result is properly terminated in all situations.
     memset(de.filename,0,sizeof(de.filename));
     for (;d.currentEntry<d.maxEntries;d.currentEntry++) {
         if (d.maxEntries && d.currentEntry >= d.maxEntries)
@@ -135,7 +139,7 @@ bool volumeFat::readDir(directory &d,directoryEntry &de) {
         }
         else if (!b->filename[0])
             return false;
-        else if (!(b->attributes & 0x8) && b->filename[0] != 0xE5) {
+        else if (b->filename[0] != 0xE5) {
             if (!de.filename[0]) {
                 strncpy(de.filename,b->filename,8);
                 uint8_t len = 8;
@@ -164,5 +168,43 @@ bool volumeFat::readDir(directory &d,directoryEntry &de) {
     return false;
 }
 
+bool volumeFat::locateEntry(directoryEntry &dest,const char *path) {
+    if (path[0]!='/')
+        return false;
+    ++path;
+    directoryEntry *i = nullptr;
+    for (;;) {
+        const char *nextPart = strchr(path,'/');
+        uint32_t nextLen = nextPart? nextPart - path - 1 : strlen(path);
+        directory d;
+        if (!openDir(d,i))
+            return false;
+        bool matched = false;
+        while (readDir(d,dest)) {
+            if (!strncmp(path,dest.filename,nextLen)) {
+                if (nextPart && dest.directory) {
+                    matched = true;
+                    i = &dest;
+                    break;
+                }
+                else if (!nextPart)
+                    return true;
+            }
+        }
+        if (!matched)
+            return false;
+    }
 }
 
+uint32_t volumeFat::readFile(const directoryEntry &de,void *dest,uint32_t offset,uint32_t size) {
+    if (de.volume || de.directory)
+        return 0;
+
+    while (offset < size) {
+        memcpy((char*)dest + offset,getSector(-de.firstCluster,offset >> 9),size - offset > 512? 512 : size - offset);
+        offset += 512;
+    }
+    return size;
+}
+
+} // namespace fs

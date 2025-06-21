@@ -211,7 +211,7 @@ int storage_pico_sdcard::_cmd(uint8_t cmd, uint32_t arg, bool is_acmd, uint32_t 
     }
     if (response & R1_ILLEGAL_COMMAND) {
         _postclock_then_deselect();
-        printf("Illegal command CMD:%d response 0x%x\n", cmd, response);
+        // printf("Illegal command CMD:%d response 0x%x\n", cmd, response);
         //if (cmd == CMD8_SEND_IF_COND) {                  // Illegal command is for Ver1 or not SD Card
         //    config->card_type = CARD_UNKNOWN;
         //}
@@ -229,7 +229,7 @@ int storage_pico_sdcard::_cmd(uint8_t cmd, uint32_t arg, bool is_acmd, uint32_t 
     // Get rest of the response part for other commands
     switch (cmd) {
         case CMD8_SEND_IF_COND:             // Response R7
-            printf("V2-Version Card\n");
+            //printf("V2-Version Card\n");
             m_cardType = SDCARD_V2; // fallthrough
         // Note: No break here, need to read rest of the response
         case CMD58_READ_OCR:                // Response R3
@@ -346,7 +346,7 @@ storage_pico_sdcard* storage_pico_sdcard::create(uint8_t spi,
         err = result->_cmd(CMD58_READ_OCR, 0, false, &response);
         if (response & OCR_HCS_CCS)
             result->m_cardType = SDCARD_V2HC;
-        printf("V2 card\n");
+        //printf("V2 card\n");
     }
     else
         result->m_cardType = SDCARD_V1;

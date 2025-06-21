@@ -28,7 +28,7 @@ void walkTree(fs::volume &v,fs::directoryEntry *de,uint8_t level) {
                 printf(" ");
             printf("[%s]\n",e.filename);
             if (e.directory && strcmp(e.filename,".") && strcmp(e.filename,".."))
-                walkTree(v,&e,level+1);
+                walkTree(v,&e,level+2);
         }
     }
 }
@@ -48,7 +48,15 @@ int main()
     auto volume = fs::volumeFat::create(sd);
     walkTree(*volume,nullptr,0);
 
-    if (!e.quickLoad(false))
+    fs::directoryEntry de;
+    if (volume->locateEntry(de,"/ADVENT.BAS")) {
+        //printf("found file! %u bytes, cluster %d\n",de.size,de.firstCluster);
+        uint32_t roundedSize = (de.size + 512) & ~511;
+        char *s = new char[roundedSize];
+        volume->readFile(de,s,0,de.size);
+        e.setFile(s,de.size,roundedSize);
+    }
+    else if (!e.quickLoad(false))
         e.newFile();
     e.draw();
     for (;;) {

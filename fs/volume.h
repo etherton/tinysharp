@@ -30,6 +30,9 @@ public:
 	virtual bool openDir(directory &handle,directoryEntry const * const de) = 0;
 	// returns next directory nentry, or false if no further
 	virtual bool readDir(directory &handle,directoryEntry &dest) = 0;
+    virtual bool locateEntry(directoryEntry &dest,const char *path) = 0;
+    virtual uint32_t readFile(const directoryEntry &de,void *dest,uint32_t offset,uint32_t size) = 0;
+
 };
 
 extern volume *g_root;

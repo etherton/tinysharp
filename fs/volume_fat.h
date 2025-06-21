@@ -11,6 +11,8 @@ public:
 
 	virtual bool openDir(directory &handle,directoryEntry const * const de);
 	virtual bool readDir(directory &handle,directoryEntry &dest);
+    virtual bool locateEntry(directoryEntry &dest,const char *path);
+    virtual uint32_t readFile(const directoryEntry &de,void *dest,uint32_t offset,uint32_t size);
 
 private:
     uint8_t *getSector(int32_t,uint8_t = 0);
