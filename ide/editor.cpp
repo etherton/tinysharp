@@ -123,7 +123,7 @@ void editor::drawText() {
         g_video->drawString(xPix,m_yPix+rowChars*fh,m_palette[TEXT],m_document + i,drawLen);
         int right = (xPix + drawLen * fw);
         if (right < hal::video::getScreenWidth())
-            g_video->fill(xPix + right,m_yPix+rowChars*fh,hal::video::getScreenWidth() - right,fh,m_palette[TEXT]);
+            g_video->fill(right,m_yPix+rowChars*fh,hal::video::getScreenWidth() - right,fh,m_palette[TEXT]);
         if (m_document[j]==10)
             ++j;
         ++rowChars;

@@ -14,7 +14,7 @@
 
 #include "ide/editor.h"
 
-#include "font-4x7.h"
+#include "font-4x6.h"
 #include "font-5x8.h"
 #include "font-6x8.h"
 #include "font-8x8.h"
@@ -67,7 +67,7 @@ int main()
                 case hal::modifier::LALT_BIT | hal::modifier::PRESSED_BIT | '1': hal::video::create("bpp=16"); break;
                 case hal::modifier::LALT_BIT | hal::modifier::PRESSED_BIT | '2': hal::video::create("bpp=24"); break;
                 case hal::modifier::LALT_BIT | hal::modifier::PRESSED_BIT | '3': hal::video::create("bpp=3"); break;
-                case hal::modifier::LALT_BIT | hal::modifier::PRESSED_BIT | '4': hal::video::setFont(4,7,console_font_4x7,0); break;
+                case hal::modifier::LALT_BIT | hal::modifier::PRESSED_BIT | '4': hal::video::setFont(4,6,console_font_4x6,0); break;
                 case hal::modifier::LALT_BIT | hal::modifier::PRESSED_BIT | '5': hal::video::setFont(5,8,console_font_5x8,0); break;
                 case hal::modifier::LALT_BIT | hal::modifier::PRESSED_BIT | '6': hal::video::setFont(6,8,console_font_6x8,0); break;
                 case hal::modifier::LALT_BIT | hal::modifier::PRESSED_BIT | '8': hal::video::setFont(8,8,console_font_8x8,0); break;
