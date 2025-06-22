@@ -299,7 +299,7 @@ storage_pico_sdcard* storage_pico_sdcard::create(uint8_t spi,
     gpio_pull_up(sd_miso_pin);
     gpio_set_drive_strength(sd_mosi_pin, GPIO_DRIVE_STRENGTH_4MA);
     gpio_set_drive_strength(sd_sclk_pin, GPIO_DRIVE_STRENGTH_4MA);
-    spi_init(spi_inst, 10'000'000);
+    spi_init(spi_inst, 100'000);
     spi_set_format(spi_inst, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
 
     gpio_put(sd_cs_pin, 1);
@@ -383,7 +383,10 @@ storage_pico_sdcard* storage_pico_sdcard::create(uint8_t spi,
             break;
     }
     static const char *cards[] = { "none", "v1", "v2", "v2_hc", "unknown" };
-    printf("sdcard - created %s, %u blocks %uk\n",cards[result->m_cardType],BLOCKNR,(BLOCKNR >> 1));
+    uint32_t target = result->m_cardType == SDCARD_V2HC? 50'000'000 : 25'000'000;
+    target = spi_set_baudrate(result->m_spi_inst,target);
+    printf("sdcard - created %s, %u blocks %uk %u hz\n",cards[result->m_cardType],BLOCKNR,(BLOCKNR >> 1),target);
+
     result->m_blockCount = BLOCKNR;
     result->_postclock_then_deselect();
     return result;
