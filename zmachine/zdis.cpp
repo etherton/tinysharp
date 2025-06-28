@@ -57,11 +57,73 @@ static const uint8_t decode[256+32] = {
 	St,0,0,0,0b01010000,0,0,St, 0,0b01000000,0,0,St,0,0,0, 0,0,0,0,0,0,St,StBr, St,0,0,0,0,0,0,Br,
 
 	// EXT
-	St,St,St,St,St,0,Br,0, 0,St,St,0,St,0,0,0, 0,0,0,St,0,0,0,0, Br,0,0,Br,0,0,0,0,0
-}
+	St,St,St,St,St,0,Br,0, 0,St,St,0,St,0,0,0, 0,0,0,St,0,0,0,0, Br,0,0,Br,0,0,0,0
+};
+
+static const char *opcode_names[256+32] = {
+	// 00-0x7F
+	nullptr, "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", nullptr, nullptr, nullptr,
+	nullptr, "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", nullptr, nullptr, nullptr,
+	nullptr, "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", nullptr, nullptr, nullptr,
+	nullptr, "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", nullptr, nullptr, nullptr,
+
+	// 0x80-0xAF
+	"jz", "get_sibling","get_child","get_parent","get_prop_len","inc","dec","print_addr","call_1s","remove_obj","print_obj","ret","jump","print_paddr","load","not/call1n",
+	"jz", "get_sibling","get_child","get_parent","get_prop_len","inc","dec","print_addr","call_1s","remove_obj","print_obj","ret","jump","print_paddr","load","not/call1n",
+	"jz", "get_sibling","get_child","get_parent","get_prop_len","inc","dec","print_addr","call_1s","remove_obj","print_obj","ret","jump","print_paddr","load","not/call1n",
+
+	// 0xB0-0xBF
+	"rtrue","rfalse","print","print_ret","nop","save","restore","restart","ret_popped","pop/catch","quit","new_line","show_status","verify",nullptr,"piracy",
+
+	// 0xC0-0xDF
+	nullptr, "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", nullptr, nullptr, nullptr,
+
+	//0xE0-0xFF
+	"call_vs","storew","storeb","put_prop","sread","print_char","print_num","random","push","pull","split_window","set_window","call_vs2","erase_window","erase_line","set_cursor",
+	"get_cursor","set_text_style","buffer_mode","output_stream","input_stream","sound_effect","read_char","scan_table","not","call_vn","call_vn2","tokenise","encode_text","copy_table","print_table","check_arg_count",
+
+	// 0x100-0x1F
+	"save","restore","log_shift","art_shift","set_font","draw_picture","picture_data","erase_picture","set_margins","save_undo","restore_undo","print_unicode","check_unicode",nullptr,nullptr,nullptr,
+	"move_window","window_size","window_style","get_wind_prop","scroll_window","pop_stack","read_mouse","mouse_window","push_stack","put_wind_prop","print_form","make_menu","picture_table",nullptr,nullptr,nullptr
+};
+
+static const char* varTypes[] = {
+	"(sp)", "local0", "local1", "local2", "local3", "local4", "local5", "local6", "local7",
+	"local8", "local9", "local10", "local11", "local12", "local13", "local14", "local15",
+	"global0","global1","global2","global3","global4","global5","global6","global7",
+	"global8","global9","global10","global11","global12","global13","global14","global15",
+	"global16","global17","global18","global19","global20","global21","global22","global23",
+	"global24","global25","global26","global27","global28","global29","global30","global31",
+	"global32","global33","global34","global35","global36","global37","global38","global39",
+	"global40","global41","global42","global43","global44","global45","global46","global47",
+	"global48","global49","global50","global51","global52","global53","global54","global55",
+	"global56","global57","global58","global59","global60","global61","global62","global63",
+	"global64","global65","global66","global67","global68","global69","global70","global71",
+	"global72","global73","global74","global75","global76","global77","global78","global79",
+	"global80","global81","global82","global83","global84","global85","global86","global87",
+	"global88","global89","global90","global91","global92","global93","global94","global95",
+	"global96","global97","global98","global99","global100","global101","global102","global103",
+	"global104","global105","global106","global107","global108","global109","global110","global111",
+	"global112","global113","global114","global115","global116","global117","global118","global119",
+	"global120","global121","global122","global123","global124","global125","global126","global127",
+	"global128","global129","global130","global131","global132","global133","global134","global135",
+	"global136","global137","global138","global139","global140","global141","global142","global143",
+	"global144","global145","global146","global147","global148","global149","global150","global151",
+	"global152","global153","global154","global155","global156","global157","global158","global159",
+	"global160","global161","global162","global163","global164","global165","global166","global167",
+	"global168","global169","global170","global171","global172","global173","global174","global175",
+	"global176","global177","global178","global179","global180","global181","global182","global183",
+	"global184","global185","global186","global187","global188","global189","global190","global191",
+	"global192","global193","global194","global195","global196","global197","global198","global199",
+	"global200","global201","global202","global203","global204","global205","global206","global207",
+	"global208","global209","global210","global211","global212","global213","global214","global215",
+	"global216","global217","global218","global219","global220","global221","global222","global223",
+	"global224","global225","global226","global227","global228","global229","global230","global231",
+	"global232","global233","global234","global235","global236","global237","global238","global239" 
+};
+
 
 void dis(storyHeader *h,int pc) {
-	uint8_t *b = (uint8_t*) h;
 	// keep track of the furthest forward branch we've seen.
 	// if we encounter an unconditional return and we're at or beyond, we're done.
 	// 0b00 - large constant (2 bytes)
@@ -69,11 +131,16 @@ void dis(storyHeader *h,int pc) {
 	// 0b10 - variable (0=tos, 1-15=local, 16-255=global 1-240)
 	// 0b11 - omitted altogether
 	int highest = pc;
-	for (;;) {
+	int end = h->storyLength.getU() * storyScales[h->version];
+	uint8_t *b = (uint8_t*) h;
+
+	while (pc < end) {
 		printf("%06x: ",pc);
 		uint16_t opcode = b[pc++];
-		if (opcode == 0xBE && story->version>=5)
+		if (opcode == 0xBE && h->version>=5)
 			opcode = 0x100 | b[pc++];
+		printf("%s ",opcode_names[opcode]);
+
 		uint16_t types = opTypes[opcode >> 4] << 8;
 		if (!types)
 			types = b[pc++] << 8;
@@ -81,15 +148,22 @@ void dis(storyHeader *h,int pc) {
 			types |= b[pc++];
 		else
 			types |= 255;
-		int16_t operands[8];
+		while (types != 0xFFFF) {
+			int16_t op = b[pc++];
+			switch (types & 0xC000) {
+				case 0x0000: printf("%d ",int16_t((op << 8) | b[pc++])); break;
+				case 0x4000: printf("%d ",op); break;
+				case 0x8000: printf("%s ",varTypes[op]); break;
+			}
+			types = (types << 2) | 0x3;
+		}
 		
-		uint8_t store_variable = 0xFF;
-		uint8_t decode_byte = decode[opcode] >> version_shift[story->version];
-		if ((decode_byte & 1)
-			store_variable = b[pc++];
-		int16_t branch_offset = -1;
-		bool branch_cond = false;
+		uint8_t decode_byte = decode[opcode] >> version_shift[h->version];
+		if (decode_byte & 1)
+			printf("-> %s ",varTypes[b[pc++]]);
 		if (decode_byte & 2) {
+			int16_t branch_offset = -1;
+			bool branch_cond = false;
 			branch_offset = b[pc++];
 			branch_cond = branch_offset >> 7;
 			if (branch_offset & 64)
@@ -100,171 +174,48 @@ void dis(storyHeader *h,int pc) {
 				branch_offset = (branch_offset << 8) | b[pc++];
 			}
 			// track the furthest forward branch we've seen to detect end of routine.
-			if (branch_offset > 1 && pc + branch_offset - 2 > highest)
-				highest = pc + branch_offset - 2;
-		}
-
-		bool ret = false;	
-		const char *nm = "?illegal";
-		if (opcode < 0x80 || (opcode >= 0xC0 && opcode < 0xE0)) {
-			switch (opcode & 31) {	 // 2OP
-				case 0x01: nm="je"; break;
-				case 0x02: nm="jl"; break;
-				case 0x03: nm="jg"; break;
-				case 0x04: nm="dec_chk"; break;
-				case 0x05: nm="inc_chk"; break;
-				case 0x06: nm="jin"; break;
-				case 0x07: nm="test"; break;
-				case 0x08: nm="or"; break;
-				case 0x09: nm="and"; break;
-				case 0x0A: nm="test_attr"; break;
-				case 0x0B: nm="set_attr"; break;
-				case 0x0C: nm="clear_attr"; break;
-				case 0x0D: nm="store"; break;
-				case 0x0E: nm="insert_obj"; break;
-				case 0x0F: nm="loadw"; break;
-				case 0x10: nm="loadb"; break;
-				case 0x11: nm="get_prop"; break;
-				case 0x12: nm="get_prop_addr"; break;
-				case 0x13: nm="get_next_propr"; break;
-				case 0x14: nm="add"; break;
-				case 0x15: nm="sub"; break;
-				case 0x16: nm="mul"; break;
-				case 0x17: nm="div"; break;
-				case 0x18: nm="mod"; break;
-				case 0x19: nm="call_2s"; break;
-				case 0x1A: nm="call_2n"; break;
-				case 0x1B: nm="set_colour"; break;
-				case 0x1C: nm="throw"; break;
+			if (branch_offset <= 1) {
+				opcode = 176 - branch_offset;
+				printf("?%s%s",branch_cond?"":"~",branch_offset?"rtrue":"rfalse");
 			}
-		}	
-		else if (opcode < 0xB0) {
-			switch (opcode & 15) {	// 1OP
-				case 0x0: nm="jz"; break;
-				case 0x1: nm="get_sibling"; break;
-				case 0x2: nm="get_child"; break;
-				case 0x3: nm="get_parent"; break;
-				case 0x4: nm="get_prop_len"; break;
-				case 0x5: nm="inc"; break;
-				case 0x6: nm="dec"; break;
-				case 0x7: nm="print_addr"; break;
-				case 0x8: nm="call_1s"; break;
-				case 0x9: nm="remove_obj"; break;
-				case 0xA: nm="print_obj"; break;
-				case 0xB: ret = true; nm="ret"; break;
-				case 0xC: nm="jump"; break;
-				case 0xD: nm="print_paddr"; break;
-				case 0xE: nm="load"; break;
-				case 0xF: nm="call_1n"; break;
+			else {
+				if (pc + branch_offset - 2 > highest)
+					highest = pc + branch_offset - 2;
+				printf("?%s%x",branch_cond?"":"~",pc + branch_offset - 2);
 			}
 		}
-		else if (opcode < 0xC0) {
-			switch (opcode & 15) {	// 0OP
-				case 0x00: ret = true; nm="rtrue"; break;
-				case 0x01: ret = true; nm="rfalse"; break;
-				case 0x02: nm="print"; break;
-				case 0x03: ret = true; nm="print_ret"; break;
-				case 0x04: nm="nop"; break;
-				case 0x05: nm="save"; break;
-				case 0x06: nm="restore"; break;
-				case 0x07: nm="restart"; break;
-				case 0x08: ret = true; nm="ret_popped"; break;
-				case 0x09: nm=story->version>=5?"catch:"pop"; break;
-				case 0x0A: nm="quit"; break;
-				case 0x0B: nm="new_line"; break;
-				case 0x0C: nm="show_status"; break;
-				case 0x0D: nm="verify"; break;
-				case 0x0E: break;
-				case 0x0F: nm="piracy"; break;
-			}
-		}
-		else switch (opcode) { // VAR/EXT
-			case 224: nm=story->version<4?"call":"call_vs"; break;
-			case 225: nm="storew"; break;
-			case 226: nm="storeb"; break;
-			case 227: nm="put_prop"; break;
-			case 228: nm="sread"; break;
-			case 229: nm="print_char"; break;
-			case 230: nm="print_num"; break;
-			case 231: nm="random"; break;
-			case 232: nm="push"; break;
-			case 233: nm="pull"; break;
-			case 234: nm="split_window"; break;
-			case 235: nm="set_window"; break;
-			case 236: nm="call_vs2"; break;
-			case 237: nm="erase_window"; break;
-			case 238: nm="erase_line"; break;
-			case 239: nm="set_cursor"; break;
-			case 240: nm="get_cursor"; break;
-			case 241: nm="set_text_style"; break;
-			case 242: nm="buffer_mode"; break;
-			case 243: nm="output_stream"; break;
-			case 244: nm="input_stream"; break;
-			case 245: nm="sound_effect"; break;
-			case 246: nm="read_char"; break;
-			case 247: nm="scan_table"; break;
-			case 248: nm="not"; break;
-			case 249: nm="call_vn"; break;
-			case 250: nm="call_vn2"; break;
-			case 251: nm="tokenise"; break;
-			case 252: nm="encode_text"; break;
-			case 253: nm="copy_table"; break;
-			case 254: nm="print_table"; break;
-			case 255: nm="check_arg_count"; break;
-
-			case 256: nm="save"; break;
-			case 257: nm="restore"; break;
-			case 258: nm="log_shift"; break;
-			case 259: nm="art_shift"; break;
-			case 260: nm="set_font"; break;
-			case 261: nm="draw_picture"; break;
-			case 262: nm="picture_data"; break;
-			case 263: nm="erase_picture"; break;
-			case 264: nm="set_margins"; break;
-			case 265: nm="save_undo"; break;
-			case 266: nm="restore_undo"; break;
-			case 267: nm="print_unicode"; break;
-			case 268: nm="check_unicode"; break;
-			case 272: nm="move_window"; break;
-			case 273: nm="window_size"; break;
-			case 274: nm="window_style"; break;
-			case 275: nm="get_wind_prop"; break;
-			case 276: nm="scroll_window"; break;
-			case 277: nm="pop_stack"; break;
-			case 278: nm="read_mousee"; break;
-			case 279: nm="mouse_window"; break;
-			case 280: nm="push_stack"; break;
-			case 281: nm="put_wind_prop"; break;
-			case 282: nm="print_form"; break;
-			case 283: nm="make_menu"; break;
-			case 284: nm="picture_table"; break;
-		}
-	}
-}
-
-void routine(storyHeader *h,int pa) {
-	int pc = pa * storyScales[h->version];
-	uint8_t *b = (uint8_t*) h + pc;
-	printf("routine at %d, %d locals\n",pc,b[0]);
-	if (h->version < 5) {
-		word *locals = (word*)(b + 1);
-		printf("initial values: ");
-		for (int i=0; i<b[0]; i++)
-			printf("[%d] ",locals[i]->getS());
 		printf("\n");
-		pc += 2 * b[0];
+
+		// If pc is beyond furthest branch and it's a return, it's end of function
+		if (pc > highest && (opcode==0x8B||opcode==0x8C||opcode==0x9B||opcode==0xAB||opcode==0xB0||opcode==0xB1||opcode==0xB3||opcode==0xB8))
+			break;
 	}
-	++pc;
-	dis(h,pc);
 }
+
+void routine(storyHeader *h,int pc) {
+	uint8_t *b = (uint8_t*) h;
+	printf("routine at %x, %d locals\n",pc,b[pc]);
+	if (h->version < 5 && b[pc]) {
+		word *locals = (word*)(b + pc + 1);
+		printf("initial values: ");
+		for (int i=0; i<b[pc]; i++)
+			printf("[%d] ",locals[i].getS());
+		printf("\n");
+		pc += 2 * b[pc];
+	}
+	dis(h,pc+1);
+}
+
 int main(int argc,char **argv) {
 	storyHeader *story = getStory(argv[1]);
 	printf("version %d\n",story->version);
-	printf("high memory: %d\n",story->highMemoryAddr.getU());
-	printf("initial pc: %d\n",story->initialPCAddr.getU());
-	printf("dictionary: %d\n",story->dictionaryAddr.getU());
-	printf("globals: %d\n",story->globalVarsTableAddr.getU());
-	printf("static memory: %d\n",story->staticMemoryAddr.getU());
-	printf("abbreviations: %d\n",story->abbreviationsAddr.getU());
-	printf("story length: %d\n",story->storyLength.getU() * storyScales[story->version]);
+	printf("high memory: %x\n",story->highMemoryAddr.getU());
+	printf("initial pc: %x\n",story->initialPCAddr.getU());
+	printf("dictionary: %x\n",story->dictionaryAddr.getU());
+	printf("globals: %x\n",story->globalVarsTableAddr.getU());
+	printf("static memory: %x\n",story->staticMemoryAddr.getU());
+	printf("abbreviations: %x\n",story->abbreviationsAddr.getU());
+	printf("story length: %x\n",story->storyLength.getU() * storyScales[story->version]);
+	// skip the count of 0 locals
+	dis(story,story->initialPCAddr.getU());
 }
