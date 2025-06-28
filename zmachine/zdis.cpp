@@ -1,5 +1,6 @@
 #include "header.h"
 #include <stdio.h>
+#include <assert.h>
 
 storyHeader *getStory(const char *storyName) {
 	FILE *f = fopen(storyName,"rb");
@@ -14,21 +15,30 @@ storyHeader *getStory(const char *storyName) {
 
 static const char storyScales[] = "\000\002\002\002\004\004\010\010\010";
 
-static const uint8_t opTypes[16] = {
-	0b0101'1111,
+static const uint8_t opTypes[16+2] = {
+	0b0101'1111, // 0x00-0x3F
 	0b0101'1111,
 	0b0110'1111,
 	0b0110'1111,
 
-	0b1001'1111,
+	0b1001'1111, // 0x40-0x7F
 	0b1001'1111,
 	0b1010'1111,
 	0b1010'1111,
 
-	0b0011'1111,
+	0b0011'1111, // 0x80-0xBF
 	0b0111'1111,
 	0b1011'1111,
 	0b1111'1111,
+
+	// Remaining entries are all zero to indicate types follow
+	0,
+	0,
+	0,
+	0,
+
+	0,
+	0
 };
 
 // Bits 0-1 are for V1-3, 2-3 are for V4, 4-5 for V5/7/8, 6-7 for V6
@@ -87,40 +97,11 @@ static const char *opcode_names[256+32] = {
 	"move_window","window_size","window_style","get_wind_prop","scroll_window","pop_stack","read_mouse","mouse_window","push_stack","put_wind_prop","print_form","make_menu","picture_table",nullptr,nullptr,nullptr
 };
 
-static const char* varTypes[] = {
-	"(sp)", "local0", "local1", "local2", "local3", "local4", "local5", "local6", "local7",
-	"local8", "local9", "local10", "local11", "local12", "local13", "local14", "local15",
-	"global0","global1","global2","global3","global4","global5","global6","global7",
-	"global8","global9","global10","global11","global12","global13","global14","global15",
-	"global16","global17","global18","global19","global20","global21","global22","global23",
-	"global24","global25","global26","global27","global28","global29","global30","global31",
-	"global32","global33","global34","global35","global36","global37","global38","global39",
-	"global40","global41","global42","global43","global44","global45","global46","global47",
-	"global48","global49","global50","global51","global52","global53","global54","global55",
-	"global56","global57","global58","global59","global60","global61","global62","global63",
-	"global64","global65","global66","global67","global68","global69","global70","global71",
-	"global72","global73","global74","global75","global76","global77","global78","global79",
-	"global80","global81","global82","global83","global84","global85","global86","global87",
-	"global88","global89","global90","global91","global92","global93","global94","global95",
-	"global96","global97","global98","global99","global100","global101","global102","global103",
-	"global104","global105","global106","global107","global108","global109","global110","global111",
-	"global112","global113","global114","global115","global116","global117","global118","global119",
-	"global120","global121","global122","global123","global124","global125","global126","global127",
-	"global128","global129","global130","global131","global132","global133","global134","global135",
-	"global136","global137","global138","global139","global140","global141","global142","global143",
-	"global144","global145","global146","global147","global148","global149","global150","global151",
-	"global152","global153","global154","global155","global156","global157","global158","global159",
-	"global160","global161","global162","global163","global164","global165","global166","global167",
-	"global168","global169","global170","global171","global172","global173","global174","global175",
-	"global176","global177","global178","global179","global180","global181","global182","global183",
-	"global184","global185","global186","global187","global188","global189","global190","global191",
-	"global192","global193","global194","global195","global196","global197","global198","global199",
-	"global200","global201","global202","global203","global204","global205","global206","global207",
-	"global208","global209","global210","global211","global212","global213","global214","global215",
-	"global216","global217","global218","global219","global220","global221","global222","global223",
-	"global224","global225","global226","global227","global228","global229","global230","global231",
-	"global232","global233","global234","global235","global236","global237","global238","global239" 
-};
+static const char zscii_default[] = 
+	"abcdefghijklmnopqrstuvwxyz"
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	"\033\n0123456789.,!?_#'\"/\\-:()";
+const char *zscii = zscii_default;
 
 
 void dis(storyHeader *h,int pc) {
@@ -133,6 +114,17 @@ void dis(storyHeader *h,int pc) {
 	int highest = pc;
 	int end = h->storyLength.getU() * storyScales[h->version];
 	uint8_t *b = (uint8_t*) h;
+
+	auto varTypes = [](uint8_t t) {
+		static char buf[16];
+		if (!t)
+			snprintf(buf,sizeof(buf),"(sp)");
+		else if (t < 16)
+			snprintf(buf,sizeof(buf),"local%d",t-1);
+		else
+			snprintf(buf,sizeof(buf),"global%d",t-16);
+		return buf;
+	};
 
 	while (pc < end) {
 		printf("%06x: ",pc);
@@ -153,14 +145,14 @@ void dis(storyHeader *h,int pc) {
 			switch (types & 0xC000) {
 				case 0x0000: printf("%d ",int16_t((op << 8) | b[pc++])); break;
 				case 0x4000: printf("%d ",op); break;
-				case 0x8000: printf("%s ",varTypes[op]); break;
+				case 0x8000: printf("%s ",varTypes(op)); break;
 			}
 			types = (types << 2) | 0x3;
 		}
 		
 		uint8_t decode_byte = decode[opcode] >> version_shift[h->version];
 		if (decode_byte & 1)
-			printf("-> %s ",varTypes[b[pc++]]);
+			printf("-> %s ",varTypes(b[pc++]));
 		if (decode_byte & 2) {
 			int16_t branch_offset = -1;
 			bool branch_cond = false;
@@ -183,6 +175,38 @@ void dis(storyHeader *h,int pc) {
 					highest = pc + branch_offset - 2;
 				printf("?%s%x",branch_cond?"":"~",pc + branch_offset - 2);
 			}
+		}
+		if (opcode == 0xB2 || opcode == 0xB3) {
+			int shift = 0, abbrev = 0;
+			auto printZ = [&](uint8_t ch) {
+				assert(ch<32);
+				if (abbrev) {
+					printf("[abbrev %d]",abbrev + ch);
+					abbrev = 0;
+				}
+				else if (ch==0)
+					printf(" ");
+				else if (ch<4)
+					abbrev = ch * 32;
+				else if (ch==4)
+					shift = 1;
+				else if (ch==5)
+					shift = 2;
+				else if (shift==2 && ch==6)
+					printf("[extended zscii]");
+				else if (shift==2 && ch==7)
+					printf("\n");
+				else {
+					printf("%c",zscii[shift*26+ch]);
+					shift = 0;
+				}
+			};
+			do {
+				printZ((b[pc]>>2) & 31);
+				printZ(((b[pc]&3)<<3) | (b[pc+1]>>5));
+				printZ(b[pc+1]&31);
+				pc+=2;
+			} while (!(b[pc-2] & 0x80));
 		}
 		printf("\n");
 
@@ -216,6 +240,8 @@ int main(int argc,char **argv) {
 	printf("static memory: %x\n",story->staticMemoryAddr.getU());
 	printf("abbreviations: %x\n",story->abbreviationsAddr.getU());
 	printf("story length: %x\n",story->storyLength.getU() * storyScales[story->version]);
+	if (story->alphabetTableAddress.getU())
+		zscii = (char*)story + story->alphabetTableAddress.getU();
 	// skip the count of 0 locals
 	dis(story,story->initialPCAddr.getU());
 }
