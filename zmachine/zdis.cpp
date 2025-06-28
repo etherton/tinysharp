@@ -72,10 +72,10 @@ static const uint8_t decode[256+32] = {
 
 static const char *opcode_names[256+32] = {
 	// 00-0x7F
-	nullptr, "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", nullptr, nullptr, nullptr,
-	nullptr, "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", nullptr, nullptr, nullptr,
-	nullptr, "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", nullptr, nullptr, nullptr,
-	nullptr, "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", nullptr, nullptr, nullptr,
+	"?00", "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?1D", "?1E", "?1F",
+	"?20", "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?3D", "?3E", "31F",
+	"?40", "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?5D", "?5E", "?5F",
+	"?60", "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?7D", "?7E", "?7F",
 
 	// 0x80-0xAF
 	"jz", "get_sibling","get_child","get_parent","get_prop_len","inc","dec","print_addr","call_1s","remove_obj","print_obj","ret","jump","print_paddr","load","not/call1n",
@@ -83,18 +83,18 @@ static const char *opcode_names[256+32] = {
 	"jz", "get_sibling","get_child","get_parent","get_prop_len","inc","dec","print_addr","call_1s","remove_obj","print_obj","ret","jump","print_paddr","load","not/call1n",
 
 	// 0xB0-0xBF
-	"rtrue","rfalse","print","print_ret","nop","save","restore","restart","ret_popped","pop/catch","quit","new_line","show_status","verify",nullptr,"piracy",
+	"rtrue","rfalse","print","print_ret","nop","save","restore","restart","ret_popped","pop/catch","quit","new_line","show_status","verify","EXT_BE","piracy",
 
 	// 0xC0-0xDF
-	nullptr, "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", nullptr, nullptr, nullptr,
+	"?C0", "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?DD", "?DE", "?DF",
 
 	//0xE0-0xFF
 	"call_vs","storew","storeb","put_prop","sread","print_char","print_num","random","push","pull","split_window","set_window","call_vs2","erase_window","erase_line","set_cursor",
 	"get_cursor","set_text_style","buffer_mode","output_stream","input_stream","sound_effect","read_char","scan_table","not","call_vn","call_vn2","tokenise","encode_text","copy_table","print_table","check_arg_count",
 
 	// 0x100-0x1F
-	"save","restore","log_shift","art_shift","set_font","draw_picture","picture_data","erase_picture","set_margins","save_undo","restore_undo","print_unicode","check_unicode",nullptr,nullptr,nullptr,
-	"move_window","window_size","window_style","get_wind_prop","scroll_window","pop_stack","read_mouse","mouse_window","push_stack","put_wind_prop","print_form","make_menu","picture_table",nullptr,nullptr,nullptr
+	"save","restore","log_shift","art_shift","set_font","draw_picture","picture_data","erase_picture","set_margins","save_undo","restore_undo","print_unicode","check_unicode","ext0D","ext0E","ext0F",
+	"move_window","window_size","window_style","get_wind_prop","scroll_window","pop_stack","read_mouse","mouse_window","push_stack","put_wind_prop","print_form","make_menu","picture_table","ext1D","ext1E","ext1F"
 };
 
 static const char zscii_default[] = 
@@ -104,7 +104,7 @@ static const char zscii_default[] =
 const char *zscii = zscii_default;
 word *abbreviations;
 
-static void print_zscii(const uint8_t *b,int addr) {
+static int print_zscii(const uint8_t *b,int addr) {
 	int shift = 0, abbrev = 0;
 	auto printZ = [&](uint8_t ch) {
 		assert(ch<32);
@@ -137,6 +137,7 @@ static void print_zscii(const uint8_t *b,int addr) {
 		printZ(b[addr+1]&31);
 		addr+=2;
 	} while (!(b[addr-2] & 0x80));
+	return addr;
 }
 
 void dis(storyHeader *h,int pc) {
@@ -213,13 +214,13 @@ void dis(storyHeader *h,int pc) {
 		}
 		if (opcode == 0xB2 || opcode == 0xB3) {
 			printf("\"");
-			print_zscii(b,pc);
+			pc = print_zscii(b,pc);
 			printf("\"");
 		}
 		printf("\n");
 
 		// If pc is beyond furthest branch and it's a return, it's end of function
-		if (pc > highest && (opcode==0x8B||opcode==0x8C||opcode==0x9B||opcode==0xAB||opcode==0xB0||opcode==0xB1||opcode==0xB3||opcode==0xB8))
+		if (pc > highest && (opcode==0x8B||opcode==0x8C||opcode==0x9B||opcode==0xAB||opcode==0xB0||opcode==0xB1||opcode==0xB3||opcode==0xB8||opcode==0xBA))
 			break;
 	}
 }
@@ -248,10 +249,16 @@ int main(int argc,char **argv) {
 	printf("globals: %x\n",story->globalVarsTableAddr.getU());
 	printf("static memory: %x\n",story->staticMemoryAddr.getU());
 	printf("abbreviations: %x\n",story->abbreviationsAddr.getU());
-	printf("story length: %x\n",story->storyLength.getU() * storyScales[story->version]);
+	abbreviations = (word*)((char*)story + story->abbreviationsAddr.getU());
+	for (int i=0; i<96; i++) {
+		printf("[");
+		print_zscii((uint8_t*)story,abbreviations[i].getU2());
+		printf("]");
+	}
+	printf("\nstory length: %x\n",story->storyLength.getU() * storyScales[story->version]);
 	if (story->alphabetTableAddress.getU())
 		zscii = (char*)story + story->alphabetTableAddress.getU();
-	abbreviations = (word*)((char*)story + story->abbreviationsAddr.getU());
+	
 	// skip the count of 0 locals
 	dis(story,story->initialPCAddr.getU());
 }
