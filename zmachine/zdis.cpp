@@ -102,7 +102,42 @@ static const char zscii_default[] =
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	"\033\n0123456789.,!?_#'\"/\\-:()";
 const char *zscii = zscii_default;
+word *abbreviations;
 
+static void print_zscii(const uint8_t *b,int addr) {
+	int shift = 0, abbrev = 0;
+	auto printZ = [&](uint8_t ch) {
+		assert(ch<32);
+		if (abbrev) {
+			int inner = abbrev-32+ch;
+			abbrev = 0;
+			print_zscii(b,abbreviations[inner].getU2());
+			shift = 0;
+		}
+		else if (ch==0)
+			printf(" ");
+		else if (ch<4)
+			abbrev = ch * 32;
+		else if (ch==4)
+			shift = 1;
+		else if (ch==5)
+			shift = 2;
+		else if (shift==2 && ch==6)
+			printf("[extended zscii]");
+		else if (shift==2 && ch==7)
+			printf("\n");
+		else {
+			printf("%c",zscii[shift*26+(ch-6)]);
+			shift = 0;
+		}
+	};
+	do {
+		printZ((b[addr]>>2) & 31);
+		printZ(((b[addr]&3)<<3) | (b[addr+1]>>5));
+		printZ(b[addr+1]&31);
+		addr+=2;
+	} while (!(b[addr-2] & 0x80));
+}
 
 void dis(storyHeader *h,int pc) {
 	// keep track of the furthest forward branch we've seen.
@@ -177,36 +212,9 @@ void dis(storyHeader *h,int pc) {
 			}
 		}
 		if (opcode == 0xB2 || opcode == 0xB3) {
-			int shift = 0, abbrev = 0;
-			auto printZ = [&](uint8_t ch) {
-				assert(ch<32);
-				if (abbrev) {
-					printf("[abbrev %d]",abbrev + ch);
-					abbrev = 0;
-				}
-				else if (ch==0)
-					printf(" ");
-				else if (ch<4)
-					abbrev = ch * 32;
-				else if (ch==4)
-					shift = 1;
-				else if (ch==5)
-					shift = 2;
-				else if (shift==2 && ch==6)
-					printf("[extended zscii]");
-				else if (shift==2 && ch==7)
-					printf("\n");
-				else {
-					printf("%c",zscii[shift*26+ch]);
-					shift = 0;
-				}
-			};
-			do {
-				printZ((b[pc]>>2) & 31);
-				printZ(((b[pc]&3)<<3) | (b[pc+1]>>5));
-				printZ(b[pc+1]&31);
-				pc+=2;
-			} while (!(b[pc-2] & 0x80));
+			printf("\"");
+			print_zscii(b,pc);
+			printf("\"");
 		}
 		printf("\n");
 
@@ -232,7 +240,8 @@ void routine(storyHeader *h,int pc) {
 
 int main(int argc,char **argv) {
 	storyHeader *story = getStory(argv[1]);
-	printf("version %d\n",story->version);
+	printf("version %d serial[%c%c%c%c%c%c]\n",story->version,
+		story->serial[0],story->serial[1],story->serial[2],story->serial[3],story->serial[4],story->serial[5]);
 	printf("high memory: %x\n",story->highMemoryAddr.getU());
 	printf("initial pc: %x\n",story->initialPCAddr.getU());
 	printf("dictionary: %x\n",story->dictionaryAddr.getU());
@@ -242,6 +251,7 @@ int main(int argc,char **argv) {
 	printf("story length: %x\n",story->storyLength.getU() * storyScales[story->version]);
 	if (story->alphabetTableAddress.getU())
 		zscii = (char*)story + story->alphabetTableAddress.getU();
+	abbreviations = (word*)((char*)story + story->abbreviationsAddr.getU());
 	// skip the count of 0 locals
 	dis(story,story->initialPCAddr.getU());
 }
