@@ -140,7 +140,7 @@ static int print_zscii(const uint8_t *b,int addr) {
 	return addr;
 }
 
-void dis(storyHeader *h,int pc) {
+void dis(const storyHeader *h,int pc) {
 	// keep track of the furthest forward branch we've seen.
 	// if we encounter an unconditional return and we're at or beyond, we're done.
 	// 0b00 - large constant (2 bytes)
@@ -149,7 +149,7 @@ void dis(storyHeader *h,int pc) {
 	// 0b11 - omitted altogether
 	int highest = pc;
 	int end = h->storyLength.getU() * storyScales[h->version];
-	uint8_t *b = (uint8_t*) h;
+	const uint8_t *b = (uint8_t*) h;
 
 	auto varTypes = [](uint8_t t) {
 		static char buf[16];
@@ -225,11 +225,11 @@ void dis(storyHeader *h,int pc) {
 	}
 }
 
-void routine(storyHeader *h,int pc) {
-	uint8_t *b = (uint8_t*) h;
+void routine(const storyHeader *h,int pc) {
+	const uint8_t *b = (const uint8_t*) h;
 	printf("routine at %x, %d locals\n",pc,b[pc]);
 	if (h->version < 5 && b[pc]) {
-		word *locals = (word*)(b + pc + 1);
+		const word *locals = (const word*)(b + pc + 1);
 		printf("initial values: ");
 		for (int i=0; i<b[pc]; i++)
 			printf("[%d] ",locals[i].getS());
@@ -237,6 +237,72 @@ void routine(storyHeader *h,int pc) {
 		pc += 2 * b[pc];
 	}
 	dis(h,pc+1);
+}
+
+struct object_small {
+	uint8_t attributes[4];
+	uint8_t parent, sibling, child;
+	word properties;
+};
+
+struct object_large {
+	uint8_t attributes[6];
+	word parent, sibling, child, properties;
+};
+
+void dump_properties(const storyHeader *h,int addr) {
+	const uint8_t *b = (const uint8_t*) h;
+	uint8_t tl = b[addr++];
+	print_zscii(b,addr);
+	printf("]:\n");
+	addr += tl+tl;
+	if (h->version < 4) {
+		for (;;) {
+			uint8_t sb = b[addr];
+			if (!sb)
+				break;
+			printf("\tproperty %d is %d bytes\n",sb & 31,(sb >> 5)+1);
+			addr = addr + 1 + (sb >> 5) + 1;
+		}
+	}
+	else {
+		for (;;) {
+			if (!b[addr])
+				break;
+			uint8_t pn = b[addr++];
+			uint8_t ps = pn&128? b[addr++] & 63 : (pn>>6)+1;
+			if (ps==0) ps=64; // why wasn't size-1 stored here?
+			printf("\tproperty %d is %d bytes\n",pn,ps);
+			addr = addr + ps;
+		}
+	}
+}
+
+void dump_objects(const storyHeader *h) {
+	const word *default_properties = (const word*)((char*)h + h->objectTableAddr.getU());
+	int oEnd = 0;
+	if (h->version < 4) {
+		const object_small *o = (const object_small*)(default_properties + 31);
+		int oEnd = o->properties.getU();
+		int i = 1;
+		while ((char*)o < (char*)h + oEnd) {
+			printf("object %d parent %d, sibling %d, child %d named [",
+				i,o->parent,o->sibling,o->child);
+			dump_properties(h,o->properties.getU());
+			++o,++i;
+		}
+	}
+	else {
+		const object_large *o = (const object_large*)(default_properties + 63);
+		int oEnd = o->properties.getU();
+		int i = 1;
+		while ((char*)o < (char*)h + oEnd) {
+			printf("object %d parent %d, sibling %d, child %d named [",i,
+				o->parent.getU(),o->sibling.getU(),o->child.getU());
+			dump_properties(h,o->properties.getU());
+			++o,++i;
+		}
+	}
 }
 
 int main(int argc,char **argv) {
@@ -258,7 +324,7 @@ int main(int argc,char **argv) {
 	printf("\nstory length: %x\n",story->storyLength.getU() * storyScales[story->version]);
 	if (story->alphabetTableAddress.getU())
 		zscii = (char*)story + story->alphabetTableAddress.getU();
-	
+	dump_objects(story);
 	// skip the count of 0 locals
 	dis(story,story->initialPCAddr.getU());
 }

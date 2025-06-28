@@ -21,8 +21,8 @@ struct storyHeader {
 	word globalVarsTableAddr;
 	word staticMemoryAddr;
 
-	uint8_t flags2;
-	uint8_t pad1[7];
+	word flags2;
+	char serial[6];
 
 	word abbreviationsAddr;
 	word storyLength; // V1-3: *2; V4-5: *4; V6/7/8: *8
