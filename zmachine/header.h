@@ -2,11 +2,14 @@
 
 struct word {
 	uint8_t hi, lo;
+
 	uint16_t getU() const { return lo | (hi << 8); }
 	int16_t  getS() const { return (int16_t)getU(); }
 	uint32_t getU2() const { return getU()<<1; }
 	uint32_t getU4() const { return getU()<<2; }
 	uint32_t getU8() const { return getU()<<3; }
+
+	void set(int x) { lo = uint8_t(x); hi = uint8_t(x >> 8); }
 };
 
 struct storyHeader {

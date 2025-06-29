@@ -400,7 +400,6 @@ int main(int argc,char **argv) {
 		if (b[start] > 15 || !(test = routine(story,start,no_printf))) {
 			printf("S%d: ",++sn);
 			start = roundUp(print_zscii(b,start));
-			printf("\n");
 		}
 		else
 			start = roundUp(routine(story,start));
