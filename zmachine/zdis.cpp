@@ -250,6 +250,8 @@ int dis(const storyHeader *h,int pc) {
 
 int routine(const storyHeader *h,int pc) {
 	const uint8_t *b = (const uint8_t*) h;
+	if (b[pc]>15)
+		return pc+1;
 	printf("routine at %x, %d locals\n",pc,b[pc]);
 	if (h->version < 5 && b[pc]) {
 		const word *locals = (const word*)(b + pc + 1);
@@ -272,6 +274,8 @@ struct object_large {
 	uint8_t attributes[6];
 	word parent, sibling, child, properties;
 };
+
+int last_property;
 
 void dump_properties(const storyHeader *h,int addr) {
 	const uint8_t *b = (const uint8_t*) h;
@@ -299,6 +303,8 @@ void dump_properties(const storyHeader *h,int addr) {
 			addr = addr + ps;
 		}
 	}
+	if (addr > last_property)
+		last_property = addr;
 }
 
 void dump_objects(const storyHeader *h) {
@@ -373,17 +379,23 @@ int main(int argc,char **argv) {
 	printf("\nstory length: %x\n",story->storyLength.getU() * storyScales[story->version]);
 	dump_objects(story);
 
+	printf("last property at %x\n",last_property);
 	auto roundUp = [&](int a) { return (a + storyScales[story->version] - 1) & ~(storyScales[story->version]-1); };
 	int start = roundUp(story->highMemoryAddr.getU());
+	if (start < last_property)
+		start = roundUp(last_property);
 	int stop = story->storyLength.getU() * storyScales[story->version];
 	const uint8_t *b = (const uint8_t*) story;
 
+	start = story->initialPCAddr.getU() - 1;
 	while (start < stop && b[start] <= 15) {
 		start = routine(story,start);
 		if (start == story->initialPCAddr.getU() && story->version != 6)
-			start = dis(story,start);
+			start = roundUp(dis(story,start));
 		else
 			start = roundUp(start);
+		while (start < stop && b[start]==255)
+			start++;
 	}
 
 	int sn = 1;
