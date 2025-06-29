@@ -105,7 +105,8 @@ const char *zscii = zscii_default;
 word *abbreviations;
 
 static int print_zscii(const uint8_t *b,int addr) {
-	int shift = 0, abbrev = 0;
+	uint8_t shift = 0, abbrev = 0;
+	uint16_t extended = 0;
 	auto printZ = [&](uint8_t ch) {
 		assert(ch<32);
 		if (abbrev) {
@@ -113,6 +114,13 @@ static int print_zscii(const uint8_t *b,int addr) {
 			abbrev = 0;
 			print_zscii(b,abbreviations[inner].getU2());
 			shift = 0;
+		}
+		else if (extended) {
+			extended = (extended << 5) | ch;
+			if (extended > 1023) {
+				printf("%c",extended & 255);
+				extended = 0;
+			}
 		}
 		else if (ch==0)
 			printf(" ");
@@ -123,7 +131,7 @@ static int print_zscii(const uint8_t *b,int addr) {
 		else if (ch==5)
 			shift = 2;
 		else if (shift==2 && ch==6)
-			printf("[extended zscii]");
+			shift = 0, extended = 1;
 		else if (shift==2 && ch==7)
 			printf("\n");
 		else {
@@ -305,25 +313,49 @@ void dump_objects(const storyHeader *h) {
 	}
 }
 
+void dump_dictionary(const storyHeader *h) {
+	const uint8_t *b = (const uint8_t*) h;
+	int addr = h->dictionaryAddr.getU();
+	uint8_t numSep = b[addr++];
+	printf("word separators: [");
+	for (int i=0; i<numSep; i++)
+		printf("%c",b[addr++]);
+	printf("]\n");
+	uint8_t entrySize = b[addr++];
+	int numEntries = ((const word*)(b+addr))->getU();
+	addr+=2;
+	printf("dictionary has %d entries of %d bytes each:\n",numEntries,entrySize);
+	while (numEntries--) {
+		printf("\t[");
+		print_zscii(b,addr);
+		printf("] ");
+		for (int i=h->version<4? 4 : 6; i<entrySize; i++)
+			printf("%02x",b[addr+i]);
+		addr += entrySize;
+		printf("\n");
+	}
+}
+
 int main(int argc,char **argv) {
 	storyHeader *story = getStory(argv[1]);
 	printf("version %d serial[%c%c%c%c%c%c]\n",story->version,
 		story->serial[0],story->serial[1],story->serial[2],story->serial[3],story->serial[4],story->serial[5]);
+	abbreviations = (word*)((char*)story + story->abbreviationsAddr.getU());
+	if (story->version >= 5 && story->alphabetTableAddress.getU())
+		zscii = (char*)story + story->alphabetTableAddress.getU();
 	printf("high memory: %x\n",story->highMemoryAddr.getU());
 	printf("initial pc: %x\n",story->initialPCAddr.getU());
 	printf("dictionary: %x\n",story->dictionaryAddr.getU());
+	dump_dictionary(story);
 	printf("globals: %x\n",story->globalVarsTableAddr.getU());
 	printf("static memory: %x\n",story->staticMemoryAddr.getU());
 	printf("abbreviations: %x\n",story->abbreviationsAddr.getU());
-	abbreviations = (word*)((char*)story + story->abbreviationsAddr.getU());
 	for (int i=0; i<96; i++) {
 		printf("[");
 		print_zscii((uint8_t*)story,abbreviations[i].getU2());
 		printf("]");
 	}
 	printf("\nstory length: %x\n",story->storyLength.getU() * storyScales[story->version]);
-	if (story->alphabetTableAddress.getU())
-		zscii = (char*)story + story->alphabetTableAddress.getU();
 	dump_objects(story);
 	// skip the count of 0 locals
 	dis(story,story->initialPCAddr.getU());
