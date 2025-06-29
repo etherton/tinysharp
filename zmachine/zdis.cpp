@@ -148,7 +148,7 @@ static int print_zscii(const uint8_t *b,int addr) {
 	return addr;
 }
 
-void dis(const storyHeader *h,int pc) {
+int dis(const storyHeader *h,int pc) {
 	// keep track of the furthest forward branch we've seen.
 	// if we encounter an unconditional return and we're at or beyond, we're done.
 	// 0b00 - large constant (2 bytes)
@@ -175,7 +175,11 @@ void dis(const storyHeader *h,int pc) {
 		uint16_t opcode = b[pc++];
 		if (opcode == 0xBE && h->version>=5)
 			opcode = 0x100 | b[pc++];
-		printf("%s ",opcode_names[opcode]);
+		printf("[%03x] %s ",opcode,opcode_names[opcode]);
+		if (opcode_names[opcode][0]=='?') {
+			printf(" -- error in disassembly\n");
+			return pc-1;
+		}
 
 		uint16_t types = opTypes[opcode >> 4] << 8;
 		if (!types)
@@ -184,10 +188,12 @@ void dis(const storyHeader *h,int pc) {
 			types |= b[pc++];
 		else
 			types |= 255;
+		// remember the last op (used for jumps)
+		int16_t op = 0;
 		while (types != 0xFFFF) {
-			int16_t op = b[pc++];
+			op = b[pc++];
 			switch (types & 0xC000) {
-				case 0x0000: printf("%d ",int16_t((op << 8) | b[pc++])); break;
+				case 0x0000: op = (op<<8) | b[pc++]; printf("%d ",op); break;
 				case 0x4000: printf("%d ",op); break;
 				case 0x8000: printf("%s ",varTypes(op)); break;
 			}
@@ -198,42 +204,51 @@ void dis(const storyHeader *h,int pc) {
 		if (decode_byte & 1)
 			printf("-> %s ",varTypes(b[pc++]));
 		if (decode_byte & 2) {
-			int16_t branch_offset = -1;
-			bool branch_cond = false;
-			branch_offset = b[pc++];
-			branch_cond = branch_offset >> 7;
+			int16_t branch_offset = b[pc++];
+			bool branch_cond = branch_offset >> 7;
+			branch_offset &= 127;
 			if (branch_offset & 64)
 				branch_offset &= 63;
 			else {
+				
 				if (branch_offset & 32)
 					branch_offset |= 0xC0;
 				branch_offset = (branch_offset << 8) | b[pc++];
 			}
-			// track the furthest forward branch we've seen to detect end of routine.
-			if (branch_offset <= 1) {
-				opcode = 176 - branch_offset;
+			if (branch_offset==0||branch_offset==1)
 				printf("?%s%s",branch_cond?"":"~",branch_offset?"rtrue":"rfalse");
-			}
 			else {
-				if (pc + branch_offset - 2 > highest)
+				// track the furthest forward branch we've seen to detect end of routine.
+				if (branch_offset > 0 && pc + branch_offset - 2 > highest)
 					highest = pc + branch_offset - 2;
-				printf("?%s%x",branch_cond?"":"~",pc + branch_offset - 2);
+				printf("?%s%x (%x)",branch_cond?"":"~",pc + branch_offset - 2,branch_offset);
 			}
+		}
+		else if (opcode == 0x8C && op > 0 && pc + op - 2 > highest) {
+			highest = pc + op - 2;
 		}
 		if (opcode == 0xB2 || opcode == 0xB3) {
 			printf("\"");
 			pc = print_zscii(b,pc);
 			printf("\"");
 		}
+		printf("  ;highest=%06x",highest);
 		printf("\n");
 
-		// If pc is beyond furthest branch and it's a return, it's end of function
-		if (pc > highest && (opcode==0x8B||opcode==0x8C||opcode==0x9B||opcode==0xAB||opcode==0xB0||opcode==0xB1||opcode==0xB3||opcode==0xB8||opcode==0xBA))
-			break;
+		// If pc is beyond furthest branch and it's a return/jump/quit, it's end of function
+		// note jumps only count here if they're backward.
+		if (pc > highest && ((opcode==0x8C&&op<0 /*jump*/) ||
+			opcode==0x8B/*ret*/||opcode==0x9B/*ret*/||opcode==0xAB/*ret*/||
+			opcode==0xB0/*rtrue*/||opcode==0xB1/*rfalse*/||opcode==0xB3/*print_ret*/||
+			opcode==0xB8/*ret_popped*/||opcode==0xBA/*quit*/)) {
+			if (opcode!=0xB0 || pc != 0x8497) // deal with orphaned code fragment in zork one
+				break;
+		}
 	}
+	return pc;
 }
 
-void routine(const storyHeader *h,int pc) {
+int routine(const storyHeader *h,int pc) {
 	const uint8_t *b = (const uint8_t*) h;
 	printf("routine at %x, %d locals\n",pc,b[pc]);
 	if (h->version < 5 && b[pc]) {
@@ -244,7 +259,7 @@ void routine(const storyHeader *h,int pc) {
 		printf("\n");
 		pc += 2 * b[pc];
 	}
-	dis(h,pc+1);
+	return dis(h,pc+1);
 }
 
 struct object_small {
@@ -357,6 +372,24 @@ int main(int argc,char **argv) {
 	}
 	printf("\nstory length: %x\n",story->storyLength.getU() * storyScales[story->version]);
 	dump_objects(story);
-	// skip the count of 0 locals
-	dis(story,story->initialPCAddr.getU());
+
+	auto roundUp = [&](int a) { return (a + storyScales[story->version] - 1) & ~(storyScales[story->version]-1); };
+	int start = roundUp(story->highMemoryAddr.getU());
+	int stop = story->storyLength.getU() * storyScales[story->version];
+	const uint8_t *b = (const uint8_t*) story;
+
+	while (start < stop && b[start] <= 15) {
+		start = routine(story,start);
+		if (start == story->initialPCAddr.getU() && story->version != 6)
+			start = dis(story,start);
+		else
+			start = roundUp(start);
+	}
+
+	int sn = 1;
+	while (start < stop) {
+		printf("S%d: ",sn++);
+		start = roundUp(print_zscii(b,start));
+		printf("\n");
+	}
 }
