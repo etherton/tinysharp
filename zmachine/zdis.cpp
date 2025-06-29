@@ -104,7 +104,9 @@ static const char zscii_default[] =
 const char *zscii = zscii_default;
 word *abbreviations;
 
-static int print_zscii(const uint8_t *b,int addr) {
+void stdio_output_char(void*,uint8_t ch) { putchar(ch); }
+
+static int print_zscii(const uint8_t *b,int addr,void *closure = nullptr,void (*output_char)(void*,uint8_t) = stdio_output_char) {
 	uint8_t shift = 0, abbrev = 0;
 	uint16_t extended = 0;
 	auto printZ = [&](uint8_t ch) {
@@ -112,18 +114,18 @@ static int print_zscii(const uint8_t *b,int addr) {
 		if (abbrev) {
 			int inner = abbrev-32+ch;
 			abbrev = 0;
-			print_zscii(b,abbreviations[inner].getU2());
+			print_zscii(b,abbreviations[inner].getU2(),closure,output_char);
 			shift = 0;
 		}
 		else if (extended) {
 			extended = (extended << 5) | ch;
 			if (extended > 1023) {
-				printf("%c",extended & 255);
+				(*output_char)(closure,extended & 255);
 				extended = 0;
 			}
 		}
 		else if (ch==0)
-			printf(" ");
+			(*output_char)(closure,32);
 		else if (ch<4)
 			abbrev = ch * 32;
 		else if (ch==4)
@@ -133,9 +135,9 @@ static int print_zscii(const uint8_t *b,int addr) {
 		else if (shift==2 && ch==6)
 			shift = 0, extended = 1;
 		else if (shift==2 && ch==7)
-			printf("\n");
+			(*output_char)(closure,10);
 		else {
-			printf("%c",zscii[shift*26+(ch-6)]);
+			(*output_char)(closure,zscii[shift*26+(ch-6)]);
 			shift = 0;
 		}
 	};
@@ -148,7 +150,13 @@ static int print_zscii(const uint8_t *b,int addr) {
 	return addr;
 }
 
-int dis(const storyHeader *h,int pc) {
+static int no_printf(const char*,...) {
+	return 0;
+}
+
+typedef int (*pf)(const char*,...);
+
+int dis(const storyHeader *h,int pc,pf xprintf = printf) {
 	// keep track of the furthest forward branch we've seen.
 	// if we encounter an unconditional return and we're at or beyond, we're done.
 	// 0b00 - large constant (2 bytes)
@@ -160,26 +168,26 @@ int dis(const storyHeader *h,int pc) {
 	const uint8_t *b = (uint8_t*) h;
 
 	auto varTypes = [](uint8_t t) {
-		static char buf[16];
+		static char buf[8];
 		if (!t)
 			snprintf(buf,sizeof(buf),"(sp)");
 		else if (t < 16)
-			snprintf(buf,sizeof(buf),"local%d",t-1);
+			snprintf(buf,sizeof(buf),"L%d",t-1);
 		else
-			snprintf(buf,sizeof(buf),"global%d",t-16);
+			snprintf(buf,sizeof(buf),"G%d",t-16);
 		return buf;
 	};
 
 	while (pc < end) {
-		printf("%06x: ",pc);
+		(*xprintf)("%06x: ",pc);
 		uint16_t opcode = b[pc++];
 		if (opcode == 0xBE && h->version>=5)
 			opcode = 0x100 | b[pc++];
-		printf("[%03x] %s ",opcode,opcode_names[opcode]);
-		if (opcode_names[opcode][0]=='?') {
-			printf(" -- error in disassembly\n");
-			return pc-1;
+		if (opcode >= 0x120 || opcode_names[opcode][0]=='?') {
+			(*xprintf)("[%03x] -- error in disassembly\n",opcode);
+			return 0;
 		}
+		(*xprintf)("[%03x] %s ",opcode,opcode_names[opcode]);
 
 		uint16_t types = opTypes[opcode >> 4] << 8;
 		if (!types)
@@ -193,16 +201,16 @@ int dis(const storyHeader *h,int pc) {
 		while (types != 0xFFFF) {
 			op = b[pc++];
 			switch (types & 0xC000) {
-				case 0x0000: op = (op<<8) | b[pc++]; printf("%d ",op); break;
-				case 0x4000: printf("%d ",op); break;
-				case 0x8000: printf("%s ",varTypes(op)); break;
+				case 0x0000: op = (op<<8) | b[pc++]; (*xprintf)("%d ",op); break;
+				case 0x4000: (*xprintf)("%d ",op); break;
+				case 0x8000: (*xprintf)("%s ",varTypes(op)); break;
 			}
 			types = (types << 2) | 0x3;
 		}
 		
 		uint8_t decode_byte = decode[opcode] >> version_shift[h->version];
 		if (decode_byte & 1)
-			printf("-> %s ",varTypes(b[pc++]));
+			(*xprintf)("-> %s ",varTypes(b[pc++]));
 		if (decode_byte & 2) {
 			int16_t branch_offset = b[pc++];
 			bool branch_cond = branch_offset >> 7;
@@ -216,24 +224,24 @@ int dis(const storyHeader *h,int pc) {
 				branch_offset = (branch_offset << 8) | b[pc++];
 			}
 			if (branch_offset==0||branch_offset==1)
-				printf("?%s%s",branch_cond?"":"~",branch_offset?"rtrue":"rfalse");
+				(*xprintf)("?%s%s",branch_cond?"":"~",branch_offset?"rtrue":"rfalse");
 			else {
 				// track the furthest forward branch we've seen to detect end of routine.
 				if (branch_offset > 0 && pc + branch_offset - 2 > highest)
 					highest = pc + branch_offset - 2;
-				printf("?%s%x (%x)",branch_cond?"":"~",pc + branch_offset - 2,branch_offset);
+				(*xprintf)("?%s%x (%x)",branch_cond?"":"~",pc + branch_offset - 2,branch_offset);
 			}
 		}
 		else if (opcode == 0x8C && op > 0 && pc + op - 2 > highest) {
 			highest = pc + op - 2;
 		}
 		if (opcode == 0xB2 || opcode == 0xB3) {
-			printf("\"");
-			pc = print_zscii(b,pc);
-			printf("\"");
+			(*xprintf)("\"");
+			pc = print_zscii(b,pc,(void*)xprintf,[](void* p,uint8_t x) { (*(pf)p)("%c",x); });
+			(*xprintf)("\"");
 		}
-		printf("  ;highest=%06x",highest);
-		printf("\n");
+		// printf("  ;highest=%06x",highest);
+		(*xprintf)("\n");
 
 		// If pc is beyond furthest branch and it's a return/jump/quit, it's end of function
 		// note jumps only count here if they're backward.
@@ -248,20 +256,18 @@ int dis(const storyHeader *h,int pc) {
 	return pc;
 }
 
-int routine(const storyHeader *h,int pc) {
+int routine(const storyHeader *h,int pc,pf xprintf = printf) {
 	const uint8_t *b = (const uint8_t*) h;
-	if (b[pc]>15)
-		return pc+1;
-	printf("routine at %x, %d locals\n",pc,b[pc]);
+	(*xprintf)("routine at %x, %d locals\n",pc,b[pc]);
 	if (h->version < 5 && b[pc]) {
 		const word *locals = (const word*)(b + pc + 1);
-		printf("initial values: ");
+		(*xprintf)("initial values: ");
 		for (int i=0; i<b[pc]; i++)
-			printf("[%d] ",locals[i].getS());
-		printf("\n");
+			(*xprintf)("[%d] ",locals[i].getS());
+		(*xprintf)("\n");
 		pc += 2 * b[pc];
 	}
-	return dis(h,pc+1);
+	return dis(h,pc+1,xprintf);
 }
 
 struct object_small {
@@ -380,28 +386,24 @@ int main(int argc,char **argv) {
 	dump_objects(story);
 
 	printf("last property at %x\n",last_property);
-	auto roundUp = [&](int a) { return (a + storyScales[story->version] - 1) & ~(storyScales[story->version]-1); };
+	auto roundUp = [&](int a) { return (a + storyScales[story->version] - 1) & -storyScales[story->version]; };
 	int start = roundUp(story->highMemoryAddr.getU());
 	if (start < last_property)
 		start = roundUp(last_property);
+	start = story->initialPCAddr.getU() - 1;
 	int stop = story->storyLength.getU() * storyScales[story->version];
 	const uint8_t *b = (const uint8_t*) story;
 
-	start = story->initialPCAddr.getU() - 1;
-	while (start < stop && b[start] <= 15) {
-		start = routine(story,start);
-		if (start == story->initialPCAddr.getU() && story->version != 6)
-			start = roundUp(dis(story,start));
-		else
-			start = roundUp(start);
-		while (start < stop && b[start]==255)
-			start++;
-	}
-
-	int sn = 1;
+	int sn = 0;
 	while (start < stop) {
-		printf("S%d: ",sn++);
-		start = roundUp(print_zscii(b,start));
+		int test;
+		if (b[start] > 15 || !(test = routine(story,start,no_printf))) {
+			printf("S%d: ",++sn);
+			start = roundUp(print_zscii(b,start));
+			printf("\n");
+		}
+		else
+			start = roundUp(routine(story,start));
 		printf("\n");
 	}
 }
