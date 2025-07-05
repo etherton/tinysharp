@@ -10,6 +10,8 @@ struct word {
 	uint32_t getU8() const { return getU()<<3; }
 
 	void set(int x) { lo = uint8_t(x); hi = uint8_t(x >> 8); }
+	void setByte(uint8_t b) { lo = b; hi = 0; }
+	void setGL(uint8_t h,uint8_t l) { hi = h; lo = l; }
 };
 
 struct storyHeader {
