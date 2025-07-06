@@ -36,14 +36,23 @@ public:
 	void init(const void*);
 	void run(uint32_t pc);
 private:
+	uint32_t print_zscii(uint32_t addr);
+	void printz(uint8_t ch);
+	void output_char(uint8_t ch);
+	uint8_t m_abbrev, m_shift;
+	uint16_t m_extended;
+
 	uint8_t read_mem8(uint32_t addr) {
 		return addr < m_dynamicSize? m_dynamic[addr] : m_readOnly[addr]
 	}
 	word read_mem16(uint32_t addr) {
 		return addr+1 < m_dynamicSize? *(word*)(m_dynamic+addr) : *(word*)(m_readOnly+addr);
 	}
-	word &ref(uint8_t v,bool write) {
-		if (!v) {
+	
+	word &ref(int v,bool write) {
+		if (v<0||v>255)
+			fault("invalid reference %d",v);
+		else if (!v) {
 			if (write)
 				return m_stack[--m_sp];
 			else
@@ -52,7 +61,15 @@ private:
 		else if (v <= 16)
 			return m_stack[m_lp + v + 3];
 		else
-			return (word*)(m_dynamic + m_globalsOffset + (v-16)*2);
+			return *(word*)(m_dynamic + m_globalsOffset + (v-16)*2);
+	}
+	word &var(int v) {
+		if (v<=0||v>255)
+			fault("invalid variable %d",v);
+		else if (v <= 16)
+			return m_stack[m_lp + v + 3];
+		else
+			return *(word*)(m_dynamic + m_globalsOffset + (v-16)*2);
 	}
 	void push(word w) {
 		m_stack[--m_sp] = w;
@@ -60,11 +77,13 @@ private:
 	word pop() {
 		return m_stack[m_sp++];
 	}
+	void fault(const char*,...);
 	union {
 		storyHeader *m_header;	
 		uint8_t *m_dynamic;		// everything up to 'static' cutoff
 	};
 	const uint8_t *m_readOnly; 	// can be in flash etc or memory mapped file
 	word m_stack[2048];
+	char m_zscii[26*3];
 	uint16_t m_sp, m_lp, m_dynamicSize, m_globalsOffset;
 };
