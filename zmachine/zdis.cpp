@@ -15,6 +15,59 @@ storyHeader *getStory(const char *storyName) {
 	return story;
 }
 
+static const char zscii_default[] = 
+	"abcdefghijklmnopqrstuvwxyz"
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	"\033\n0123456789.,!?_#'\"/\\-:()";
+static const char *zscii = zscii_default;
+static word *abbreviations;
+
+void stdio_output_char(void*,uint8_t ch) { putchar(ch); }
+
+static int print_zscii(const uint8_t *b,int addr,void *closure = nullptr,void (*output_char)(void*,uint8_t) = stdio_output_char) {
+	uint8_t shift = 0, abbrev = 0;
+	uint16_t extended = 0;
+	auto printZ = [&](uint8_t ch) {
+		assert(ch<32);
+		if (abbrev) {
+			int inner = abbrev-32+ch;
+			abbrev = 0;
+			print_zscii(b,abbreviations[inner].getU2(),closure,output_char);
+			shift = 0;
+		}
+		else if (extended) {
+			extended = (extended << 5) | ch;
+			if (extended > 1023) {
+				(*output_char)(closure,extended & 255);
+				extended = 0;
+			}
+		}
+		else if (ch==0)
+			(*output_char)(closure,32);
+		else if (ch<4)
+			abbrev = ch * 32;
+		else if (ch==4)
+			shift = 1;
+		else if (ch==5)
+			shift = 2;
+		else if (shift==2 && ch==6)
+			shift = 0, extended = 1;
+		else if (shift==2 && ch==7)
+			(*output_char)(closure,10);
+		else {
+			(*output_char)(closure,zscii[shift*26+(ch-6)]);
+			shift = 0;
+		}
+	};
+	do {
+		printZ((b[addr]>>2) & 31);
+		printZ(((b[addr]&3)<<3) | (b[addr+1]>>5));
+		printZ(b[addr+1]&31);
+		addr+=2;
+	} while (!(b[addr-2] & 0x80));
+	return addr;
+}
+
 static int no_printf(const char*,...) {
 	return 0;
 }

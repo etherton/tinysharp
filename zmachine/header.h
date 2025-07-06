@@ -6,12 +6,10 @@ struct word {
 	uint16_t getU() const { return lo | (hi << 8); }
 	int16_t  getS() const { return (int16_t)getU(); }
 	uint32_t getU2() const { return getU()<<1; }
-	uint32_t getU4() const { return getU()<<2; }
-	uint32_t getU8() const { return getU()<<3; }
 
-	void set(int x) { lo = uint8_t(x); hi = uint8_t(x >> 8); }
 	void setByte(uint8_t b) { lo = b; hi = 0; }
-	void setGL(uint8_t h,uint8_t l) { hi = h; lo = l; }
+	void setHL(uint8_t h,uint8_t l) { hi = h; lo = l; }
+	void set(int x) { setHL(x>>8,x); }
 };
 
 struct storyHeader {

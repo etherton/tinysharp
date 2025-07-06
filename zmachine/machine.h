@@ -38,12 +38,14 @@ public:
 private:
 	uint32_t print_zscii(uint32_t addr);
 	void printz(uint8_t ch);
-	void output_char(uint8_t ch);
+	void print_char(uint8_t ch);
 	uint8_t m_abbrev, m_shift;
 	uint16_t m_extended;
 
 	uint8_t read_mem8(uint32_t addr) {
-		return addr < m_dynamicSize? m_dynamic[addr] : m_readOnly[addr]
+		if (addr >= m_readOnlySize)
+			fault("out of range address %x (highest is %x)",addr,m_readOnlySize);
+		return addr < m_dynamicSize? m_dynamic[addr] : m_readOnly[addr];
 	}
 	word read_mem16(uint32_t addr) {
 		return addr+1 < m_dynamicSize? *(word*)(m_dynamic+addr) : *(word*)(m_readOnly+addr);
@@ -52,7 +54,7 @@ private:
 	word &ref(int v,bool write) {
 		if (v<0||v>255)
 			fault("invalid reference %d",v);
-		else if (!v) {
+		if (!v) {
 			if (write)
 				return m_stack[--m_sp];
 			else
@@ -66,24 +68,34 @@ private:
 	word &var(int v) {
 		if (v<=0||v>255)
 			fault("invalid variable %d",v);
-		else if (v <= 16)
+		if (v <= 16)
 			return m_stack[m_lp + v + 3];
 		else
 			return *(word*)(m_dynamic + m_globalsOffset + (v-16)*2);
 	}
 	void push(word w) {
+		if (!m_sp)
+			fault("stack overflow in push");
 		m_stack[--m_sp] = w;
 	}
 	word pop() {
+		if (m_sp == kStackSize)
+			fault("stack underflow in pop");
 		return m_stack[m_sp++];
 	}
+	void call(int dest,word operands[],uint8_t opCount);
+	void r_return(uint16_t v);
 	void fault(const char*,...);
 	union {
-		storyHeader *m_header;	
-		uint8_t *m_dynamic;		// everything up to 'static' cutoff
+		const uint8_t *m_readOnly; 	// can be in flash etc or memory mapped file
+		const storyHeader *m_header;	
 	};
-	const uint8_t *m_readOnly; 	// can be in flash etc or memory mapped file
-	word m_stack[2048];
+	uint8_t *m_dynamic;		// everything up to 'static' cutoff
+	static const uint16_t kStackSize = 2048;
+	word m_stack[kStackSize];
 	char m_zscii[26*3];
-	uint16_t m_sp, m_lp, m_dynamicSize, m_globalsOffset;
+	uint16_t m_sp, m_lp, m_dynamicSize, m_globalsOffset, m_abbreviations;
+	uint32_t m_readOnlySize;
+	uint32_t m_faultpc;
+	bool m_debug;
 };

@@ -1,32 +1,45 @@
 #include "machine.h"
+#include "opcodes.h"
 
-void zmachine::init(const void *data) {
-	m_sp = m_lp = 0;
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+void machine::init(const void *data) {
+	uint8_t version = *(uint8_t*)data;
+	if (version > 8 || !((1<<version) & (0b1'1011'1000))) {
+		printf("only versions 3,4,5,7,8 supported\n");
+		exit(1);
+	}
+	m_sp = m_lp = kStackSize;
 	m_readOnly = (const uint8_t*) data;
-	m_dynamicSize = reinterpret_cast<storyHeader*>(data)->staticMemoryAddr.getU();
-	m_dynamic = new char[m_dynamicSize];
+	m_dynamicSize = m_header->staticMemoryAddr.getU();
+	m_dynamic = new uint8_t[m_dynamicSize];
 	memcpy(m_dynamic, m_readOnly, m_dynamicSize);
 	m_globalsOffset = m_header->globalVarsTableAddr.getU();
-	m_abbreviations = m_dynamic + m_header->abbreviationsAddr.getU2();
-	mempry(m_zscii,
+	m_abbreviations = m_header->abbreviationsAddr.getU();
+	m_readOnlySize = m_header->storyLength.getU() * storyScales[version];
+	memcpy(m_zscii,
+		version>=5 && m_header->alphabetTableAddress.getU()? 
+			(const char*)m_readOnly + m_header->alphabetTableAddress.getU() :
 		"abcdefghijklmnopqrstuvwxyz"
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 		"\033\n0123456789.,!?_#'\"/\\-:()",
 		26*3);
-	m_shift = 0;
-	m_abbrev = 0;
-	m_extended = 0;
-	run(m_storyHeader->initialPCAddr.getU());
+	m_debug = true;
+	run(m_header->initialPCAddr.getU());
 }
 
 
-void zmachine::printz(uint8_t ch) {
-	assert(ch<32);
+void machine::printz(uint8_t ch) {
+	if (ch>=32)
+		fault("invalid zchar %d",ch);
 	m_shift = 0;
 	if (m_abbrev) {
 		int inner = m_abbrev-32+ch;
 		m_abbrev = 0;
-		print_zscii(read_mem16(m_abbreviations + (inner<<1)) << 1);
+		print_zscii(read_mem16(m_abbreviations + (inner<<1)).getU() << 1);
 	}
 	else if (m_extended) {
 		m_extended = (m_extended << 5) | ch;
@@ -51,19 +64,21 @@ void zmachine::printz(uint8_t ch) {
 		print_char(m_zscii[m_shift*26+(ch-6)]);
 }
 
-uint32_t zmachine::print_zscii(uint32_t addr) {
+uint32_t machine::print_zscii(uint32_t addr) {
 	uint16_t w;
+	m_abbrev = 0;
+	m_extended = 0;
 	do {
-		w = read_mem16(addr);
-		printZ((w >> 10) & 31);
-		printZ((w >> 5) & 31);
-		printZ(w & 31);
+		w = read_mem16(addr).getU();
+		printz((w >> 10) & 31);
+		printz((w >> 5) & 31);
+		printz(w & 31);
 		addr+=2;
-	} while (!(w & 0x8000);
+	} while (!(w & 0x8000));
 	return addr;
 }
 
-void zmachine::fault(const char *fmt,...) {
+void machine::fault(const char *fmt,...) {
 	va_list args;
 	va_start(args,fmt);
 	printf("fault at address %x, opcode bytes %x %x...: ",
@@ -74,15 +89,16 @@ void zmachine::fault(const char *fmt,...) {
 	exit(1);
 }
 
-void zmachine::run() {
+void machine::run(uint32_t pc) {
 	for (;;) {
 		m_faultpc = pc;
 		uint16_t opcode = read_mem8(pc++);
-		if (opcode == 0xBE && h->version>=5)
-		opcode = 0x100 | read_mem8(pc++);
+		if (opcode == 0xBE && m_header->version>=5)
+			opcode = 0x100 | read_mem8(pc++);
 		if (opcode >= 0x120)
 			fault("invalid extended opcode");
 
+		if (m_debug) printf("%06x: %s ",m_faultpc,opcode_names[opcode]);
 		uint16_t types = opTypes[opcode >> 4] << 8;
 		if (!types)
 			types = read_mem8(pc++) << 8;
@@ -91,27 +107,45 @@ void zmachine::run() {
 		else
 			types |= 255;
 		// remember the last op (used for jumps)
-		int opCount = 0;
+		uint8_t opCount = 0;
 		word operands[8];
 		while (types != 0xFFFF) {
 			uint8_t op = read_mem8(pc++);
+			if (opCount)
+				printf(", ");
 			switch (types & 0xC000) {
-				case 0x0000: operands[opCount++].setHL(op,read_mem8(pc++); break;
-				case 0x4000: operands[opCount++].setByte(op); break;
-				case 0x8000: operands[opCount++] = ref(op, false); break;
+				case 0x0000: 
+					operands[opCount++].setHL(op,read_mem8(pc++)); 
+					if (m_debug) 
+						printf("$%04x",operands[opCount-1].getU()); 
+					break;
+				case 0x4000: 
+					operands[opCount++].setByte(op); 
+					if (m_debug)
+						printf("$%02x",op);
+					break;
+				case 0x8000: 
+					if (m_debug) {
+						if (op==0) printf("-(sp)");
+						else if (op<=16) printf("L%d",op-1);
+						else printf("G%d",op-16);
+					}
+					operands[opCount++] = ref(op, false); 
+					if (m_debug)
+						printf(" [$%04x]",operands[opCount-1].getU());
+					break;
 			}
 			types = (types << 2) | 0x3;
-			operands[opCount++].set(op);
 		}
 			
-		uint8_t decode_byte = decode[opcode] >> version_shift[h->version];
+		uint8_t decode_byte = decode[opcode] >> version_shift[m_header->version];
 		int dest = -1; // invalid value
-		int16_t branch_offset = 0x8000;
+		int16_t branch_offset = -32768;
 		bool branch_cond;
 		if (decode_byte & 1)
 			dest = read_mem8(pc++);
 		if (decode_byte & 2) {
-			branch_offset = read_mem8[pc++];
+			branch_offset = read_mem8(pc++);
 			branch_cond = branch_offset >> 7;
 			branch_offset &= 127;
 			if (branch_offset & 64)
@@ -123,7 +157,8 @@ void zmachine::run() {
 			}
 		}
 		auto branch = [&](bool test) {
-			assert(branch_offset != 0x8000);
+			if (branch_offset == -32768)
+				fault("interpreter bug, branch set up incorrectly");
 			if (test == branch_cond) {
 				if (branch_offset == 0)
 					r_return(0);
@@ -132,7 +167,7 @@ void zmachine::run() {
 				else
 					pc += branch_offset - 2;
 			}
-		}
+		};
 		// B2 and B3 are inline zscii 
 		if (opcode < 0x80 || (opcode >= 0xC0 && opcode < 0xE0)) { // 2OP
 			if (opCount != 2)
@@ -154,9 +189,9 @@ void zmachine::run() {
 				case 0x0E: objMoveTo(operands[0].getU(),operands[1].getU()); break;
 				case 0x0F: ref(dest,true) = read_mem16(operands[0].getU() + (operands[1].getU()<<1)); break;
 				case 0x10: ref(dest,true) = read_mem8(operands[0].getU() + operands[1].getU()); break;
-				case 0x11: ref(dest,true) = getObject(operands[0].getU())->getProperty(operands[1].getU()); break;
-				case 0x12: ref(dest,true) = getObject(operands[0].getU())->getPropertyAddr(operands[1].getU()); break;
-				case 0x13: ref(dest,true) = getObject(operands[0].getU())->getNextProperty(operands[1].getU()); break;
+				case 0x11: ref(dest,true) = getObjProperty(operands[0].getU())->getProperty(operands[1].getU()); break;
+				case 0x12: ref(dest,true) = getObjPropertyAddr(operands[0].getU(),operands[1].getU()); break;
+				case 0x13: ref(dest,true) = getObjNextProperty(operands[0].getU(),operands[1].getU()); break;
 				case 0x14: ref(dest,true).set(operands[0].getS() + operands[1].getS()); break;
 				case 0x15: ref(dest,true).set(operands[0].getS() - operands[1].getS()); break;
 				case 0x16: ref(dest,true).set(operands[0].getS() * operands[1].getS()); break;
@@ -164,8 +199,8 @@ void zmachine::run() {
 					ref(dest,true).set(operands[0].getS() / operands[1].getS()); break;
 				case 0x18: if (!operands[1].getS()) fault("modulo by zero"); 
 					ref(dest,true).set(operands[0].getS() % operands[1].getS()); break;
-				case 0x19: ref(dest,true) = call_s(operands,opCount); break;
-				case 0x1A: call_n(operands,opCount); break;
+				case 0x19: call(dest,operands,opCount); break;
+				case 0x1A: call(-1,operands,opCount); break;
 				default: fault("unimplemented 2OP opcode"); break;
 			}
 		}
@@ -181,7 +216,7 @@ void zmachine::run() {
 				case 0x5: var(operands[0].getS())++; break;
 				case 0x6: var(operands[0].getS())--; break;
 				case 0x7: print_zscii(operands[0].getU()); break;
-				case 0x8: ref(dest,true) = call_s(operands,opCount); break;
+				case 0x8: call(dest,operands,opCount); break;
 				case 0x9: objUnparent(operands[0].getU()); break;
 				case 0xA: objPrint(operands[0].getU()); break;
 				case 0xB: r_return(operands[0].getS()); break;
@@ -189,7 +224,7 @@ void zmachine::run() {
 				case 0xD: print_zscii(operands[0].getU() * storyScales[m_header->version]); break;
 				case 0xE: ref(operands[1].getS(),true) = var(operands[0].getS());
 				case 0xF: if (m_header->version < 5) ref(dest,true).set(~operands[0].getU());
-					  else call_n(operands,opCount); break;
+					  else call(-1,operands,opCount); break;
 			}
 		}
 		else {
@@ -199,11 +234,11 @@ void zmachine::run() {
 				case 0xB2: pc = print_zscii(pc); break;
 				case 0xB3: pc = print_zscii(pc); r_return(1); break;
 				case 0xB4: break; // nop
-				case 0xB8: r_return(m_stack[--m_sp].getU()); break;
-				case 0xB9: --m_sp; break;
+				case 0xB8: if (!m_sp) fault("stack underflow in ret_popped"); r_return(m_stack[--m_sp].getU()); break;
+				case 0xB9: if (!m_sp) fault("stack underflow in pop"); --m_sp; break;
 				case 0xBA: exit(0); break;
 				case 0xBB: print_char(10); break;
-				case 0xE0: ref(dest,true) = call_s(operands,opCount); break;
+				case 0xE0: call(dest,operands,opCount); break;
 				default: fault("unimplemented 0OP/VAR/EXT opcode"); break;
 			}
 		}
