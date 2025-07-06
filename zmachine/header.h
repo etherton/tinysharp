@@ -1,15 +1,22 @@
 #include <stdint.h>
 
 struct word {
+	word() { }
+	word(int i) {
+		set(i);
+	}
 	uint8_t hi, lo;
 
 	uint16_t getU() const { return lo | (hi << 8); }
 	int16_t  getS() const { return (int16_t)getU(); }
 	uint32_t getU2() const { return getU()<<1; }
+	bool notZero() const { return hi || lo; }
 
 	void setByte(uint8_t b) { lo = b; hi = 0; }
 	void setHL(uint8_t h,uint8_t l) { hi = h; lo = l; }
 	void set(int x) { setHL(x>>8,x); }
+	int16_t inc() { set(getS()+1); return getS(); }
+	int16_t dec() { set(getS()-1); return getS(); }
 };
 
 struct storyHeader {

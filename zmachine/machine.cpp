@@ -20,6 +20,7 @@ void machine::init(const void *data) {
 	m_globalsOffset = m_header->globalVarsTableAddr.getU();
 	m_abbreviations = m_header->abbreviationsAddr.getU();
 	m_readOnlySize = m_header->storyLength.getU() * storyScales[version];
+	m_objectSmall = (object_header_small*) (m_dynamic + m_header->objectTableAddr.getU());
 	memcpy(m_zscii,
 		version>=5 && m_header->alphabetTableAddress.getU()? 
 			(const char*)m_readOnly + m_header->alphabetTableAddress.getU() :
@@ -78,7 +79,7 @@ uint32_t machine::print_zscii(uint32_t addr) {
 	return addr;
 }
 
-void machine::fault(const char *fmt,...) {
+void machine::fault(const char *fmt,...) const {
 	va_list args;
 	va_start(args,fmt);
 	printf("fault at address %x, opcode bytes %x %x...: ",
@@ -127,7 +128,7 @@ void machine::run(uint32_t pc) {
 				case 0x8000: 
 					if (m_debug) {
 						if (op==0) printf("-(sp)");
-						else if (op<=16) printf("L%d",op-1);
+						else if (op<16) printf("L%d",op-1);
 						else printf("G%d",op-16);
 					}
 					operands[opCount++] = ref(op, false); 
@@ -142,8 +143,14 @@ void machine::run(uint32_t pc) {
 		int dest = -1; // invalid value
 		int16_t branch_offset = -32768;
 		bool branch_cond;
-		if (decode_byte & 1)
+		if (decode_byte & 1) {
 			dest = read_mem8(pc++);
+			if (m_debug) {
+				if (!dest) printf(" -> (sp)");
+				else if (dest < 16) printf(" -> L%d",dest-1);
+				else printf(" -> G%d",dest-16);
+			}
+		}
 		if (decode_byte & 2) {
 			branch_offset = read_mem8(pc++);
 			branch_cond = branch_offset >> 7;
@@ -155,7 +162,15 @@ void machine::run(uint32_t pc) {
 					branch_offset |= 0xC0;
 				branch_offset = (branch_offset << 8) | read_mem8(pc++);
 			}
+			if (m_debug) {
+				if (branch_offset==0||branch_offset==1)
+					printf("?%s%s",branch_cond?"":"~",branch_offset?"rtrue":"rfalse");
+				else
+					printf("?%s%04x",branch_cond?"":"~",branch_offset);
+			}
 		}
+		if (m_debug)
+			printf("\n");
 		auto branch = [&](bool test) {
 			if (branch_offset == -32768)
 				fault("interpreter bug, branch set up incorrectly");
@@ -176,9 +191,9 @@ void machine::run(uint32_t pc) {
 				case 0x01: branch(operands[0].getS() == operands[1].getS()); break;
 				case 0x02: branch(operands[0].getS() < operands[1].getS()); break; 
 				case 0x03: branch(operands[0].getS() > operands[1].getS()); break;
-				case 0x04: branch(--ref(operands[0].getS()) < operands[1].getS()); break;
-				case 0x05: branch(++ref(operands[0].getS()) > operands[1].getS()); break;
-				case 0x06: branch(objIsChildOf(operands[0].getU(),operands[1].getU()))); break;
+				case 0x04: branch(var(operands[0].getS()).dec() < operands[1].getS()); break;
+				case 0x05: branch(var(operands[0].getS()).inc() > operands[1].getS()); break;
+				case 0x06: branch(objIsChildOf(operands[0].getU(),operands[1].getU())); break;
 				case 0x07: branch((operands[0].getU() & operands[1].getU()) == operands[1].getU()); break;
 				case 0x08: ref(dest,true).set(operands[0].getU() | operands[1].getU()); break;
 				case 0x09: ref(dest,true).set(operands[0].getU() & operands[1].getU()); break;
@@ -188,8 +203,8 @@ void machine::run(uint32_t pc) {
 				case 0x0D: var(operands[0].getS()) = operands[1]; break;
 				case 0x0E: objMoveTo(operands[0].getU(),operands[1].getU()); break;
 				case 0x0F: ref(dest,true) = read_mem16(operands[0].getU() + (operands[1].getU()<<1)); break;
-				case 0x10: ref(dest,true) = read_mem8(operands[0].getU() + operands[1].getU()); break;
-				case 0x11: ref(dest,true) = getObjProperty(operands[0].getU())->getProperty(operands[1].getU()); break;
+				case 0x10: ref(dest,true).setByte(read_mem8(operands[0].getU() + operands[1].getU())); break;
+				case 0x11: ref(dest,true) = getObjProperty(operands[0].getU(),operands[1].getU()); break;
 				case 0x12: ref(dest,true) = getObjPropertyAddr(operands[0].getU(),operands[1].getU()); break;
 				case 0x13: ref(dest,true) = getObjNextProperty(operands[0].getU(),operands[1].getU()); break;
 				case 0x14: ref(dest,true).set(operands[0].getS() + operands[1].getS()); break;
@@ -208,13 +223,13 @@ void machine::run(uint32_t pc) {
 			if (opCount != 1)
 				fault("1OP with something other than one operand");
 			switch (opcode & 15) {
-				case 0x0: branch(!operands[0].getU); break;
-				case 0x1: branch((ref(dest,true) = objGetSibling(operands[0].getU())) != 0); break;
-				case 0x2: branch((ref(dest,true) = objGetChild(operands[0].getU())) != 0); break;
+				case 0x0: branch(!operands[0].getU()); break;
+				case 0x1: branch((ref(dest,true) = objGetSibling(operands[0].getU())).notZero()); break;
+				case 0x2: branch((ref(dest,true) = objGetChild(operands[0].getU())).notZero()); break;
 				case 0x3: ref(dest,true) = objGetParent(operands[0].getU()); break;
 				case 0x4: ref(dest,true) = objGetPropertyLen(operands[0].getU()); break;
-				case 0x5: var(operands[0].getS())++; break;
-				case 0x6: var(operands[0].getS())--; break;
+				case 0x5: var(operands[0].getS()).inc(); break;
+				case 0x6: var(operands[0].getS()).dec(); break;
 				case 0x7: print_zscii(operands[0].getU()); break;
 				case 0x8: call(dest,operands,opCount); break;
 				case 0x9: objUnparent(operands[0].getU()); break;
