@@ -1,10 +1,6 @@
 #include <stdint.h>
 
 struct word {
-	word() { }
-	word(int i) {
-		set(i);
-	}
 	uint8_t hi, lo;
 
 	uint16_t getU() const { return lo | (hi << 8); }
@@ -18,6 +14,12 @@ struct word {
 	int16_t inc() { set(getS()+1); return getS(); }
 	int16_t dec() { set(getS()-1); return getS(); }
 };
+
+inline word byte2word(uint8_t b) {
+	word w;
+	w.setByte(b);
+	return w;
+}
 
 struct storyHeader {
 	uint8_t version; // 1-8

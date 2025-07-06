@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdint.h>
 
 static const char storyScales[] = "\000\002\002\002\004\004\010\010\010";
 

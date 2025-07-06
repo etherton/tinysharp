@@ -7,10 +7,9 @@
 	local4
 	local3/param3
 	local2/param2
-	local1/param1 (LP+4)
-	Storage Address (0-255) (call_[12v]s or -1 if it's call_[12v]n
-	SP Adjust (count of locals and the storage address)
-	Previous LP, and upper eight bits of PC
+	local1/param1 (LP+3)
+	SP Adjust (lower 4 bits are number of locals, upper 12 bits are storage address)
+	Previous LP (lower 13 bits), and upper three bits of PC (upper 3 bits)
 	return_address <- LP,SP
 
 	First, we unpack the function address and get the number of locals. If the address
@@ -127,21 +126,21 @@ private:
 		if (!o || o>m_objCount)
 			fault("get_sibling object %d out of range",o);
 		return m_header->version < 4
-			? word(m_objectSmall->objTable[o-1].sibling)
+			? byte2word(m_objectSmall->objTable[o-1].sibling)
 			: m_objectLarge->objTable[o-1].sibling;				
 	}
 	word objGetChild(uint16_t o) const {
 		if (!o || o>m_objCount)
 			fault("get_child object %d out of range",o);
 		return m_header->version < 4
-			? word(m_objectSmall->objTable[o-1].child)
+			? byte2word(m_objectSmall->objTable[o-1].child)
 			: m_objectLarge->objTable[o-1].child;		
 	}
 	word objGetParent(uint16_t o) const {
 		if (!o || o>m_objCount)
 			fault("get_parent object %d out of range",o);
 		return m_header->version < 4
-			? word(m_objectSmall->objTable[o-1].parent)
+			? byte2word(m_objectSmall->objTable[o-1].parent)
 			: m_objectLarge->objTable[o-1].parent;
 	}
 	word objGetPropertyLen(uint16_t propAddr) const;
@@ -166,16 +165,16 @@ private:
 			else
 				return m_stack[m_sp++];
 		}
-		else if (v <= 16)
-			return m_stack[m_lp + v + 3];
+		else if (v < 16)
+			return m_stack[m_lp + v + 2];
 		else
 			return *(word*)(m_dynamic + m_globalsOffset + (v-16)*2);
 	}
 	word &var(int v) {
 		if (v<=0||v>255)
 			fault("invalid variable %d",v);
-		if (v <= 16)
-			return m_stack[m_lp + v + 3];
+		if (v < 16)
+			return m_stack[m_lp + v + 2];
 		else
 			return *(word*)(m_dynamic + m_globalsOffset + (v-16)*2);
 	}
@@ -189,8 +188,9 @@ private:
 			fault("stack underflow in pop");
 		return m_stack[m_sp++];
 	}
-	void call(int dest,word operands[],uint8_t opCount);
-	void r_return(uint16_t v);
+	// return value of both is new pc value.
+	uint32_t call(uint32_t pc,int dest,word operands[],uint8_t opCount);
+	uint32_t r_return(uint16_t v);
 	void fault(const char*,...) const;
 	union {
 		const uint8_t *m_readOnly; 	// can be in flash etc or memory mapped file
@@ -207,5 +207,6 @@ private:
 	uint16_t m_sp, m_lp, m_dynamicSize, m_globalsOffset, m_abbreviations, m_objCount;
 	uint32_t m_readOnlySize;
 	uint32_t m_faultpc;
+	uint8_t m_storyShift;
 	bool m_debug;
 };

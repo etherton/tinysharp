@@ -12,6 +12,7 @@ void machine::init(const void *data) {
 		printf("only versions 3,4,5,7,8 supported\n");
 		exit(1);
 	}
+	m_storyShift = version==3? 1 : version<=5? 2 : 3; 
 	m_sp = m_lp = kStackSize;
 	m_readOnly = (const uint8_t*) data;
 	m_dynamicSize = m_header->staticMemoryAddr.getU();
@@ -19,7 +20,7 @@ void machine::init(const void *data) {
 	memcpy(m_dynamic, m_readOnly, m_dynamicSize);
 	m_globalsOffset = m_header->globalVarsTableAddr.getU();
 	m_abbreviations = m_header->abbreviationsAddr.getU();
-	m_readOnlySize = m_header->storyLength.getU() * storyScales[version];
+	m_readOnlySize = m_header->storyLength.getU() << m_storyShift;
 	m_objectSmall = (object_header_small*) (m_dynamic + m_header->objectTableAddr.getU());
 	memcpy(m_zscii,
 		version>=5 && m_header->alphabetTableAddress.getU()? 
@@ -32,6 +33,52 @@ void machine::init(const void *data) {
 	run(m_header->initialPCAddr.getU());
 }
 
+
+void machine::print_char(uint8_t c) {
+	putchar(c);
+}
+
+uint32_t machine::call(uint32_t pc,int storage,word operands[],uint8_t opCount) {
+	uint32_t newPc = operands[0].getU() << m_storyShift;
+	// a call to zero does nothing except return zero
+	if (newPc == 0) {
+		if (storage != -1)
+			ref(storage,true).setByte(0);
+		return pc;
+	}
+	uint8_t localCount = read_mem8(newPc++);
+	m_sp -= localCount + 3;
+	word *frame = m_stack + m_sp;
+	if (m_header->version < 5) { // there are N initial values for locals here
+		memcpy(frame+2,m_readOnly + newPc,localCount<<1);
+		newPc += localCount<<1;
+	}
+	else // the values are always zero
+		memset(frame+2,0,localCount<<1);
+	if (opCount-1 > localCount)
+		fault("too many parameters for function");
+	else
+		memcpy(frame+2,operands,opCount<<1);
+	frame[0].set(pc);
+	frame[1].set(((pc >> 16) << 13) | m_lp);
+	frame[2].set(localCount | (storage << 4));
+	m_lp = m_sp;
+	return newPc;
+}
+
+uint32_t machine::r_return(uint16_t v) {
+	m_sp = m_lp;
+	uint32_t pc = pop().getU();
+	m_lp = pop().getU();
+	m_lp &= (kStackSize-1);
+	pc |= (m_lp >> 13) << 16;
+	int addr = pop().getS();
+	m_sp += addr & 15;
+	addr >>= 4;
+	if (addr != -1)
+		ref(addr,true).set(v);
+	return pc;
+}
 
 void machine::printz(uint8_t ch) {
 	if (ch>=32)
@@ -176,9 +223,9 @@ void machine::run(uint32_t pc) {
 				fault("interpreter bug, branch set up incorrectly");
 			if (test == branch_cond) {
 				if (branch_offset == 0)
-					r_return(0);
+					pc = r_return(0);
 				else if (branch_offset == 1)
-					r_return(1);
+					pc = r_return(1);
 				else
 					pc += branch_offset - 2;
 			}
@@ -214,8 +261,8 @@ void machine::run(uint32_t pc) {
 					ref(dest,true).set(operands[0].getS() / operands[1].getS()); break;
 				case 0x18: if (!operands[1].getS()) fault("modulo by zero"); 
 					ref(dest,true).set(operands[0].getS() % operands[1].getS()); break;
-				case 0x19: call(dest,operands,opCount); break;
-				case 0x1A: call(-1,operands,opCount); break;
+				case 0x19: pc = call(pc,dest,operands,opCount); break;
+				case 0x1A: pc = call(pc,-1,operands,opCount); break;
 				default: fault("unimplemented 2OP opcode"); break;
 			}
 		}
@@ -231,29 +278,29 @@ void machine::run(uint32_t pc) {
 				case 0x5: var(operands[0].getS()).inc(); break;
 				case 0x6: var(operands[0].getS()).dec(); break;
 				case 0x7: print_zscii(operands[0].getU()); break;
-				case 0x8: call(dest,operands,opCount); break;
+				case 0x8: pc = call(pc,dest,operands,opCount); break;
 				case 0x9: objUnparent(operands[0].getU()); break;
 				case 0xA: objPrint(operands[0].getU()); break;
-				case 0xB: r_return(operands[0].getS()); break;
+				case 0xB: pc = r_return(operands[0].getS()); break;
 				case 0xC: pc += operands[0].getS() - 2; break;
-				case 0xD: print_zscii(operands[0].getU() * storyScales[m_header->version]); break;
+				case 0xD: print_zscii(operands[0].getU() << m_storyShift); break;
 				case 0xE: ref(operands[1].getS(),true) = var(operands[0].getS());
 				case 0xF: if (m_header->version < 5) ref(dest,true).set(~operands[0].getU());
-					  else call(-1,operands,opCount); break;
+					  else pc = call(pc,-1,operands,opCount); break;
 			}
 		}
 		else {
 			switch (opcode) {
-				case 0xB0: r_return(1); break;
-				case 0xB1: r_return(0); break;
+				case 0xB0: pc = r_return(1); break;
+				case 0xB1: pc = r_return(0); break;
 				case 0xB2: pc = print_zscii(pc); break;
-				case 0xB3: pc = print_zscii(pc); r_return(1); break;
+				case 0xB3: pc = print_zscii(pc); pc = r_return(1); break;
 				case 0xB4: break; // nop
-				case 0xB8: if (!m_sp) fault("stack underflow in ret_popped"); r_return(m_stack[--m_sp].getU()); break;
+				case 0xB8: if (!m_sp) fault("stack underflow in ret_popped"); pc = r_return(m_stack[--m_sp].getU()); break;
 				case 0xB9: if (!m_sp) fault("stack underflow in pop"); --m_sp; break;
 				case 0xBA: exit(0); break;
 				case 0xBB: print_char(10); break;
-				case 0xE0: call(dest,operands,opCount); break;
+				case 0xE0: pc = call(pc,dest,operands,opCount); break;
 				default: fault("unimplemented 0OP/VAR/EXT opcode"); break;
 			}
 		}
