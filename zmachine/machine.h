@@ -203,6 +203,24 @@ private:
 			fault("also not impl yet");
 		}
 	}
+	void objSetProperty(uint16_t o,uint16_t prop,word value) {
+		word pa = objGetPropertyAddr(o,prop);
+		if (pa.notZero()) {
+			if (m_header->version < 4) {
+				uint8_t pl = (read_mem8(pa.getU())>>5) + 1;
+				if (pl==1)
+					write_mem8(pa.getU()+1,value.lo);
+				else if (pl==2)
+					write_mem16(pa.getU()+1,value);
+				else
+					fault("attempted to put_prop a property of size %d",pl);
+			}
+			else
+				fault("not impl yeti");
+		}
+		else
+			fault("put_prop failed on missing property");
+	}
 	word objGetNextProperty(uint16_t o,uint16_t prop) const {
 		fault("get_next_prop not impl");
 	}
@@ -251,6 +269,17 @@ private:
 	}
 	word read_mem16(uint32_t addr) const {
 		return addr+1 < m_dynamicSize? *(word*)(m_dynamic+addr) : *(word*)(m_readOnly+addr);
+	}
+	void write_mem8(uint32_t addr,uint8_t v) {
+		if (addr>=m_dynamicSize)
+			fault("out of range write to %06x",addr);
+		m_dynamic[addr] = v;
+	}
+	void write_mem16(uint32_t addr,word v) {
+		if (addr+1>=m_dynamicSize)
+			fault("out of range write to %06x",addr);
+		m_dynamic[addr] = v.hi;
+		m_dynamic[addr+1] = v.lo;
 	}
 	
 	word &ref(int v,bool write) {

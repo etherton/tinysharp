@@ -150,7 +150,7 @@ void machine::run(uint32_t pc) {
 		uint16_t types = opTypes[opcode >> 4] << 8;
 		if (!types)
 			types = read_mem8(pc++) << 8;
-		if (opcode==236 || opcode==250)
+		if (opcode==0xEC || opcode==0xFA)
 			types |= read_mem8(pc++);
 		else
 			types |= 255;
@@ -301,6 +301,14 @@ void machine::run(uint32_t pc) {
 				case 0xBA: exit(0); break;
 				case 0xBB: print_char(10); break;
 				case 0xE0: pc = call(pc,dest,operands,opCount); break;
+				case 0xE1: write_mem16(operands[0].getU()+(operands[1].getU()<<1),operands[2]); break;
+				case 0xE2: write_mem8(operands[0].getU()+operands[1].getU(),operands[2].lo); break;
+				case 0xE3: objSetProperty(operands[0].getU(),operands[1].getU(),operands[2]); break;
+				//case 0xE4: read
+				case 0xE5: print_char(operands[0].lo); break;
+				case 0xEC: pc = call(pc,dest,operands,opCount); break;
+				case 0xF9: pc = call(pc,-1,operands,opCount); break;
+				case 0xFA: pc = call(pc,-1,operands,opCount); break;
 				default: fault("unimplemented 0OP/VAR/EXT opcode"); break;
 			}
 		}
