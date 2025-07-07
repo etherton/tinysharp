@@ -21,6 +21,12 @@ inline word byte2word(uint8_t b) {
 	return w;
 }
 
+inline word word2word(uint16_t x) {
+	word w;
+	w.set(x);
+	return w;
+}
+
 struct storyHeader {
 	uint8_t version; // 1-8
 	uint8_t flags; // bit 1: 0=score/turns, 1=time

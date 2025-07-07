@@ -118,10 +118,102 @@ private:
 			? m_objectSmall->objTable[o-1].clearAttribute(attr)
 			: m_objectLarge->objTable[o-1].clearAttribute(attr);
 	}
-	void objMoveTo(uint16_t o1,uint16_t o2);
-	word getObjProperty(uint16_t o,uint16_t prop) const;
-	word getObjPropertyAddr(uint16_t o,uint16_t prop) const;
-	word getObjNextProperty(uint16_t o,uint16_t prop) const;
+	void objUnparent(uint16_t o) {
+		if (!o || o>m_objCount)
+			fault("remove_obj object %d out of range",o);
+		if (m_header->version < 4) {
+			uint8_t p = m_objectSmall->objTable[o-1].parent;
+			if (p)
+				m_objectSmall->objTable[p-1].child = m_objectSmall->objTable[o-1].sibling;
+			m_objectSmall->objTable[o-1].parent = 0;
+		}
+		else {
+			word p = m_objectLarge->objTable[o-1].parent;
+			if (p.notZero())
+				m_objectLarge->objTable[p.getU()-1].child = m_objectLarge->objTable[o-1].sibling;
+			m_objectLarge->objTable[o-1].parent.set(0);
+		}
+	}
+	void objMoveTo(uint16_t o1,uint16_t o2) {
+		objUnparent(o1);
+		if (!o2 || o2>m_objCount)
+			fault("move_obj destination %d out of range",o2);
+		if (m_header->version < 4) {
+			m_objectSmall->objTable[o1-1].parent = o2;
+			m_objectSmall->objTable[o1-1].sibling = m_objectSmall->objTable[o2-1].child;
+			m_objectSmall->objTable[o2-1].child = o1;
+		}
+		else {
+			m_objectLarge->objTable[o1-1].parent.set(o2);
+			m_objectLarge->objTable[o1-1].sibling = m_objectLarge->objTable[o2-1].child;
+			m_objectLarge->objTable[o2-1].child.set(o1);
+		}
+	}
+	word objGetProperty(uint16_t o,uint16_t prop) const {
+		if (!o || o>m_objCount)
+			fault("get_prop object %d out of range",o);
+		if (!prop || prop>31)
+			fault("get_prop property index %d out of range",prop);
+		// this is the only one that returns a default property if it's not present
+		// properties are stored in descending order.
+		if (m_header->version < 4) {
+			uint16_t pa = m_objectSmall->objTable[o-1].propAddr.getU();
+			// skip object description
+			pa += 1 + (read_mem8(pa)<<1);
+			for(;;) {
+				uint8_t pv = read_mem8(pa++);
+				if ((pv & 31) < prop)
+					return m_objectSmall->defaultProps[prop-1];
+				else if ((pv & 31) == prop) {
+					if (!(pv >> 5))
+						return byte2word(read_mem8(pa));
+					else if ((pv>>5)==1)
+						return read_mem16(pa);
+					else
+						fault("attempted to call get_prop on property that is %d bytes",(pv>>5)+1);
+				}
+				pa += (pv>>5)+1;
+			} 
+		}
+		else {
+			fault("not impl yet");
+		}
+	}
+	word objGetPropertyAddr(uint16_t o,uint16_t prop) const {
+		if (!o || o>m_objCount)
+			fault("get_prop_addr object %d out of range",o);
+		if (!prop || prop>31)
+			fault("get_prop_addr property index %d out of range",prop);
+		// this is the only one that returns a default property if it's not present
+		// properties are stored in descending order.
+		if (m_header->version < 4) {
+			uint16_t pa = m_objectSmall->objTable[o-1].propAddr.getU();
+			// skip object description
+			pa += 1 + (read_mem8(pa)<<1);
+			for(;;) {
+				uint8_t pv = read_mem8(pa);
+				if ((pv & 31) < prop)
+					return byte2word(0);
+				else if ((pv & 31) == prop)
+					return word2word(pa);
+				pa += 2 + (pv >> 5);
+			}
+		}
+		else {
+			fault("also not impl yet");
+		}
+	}
+	word objGetNextProperty(uint16_t o,uint16_t prop) const {
+		fault("get_next_prop not impl");
+	}
+	word objGetPropertyLen(uint16_t propAddr) const {
+		if (!propAddr)
+			return byte2word(0);
+		else if (m_header->version < 4)
+			return byte2word((read_mem8(propAddr) >> 5)+1);
+		else
+			fault("v5+ get_prop_len not implemented");
+	}
 	word objGetSibling(uint16_t o) const {
 		if (!o || o>m_objCount)
 			fault("get_sibling object %d out of range",o);
@@ -143,9 +235,14 @@ private:
 			? byte2word(m_objectSmall->objTable[o-1].parent)
 			: m_objectLarge->objTable[o-1].parent;
 	}
-	word objGetPropertyLen(uint16_t propAddr) const;
-	void objUnparent(uint16_t o);
-	void objPrint(uint16_t o) const;
+
+	void objPrint(uint16_t o) {
+		if (!o || o>m_objCount)
+			fault("print_obj object %d out of range",o);	
+		print_zscii(m_header->version<4
+			? m_objectSmall->objTable[o-1].propAddr.getU() + 1
+			: m_objectLarge->objTable[o-1].propAddr.getU() + 1);	
+	}
 
 	uint8_t read_mem8(uint32_t addr) const {
 		if (addr >= m_readOnlySize)
@@ -191,7 +288,7 @@ private:
 	// return value of both is new pc value.
 	uint32_t call(uint32_t pc,int dest,word operands[],uint8_t opCount);
 	uint32_t r_return(uint16_t v);
-	void fault(const char*,...) const;
+	[[noreturn]] void fault(const char*,...) const;
 	union {
 		const uint8_t *m_readOnly; 	// can be in flash etc or memory mapped file
 		const storyHeader *m_header;	

@@ -251,9 +251,9 @@ void machine::run(uint32_t pc) {
 				case 0x0E: objMoveTo(operands[0].getU(),operands[1].getU()); break;
 				case 0x0F: ref(dest,true) = read_mem16(operands[0].getU() + (operands[1].getU()<<1)); break;
 				case 0x10: ref(dest,true).setByte(read_mem8(operands[0].getU() + operands[1].getU())); break;
-				case 0x11: ref(dest,true) = getObjProperty(operands[0].getU(),operands[1].getU()); break;
-				case 0x12: ref(dest,true) = getObjPropertyAddr(operands[0].getU(),operands[1].getU()); break;
-				case 0x13: ref(dest,true) = getObjNextProperty(operands[0].getU(),operands[1].getU()); break;
+				case 0x11: ref(dest,true) = objGetProperty(operands[0].getU(),operands[1].getU()); break;
+				case 0x12: ref(dest,true) = objGetPropertyAddr(operands[0].getU(),operands[1].getU()); break;
+				case 0x13: ref(dest,true) = objGetNextProperty(operands[0].getU(),operands[1].getU()); break;
 				case 0x14: ref(dest,true).set(operands[0].getS() + operands[1].getS()); break;
 				case 0x15: ref(dest,true).set(operands[0].getS() - operands[1].getS()); break;
 				case 0x16: ref(dest,true).set(operands[0].getS() * operands[1].getS()); break;
@@ -305,4 +305,18 @@ void machine::run(uint32_t pc) {
 			}
 		}
 	}
+}
+
+
+int main(int argc,char **argv) {
+	FILE *f = fopen(argv[1],"rb");
+	fseek(f,0,SEEK_END);
+	long size = ftell(f);
+	rewind(f);
+	char *story = new char[size];
+	fread(story,1,size,f);
+	fclose(f);
+	
+	machine m;
+	m.init(story);
 }
