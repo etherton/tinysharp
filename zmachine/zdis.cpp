@@ -222,6 +222,7 @@ void dump_properties(const storyHeader *h,int addr) {
 				break;
 			uint8_t pn = b[addr++];
 			uint8_t ps = pn&128? b[addr++] & 63 : (pn>>6)+1;
+			pn &= 63;
 			if (ps==0) ps=64; // why wasn't size-1 stored here?
 			printf("\tproperty %d is %d bytes\n",pn,ps);
 			addr = addr + ps;
@@ -235,6 +236,9 @@ void dump_objects(const storyHeader *h) {
 	const word *default_properties = (const word*)((char*)h + h->objectTableAddr.getU());
 	int oEnd = 0;
 	if (h->version < 4) {
+		for (int i=0; i<31; i++) {
+			printf("default property %d at %x\n",i+1,default_properties[i].getU());
+		}
 		const object_small *o = (const object_small*)(default_properties + 31);
 		int oEnd = o->properties.getU();
 		int i = 1;
@@ -246,6 +250,9 @@ void dump_objects(const storyHeader *h) {
 		}
 	}
 	else {
+		for (int i=0; i<63; i++) {
+			printf("default property %d at %x\n",i+1,default_properties[i].getU());
+		}
 		const object_large *o = (const object_large*)(default_properties + 63);
 		int oEnd = o->properties.getU();
 		int i = 1;
@@ -291,15 +298,15 @@ int main(int argc,char **argv) {
 	printf("high memory: %x\n",story->highMemoryAddr.getU());
 	printf("initial pc: %x\n",story->initialPCAddr.getU());
 	printf("dictionary: %x\n",story->dictionaryAddr.getU());
-	dump_dictionary(story);
+	// dump_dictionary(story);
 	printf("globals: %x\n",story->globalVarsTableAddr.getU());
 	printf("static memory: %x\n",story->staticMemoryAddr.getU());
 	printf("abbreviations: %x\n",story->abbreviationsAddr.getU());
-	for (int i=0; i<96; i++) {
+	/* for (int i=0; i<96; i++) {
 		printf("[");
 		print_zscii((uint8_t*)story,abbreviations[i].getU2());
 		printf("]");
-	}
+	} */
 	printf("\nstory length: %x\n",story->storyLength.getU() * storyScales[story->version]);
 	dump_objects(story);
 
