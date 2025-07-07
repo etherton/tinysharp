@@ -22,6 +22,10 @@ void machine::init(const void *data) {
 	m_abbreviations = m_header->abbreviationsAddr.getU();
 	m_readOnlySize = m_header->storyLength.getU() << m_storyShift;
 	m_objectSmall = (object_header_small*) (m_dynamic + m_header->objectTableAddr.getU());
+	m_objCount = m_header->version<4
+		? (m_objectSmall->objTable[0].propAddr.getU() - (m_header->objectTableAddr.getU() + 31*2))/9
+		: (m_objectLarge->objTable[0].propAddr.getU() - (m_header->objectTableAddr.getU() + 63*2))/14;
+	printf("%d objects detected in story\n",m_objCount);
 	memcpy(m_zscii,
 		version>=5 && m_header->alphabetTableAddress.getU()? 
 			(const char*)m_readOnly + m_header->alphabetTableAddress.getU() :
@@ -36,6 +40,22 @@ void machine::init(const void *data) {
 
 void machine::print_char(uint8_t c) {
 	putchar(c);
+}
+
+void machine::print_num(int16_t v) {
+	if (v < 0) {
+		putchar('-');
+		v = -v;
+	}
+	int16_t b = 10000;
+	while (b > v)
+		b /= 10;
+	while (b!=1) {
+		putchar(v / b + '0');
+		v %= b;
+		b /= 10;
+	}
+	putchar(v + '0');
 }
 
 uint32_t machine::call(uint32_t pc,int storage,word operands[],uint8_t opCount) {
@@ -83,7 +103,6 @@ uint32_t machine::r_return(uint16_t v) {
 void machine::printz(uint8_t ch) {
 	if (ch>=32)
 		fault("invalid zchar %d",ch);
-	m_shift = 0;
 	if (m_abbrev) {
 		int inner = m_abbrev-32+ch;
 		m_abbrev = 0;
@@ -108,14 +127,17 @@ void machine::printz(uint8_t ch) {
 		m_shift = 0, m_extended = 1;
 	else if (m_shift==2 && ch==7)
 		print_char(10);
-	else
+	else {
 		print_char(m_zscii[m_shift*26+(ch-6)]);
+		m_shift = 0;
+	}
 }
 
 uint32_t machine::print_zscii(uint32_t addr) {
 	uint16_t w;
 	m_abbrev = 0;
 	m_extended = 0;
+	m_shift = 0;
 	do {
 		w = read_mem16(addr).getU();
 		printz((w >> 10) & 31);
@@ -306,6 +328,7 @@ void machine::run(uint32_t pc) {
 				case 0xE3: objSetProperty(operands[0].getU(),operands[1].getU(),operands[2]); break;
 				//case 0xE4: read
 				case 0xE5: print_char(operands[0].lo); break;
+				case 0xE6: print_num(operands[0].getS()); break;
 				case 0xEC: pc = call(pc,dest,operands,opCount); break;
 				case 0xF9: pc = call(pc,-1,operands,opCount); break;
 				case 0xFA: pc = call(pc,-1,operands,opCount); break;

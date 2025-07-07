@@ -73,6 +73,7 @@ private:
 	uint32_t print_zscii(uint32_t addr);
 	void printz(uint8_t ch);
 	void print_char(uint8_t ch);
+	void print_num(int16_t v);
 	uint8_t m_abbrev, m_shift;
 	uint16_t m_extended;
 	bool objIsChildOf(uint16_t o1,uint16_t o2) const {
