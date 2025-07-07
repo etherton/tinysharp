@@ -59,7 +59,11 @@ void machine::print_num(int16_t v) {
 }
 
 uint32_t machine::call(uint32_t pc,int storage,word operands[],uint8_t opCount) {
+	if (!opCount)
+		fault("impossible call with no address");
 	uint32_t newPc = operands[0].getU() << m_storyShift;
+	++operands;
+	--opCount;
 	// a call to zero does nothing except return zero
 	if (newPc == 0) {
 		if (storage != -1)
@@ -75,7 +79,7 @@ uint32_t machine::call(uint32_t pc,int storage,word operands[],uint8_t opCount) 
 	}
 	else // the values are always zero
 		memset(frame+2,0,localCount<<1);
-	if (opCount-1 > localCount)
+	if (opCount > localCount)
 		fault("too many parameters for function");
 	else
 		memcpy(frame+2,operands,opCount<<1);
