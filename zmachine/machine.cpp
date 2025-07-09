@@ -181,12 +181,9 @@ static int randomNumber(void) {
 
 void machine::encode_text(word dest[],const char *src,uint8_t len) {
 	int maxStore = m_header->version>=4? 9 : 6, stored = 0;
-	dest[0].setByte(0);
-	dest[1].setByte(0);
-	if (m_header->version>=4) 
-		dest[2].setByte(0);
 	auto store = [&](uint8_t c) {
 		if (stored < maxStore) {
+			printf("{{storing zchar %d}}\n",c);
 			dest[stored/3].setZscii(stored%3,c);
 			++stored;
 		}

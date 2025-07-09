@@ -14,12 +14,13 @@ struct word {
 	int16_t inc() { set(getS()+1); return getS(); }
 	int16_t dec() { set(getS()-1); return getS(); }
 	void setZscii(uint8_t index,uint8_t ch) {
+		static const uint8_t sh[] = { 10,5,0 };
 		if (index==0)
-			set(getU() | ((ch&31) << 10));
+			hi = (ch&31)<<2;
 		else if (index==1)
-			set(getU() | ((ch&31) << 5));
+			hi |= (ch>>3)&3, lo=ch<<5;
 		else
-			set(getU() | (ch&31));
+			lo |= (ch&31);
 	}
 };
 
