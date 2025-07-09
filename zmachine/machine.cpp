@@ -266,7 +266,7 @@ void machine::run(uint32_t pc) {
 			}
 		};
 		// B2 and B3 are inline zscii 
-		if (opcode < 0x80 || (opcode >= 0xC0 && opcode < 0xE0)) { // 2OP
+		if (opcode < 0x80 || (opcode >= 0xC2 && opcode < 0xE0)) { // 2OP (except for jz VAR that can take more than two ops)
 			if (opCount != 2)
 				fault("2OP with something other than two operands");
 			switch (opcode & 31) {
@@ -335,6 +335,13 @@ void machine::run(uint32_t pc) {
 				case 0xB9: if (!m_sp) fault("stack underflow in pop"); --m_sp; break;
 				case 0xBA: exit(0); break;
 				case 0xBB: print_char(10); break;
+				case 0xC1: if (opCount==2)
+							branch(operands[0].getS() == operands[1].getS());
+							else if (opCount==3)
+							branch(operands[0].getS() == operands[1].getS() || operands[0].getS() == operands[2].getS());
+							else if (opCount==4)
+							branch(operands[0].getS() == operands[1].getS() || operands[0].getS() == operands[2].getS() || operands[0].getS() == operands[3].getS());
+							else fault("impossible jz variant");
 				case 0xE0: pc = call(pc,dest,operands,opCount); break;
 				case 0xE1: write_mem16(operands[0].getU()+(operands[1].getU()<<1),operands[2]); break;
 				case 0xE2: write_mem8(operands[0].getU()+operands[1].getU(),operands[2].lo); break;
