@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 void machine::init(const void *data) {
 	uint8_t version = *(uint8_t*)data;
@@ -74,15 +75,15 @@ uint32_t machine::call(uint32_t pc,int storage,word operands[],uint8_t opCount) 
 	m_sp -= localCount + 3;
 	word *frame = m_stack + m_sp;
 	if (m_header->version < 5) { // there are N initial values for locals here
-		memcpy(frame+2,m_readOnly + newPc,localCount<<1);
+		memcpy(frame+3,m_readOnly + newPc,localCount<<1);
 		newPc += localCount<<1;
 	}
 	else // the values are always zero
-		memset(frame+2,0,localCount<<1);
+		memset(frame+3,0,localCount<<1);
 	if (opCount > localCount)
 		fault("too many parameters for function");
 	else
-		memcpy(frame+2,operands,opCount<<1);
+		memcpy(frame+3,operands,opCount<<1);
 	frame[0].set(pc);
 	frame[1].set(((pc >> 16) << 13) | m_lp);
 	frame[2].set(localCount | (storage << 4));
@@ -161,6 +162,14 @@ void machine::fault(const char *fmt,...) const {
 	printf("\n");
 	va_end(args);
 	exit(1);
+}
+
+static int32_t random_seed = 0;
+static int randomNumber(void) {
+	// borrowed from mojozork so I can use that project's validation script
+    // this is POSIX.1-2001's potentially bad suggestion, but we're not exactly doing cryptography here.
+    random_seed = random_seed * 1103515245 + 12345;
+    return (int) ((unsigned int) (random_seed / 65536) % 32768);
 }
 
 void machine::run(uint32_t pc) {
@@ -333,6 +342,14 @@ void machine::run(uint32_t pc) {
 				//case 0xE4: read
 				case 0xE5: print_char(operands[0].lo); break;
 				case 0xE6: print_num(operands[0].getS()); break;
+				case 0xE7: if (operands[0].getS() == 0)
+								random_seed = time(NULL);
+							else if (operands[0].getS() < 0)
+								random_seed = -operands[0].getS();
+							ref(dest,true).set(operands[0].getS() > 1? ((randomNumber() % (operands[0].getS() - 1)) + 1) : 0);
+							break;
+				case 0xE8: push(operands[0]); break;
+				case 0xE9: var(operands[0].getS()) = pop(); break;
 				case 0xEC: pc = call(pc,dest,operands,opCount); break;
 				case 0xF9: pc = call(pc,-1,operands,opCount); break;
 				case 0xFA: pc = call(pc,-1,operands,opCount); break;
