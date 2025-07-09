@@ -34,7 +34,7 @@ void machine::init(const void *data) {
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 		"\033\n0123456789.,!?_#'\"/\\-:()",
 		26*3);
-	m_debug = true;
+	m_debug = false;
 	run(m_header->initialPCAddr.getU());
 }
 
@@ -179,6 +179,124 @@ static int randomNumber(void) {
     return (int) ((unsigned int) (random_seed / 65536) % 32768);
 }
 
+void machine::encode_text(word dest[],const char *src,uint8_t len) {
+	int maxStore = m_header->version>=4? 9 : 6, stored = 0;
+	dest[0].setByte(0);
+	dest[1].setByte(0);
+	if (m_header->version>=4) 
+		dest[2].setByte(0);
+	auto store = [&](uint8_t c) {
+		if (stored < maxStore) {
+			dest[stored/3].setZscii(stored%3,c);
+			++stored;
+		}
+	};
+	for (; len; len--,src++) {
+		const char *a0 = (char*)memchr(m_zscii+0,*src,26);
+		const char *a1 = (char*)memchr(m_zscii+26,*src,26);
+		const char *a2 = (char*)memchr(m_zscii+52,*src,26);
+		int shift, ch;
+		if (*src==' ')
+			shift=0, ch=0;
+		else if (a0)
+			shift=0, ch=a0 - m_zscii + 6;
+		else if (a1)
+			shift=1, ch=a1 - m_zscii - 26 + 6;
+		else if (a2)
+			shift=1, ch=a2 - m_zscii - 52 + 6;
+		else {
+			store(2); store(6); store(*src >> 5); store(*src);
+			continue;
+		}
+		if (shift)
+			store(shift+3);
+		store(ch);
+	}
+	// pad with unused shift char
+	while (stored < maxStore)
+		store(5);
+	// terminate the zscii.
+	auto &last = dest[m_header->version>=4?2:1];
+	last.set(last.getU() | 0x8000);
+}
+
+uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
+	char buffer[256];
+	do {
+		fgets(buffer,sizeof(buffer),stdin);
+		char *t = buffer;
+		while (*t) if (*t>='A'&&*t<='Z') *t++ +=32; else ++t;
+	} while (strlen(buffer) >= 240);
+	uint8_t sl = strlen(buffer)-1, offset;
+	if (m_header->version < 5) {
+		uint8_t s = read_mem8(textAddr);
+		if (sl > s-1)
+			sl = s-1;
+		if (textAddr + 1 + s - 1 > m_dynamicSize)
+			fault("read_input (v1-4) past dynamic memory");
+		memcpy(m_dynamic + textAddr + 1,buffer,sl);
+		write_mem8(textAddr + 1 + sl,0);
+		printf("{{read [%*.*s]}}\n",sl,sl,m_dynamic+textAddr+1);
+		offset = 1;
+	}
+	else {
+		uint8_t s = read_mem8(textAddr);
+		if (sl > s)
+			sl = s;
+		m_dynamic[textAddr+1] = sl;
+		if (textAddr + 2 + sl > m_dynamicSize)
+			fault("read_input (v5+) past dynamic memory");
+		memcpy(m_dynamic + textAddr + 2,buffer,sl);
+		offset = 2;
+	}
+	uint16_t dictAddr = m_header->dictionaryAddr.getU();
+	// the separators are actually stored as parsed words. spaces are not.
+	uint8_t numSeparators = read_mem8(dictAddr++);
+	uint16_t separators = dictAddr;
+	dictAddr += numSeparators;
+	uint8_t entryLength = read_mem8(dictAddr++);
+	uint16_t numWords = read_mem16(dictAddr++).getU();
+	uint8_t stop = offset + sl;
+	uint8_t maxParsed = read_mem8(parseAddr);
+	uint8_t numParsed = 0;
+	printf("{{%d separators, %d words, %d bytes per entry}}\n",numSeparators,numWords,entryLength);
+	while (offset < stop && numParsed < maxParsed) {
+		// skip spaces
+		while (m_dynamic[textAddr+offset] == 32 && offset<stop)
+			++offset;
+		if (offset==stop)
+			break;
+		uint8_t wordLen = 1;
+		// if it's not a word separator, keep looking until we get to end, space, or a word separator
+		if (!memchr(m_dynamic + separators,m_dynamic[textAddr+offset],numSeparators)) {
+			while (offset+wordLen < stop && m_dynamic[textAddr+offset+wordLen+1]!=32 && 
+					!memchr(m_dynamic + separators,m_dynamic[textAddr+offset+wordLen+1],numSeparators))
+				++wordLen;
+		}
+		word zword[3];
+		printf("{{encoding %*.*s}}\n",wordLen,wordLen,m_dynamic+textAddr+offset);
+		encode_text(zword,(char*)m_dynamic + textAddr + offset,wordLen);
+		printf("{{%04x,%04x}}\n",zword[0].getU(),zword[1].getU());
+		uint8_t byteCount = m_header->version<5? 4 : 6;
+		// we could do a binary search here but machines are orders of magnitude faster now.
+		uint16_t i;
+		for (i=0; i<numWords; i++)
+			if (!memcmp(zword,m_readOnly + dictAddr + i * entryLength,byteCount))
+				break;
+		if (i == numWords)
+			write_mem16(parseAddr+2+numParsed*4,byte2word(0));
+		else
+			write_mem16(parseAddr+2+numParsed*4,word2word(dictAddr + i * entryLength));
+		write_mem8(parseAddr+2+numParsed*4+2,wordLen);
+		write_mem8(parseAddr+2+numParsed*4+3,offset);
+		offset += wordLen;
+		++numParsed;
+	}
+	write_mem8(parseAddr+1,numParsed);
+	printf("{{%d words parsed}}\n",numParsed);
+	return 0;
+}
+
 void machine::run(uint32_t pc) {
 	for (;;) {
 		m_faultpc = pc;
@@ -202,7 +320,7 @@ void machine::run(uint32_t pc) {
 		word operands[8];
 		while (types != 0xFFFF) {
 			uint8_t op = read_mem8(pc++);
-			if (opCount)
+			if (m_debug && opCount)
 				printf(", ");
 			switch (types & 0xC000) {
 				case 0x0000: 
@@ -270,7 +388,7 @@ void machine::run(uint32_t pc) {
 				else if (branch_offset == 1)
 					pc = r_return(1);
 				else {
-					if (branch_offset < 0 && pc < branch_offset)
+					if (branch_offset < 0 && pc < -branch_offset)
 						fault("branch to invalid address below zero");
 					else if (branch_offset > 0 && pc + branch_offset >= m_readOnlySize)
 						fault("branch to invalid address past end of story");
@@ -362,7 +480,11 @@ void machine::run(uint32_t pc) {
 				case 0xE1: write_mem16(operands[0].getU()+(operands[1].getU()<<1),operands[2]); break;
 				case 0xE2: write_mem8(operands[0].getU()+operands[1].getU(),operands[2].lo); break;
 				case 0xE3: objSetProperty(operands[0].getU(),operands[1].getU(),operands[2]); break;
-				//case 0xE4: read
+				case 0xE4: if (opCount != 2) fault("only two operand read opcode supported");
+						   if (m_header->version>=5)
+						   	ref(dest,true).setByte(read_input(operands[0].getU(),operands[1].getU()));
+							else read_input(operands[0].getU(),operands[1].getU());
+							break;
 				case 0xE5: print_char(operands[0].lo); break;
 				case 0xE6: print_num(operands[0].getS()); break;
 				case 0xE7: if (operands[0].getS() == 0)

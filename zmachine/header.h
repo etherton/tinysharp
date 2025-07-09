@@ -13,6 +13,14 @@ struct word {
 	void set(int x) { setHL(x>>8,x); }
 	int16_t inc() { set(getS()+1); return getS(); }
 	int16_t dec() { set(getS()-1); return getS(); }
+	void setZscii(uint8_t index,uint8_t ch) {
+		if (index==0)
+			set(getU() | ((ch&31) << 10));
+		else if (index==1)
+			set(getU() | ((ch&31) << 5));
+		else
+			set(getU() | (ch&31));
+	}
 };
 
 inline word byte2word(uint8_t b) {

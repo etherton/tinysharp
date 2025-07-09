@@ -349,6 +349,8 @@ private:
 		object_header_small *m_objectSmall;
 		object_header_large *m_objectLarge;
 	};
+	void encode_text(word dest[],const char *src,uint8_t wordLen);
+	uint8_t read_input(uint16_t textAddr,uint16_t parseAddr);
 	uint8_t *m_dynamic;		// everything up to 'static' cutoff
 	static const uint16_t kStackSize = 2048;
 	word m_stack[kStackSize];
