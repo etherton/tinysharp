@@ -109,9 +109,8 @@ void machine::printz(uint8_t ch) {
 	if (ch>=32)
 		fault("invalid zchar %d",ch);
 	if (m_abbrev) {
-		int inner = m_abbrev-32+ch;
-		m_abbrev = 0;
-		print_zscii(read_mem16(m_abbreviations + (inner<<1)).getU() << 1);
+		print_zscii(read_mem16(m_abbreviations + ((m_abbrev-32+ch)<<1)).getU() << 1);
+		m_shift = 0;
 	}
 	else if (m_extended) {
 		m_extended = (m_extended << 5) | ch;
@@ -130,8 +129,6 @@ void machine::printz(uint8_t ch) {
 		m_shift = 2;
 	else if (m_shift==2 && ch==6)
 		m_shift = 0, m_extended = 1;
-	else if (m_shift==2 && ch==7)
-		print_char(10);
 	else {
 		print_char(m_zscii[m_shift*26+(ch-6)]);
 		m_shift = 0;
