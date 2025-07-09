@@ -182,6 +182,7 @@ static int randomNumber(void) {
 void machine::run(uint32_t pc) {
 	for (;;) {
 		m_faultpc = pc;
+		// if (pc == 0x8edc) __builtin_debugtrap();
 		uint16_t opcode = read_mem8(pc++);
 		if (opcode == 0xBE && m_header->version>=5)
 			opcode = 0x100 | read_mem8(pc++);
@@ -255,7 +256,7 @@ void machine::run(uint32_t pc) {
 				if (branch_offset==0||branch_offset==1)
 					printf(" ?%s%s",branch_cond?"":"~",branch_offset?"rtrue":"rfalse");
 				else
-					printf(" ?%s%04x",branch_cond?"":"~",branch_offset);
+					printf(" ?%s (%04d)",branch_cond?"":"~",branch_offset);
 			}
 		}
 		if (m_debug)
@@ -268,8 +269,15 @@ void machine::run(uint32_t pc) {
 					pc = r_return(0);
 				else if (branch_offset == 1)
 					pc = r_return(1);
-				else
+				else {
+					if (branch_offset < 0 && pc < branch_offset)
+						fault("branch to invalid address below zero");
+					else if (branch_offset > 0 && pc + branch_offset >= m_readOnlySize)
+						fault("branch to invalid address past end of story");
 					pc += branch_offset - 2;
+					if (pc < m_dynamicSize)
+						fault("likely invalid branch into dynamic memory");
+				}
 			}
 		};
 		// B2 and B3 are inline zscii 
@@ -349,6 +357,7 @@ void machine::run(uint32_t pc) {
 							else if (opCount==4)
 							branch(operands[0].getS() == operands[1].getS() || operands[0].getS() == operands[2].getS() || operands[0].getS() == operands[3].getS());
 							else fault("impossible jz variant");
+							break;
 				case 0xE0: pc = call(pc,dest,operands,opCount); break;
 				case 0xE1: write_mem16(operands[0].getU()+(operands[1].getU()<<1),operands[2]); break;
 				case 0xE2: write_mem8(operands[0].getU()+operands[1].getU(),operands[2].lo); break;
