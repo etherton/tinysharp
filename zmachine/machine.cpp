@@ -161,6 +161,16 @@ void machine::fault(const char *fmt,...) const {
 	exit(1);
 }
 
+void machine::memfault(const char *fmt,...) const {
+	va_list args;
+	va_start(args,fmt);
+	printf("memfault at address %x: ",m_faultpc);
+	vprintf(fmt,args);
+	printf("\n");
+	va_end(args);
+	exit(1);
+}
+
 static int32_t random_seed = 0;
 static int randomNumber(void) {
 	// borrowed from mojozork so I can use that project's validation script
@@ -243,9 +253,9 @@ void machine::run(uint32_t pc) {
 			}
 			if (m_debug) {
 				if (branch_offset==0||branch_offset==1)
-					printf("?%s%s",branch_cond?"":"~",branch_offset?"rtrue":"rfalse");
+					printf(" ?%s%s",branch_cond?"":"~",branch_offset?"rtrue":"rfalse");
 				else
-					printf("?%s%04x",branch_cond?"":"~",branch_offset);
+					printf(" ?%s%04x",branch_cond?"":"~",branch_offset);
 			}
 		}
 		if (m_debug)

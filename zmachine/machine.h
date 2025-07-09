@@ -177,7 +177,7 @@ private:
 			} 
 		}
 		else {
-			fault("not impl yet");
+			fault("get_prop v4+ not impl");
 		}
 	}
 	word objGetPropertyAddr(uint16_t o,uint16_t prop) const {
@@ -201,7 +201,7 @@ private:
 			}
 		}
 		else {
-			fault("also not impl yet");
+			fault("get_prop_addr v4+ not impl");
 		}
 	}
 	void objSetProperty(uint16_t o,uint16_t prop,word value) {
@@ -217,13 +217,30 @@ private:
 					fault("attempted to put_prop a property of size %d",pl);
 			}
 			else
-				fault("not impl yeti");
+				fault("set_prop v4+ not impl yet");
 		}
 		else
 			fault("put_prop failed on missing property");
 	}
 	word objGetNextProperty(uint16_t o,uint16_t prop) const {
-		fault("get_next_prop not impl");
+		// given a property number (or zero for first property) return the NEXT property number (or zero)
+		if (!o||o>m_objCount)
+			fault("get_next_prop invalid object number %d",o);
+		if (m_header->version < 4) {
+			uint16_t pa = m_objectSmall->objTable[o-1].propAddr.getU();
+			// skip object description
+			pa += 1 + (read_mem8(pa)<<1);
+			for(;;) {
+				uint8_t pv = read_mem8(pa);
+				if ((pv & 31) > prop)
+					return byte2word(pv & 31);
+				else if (!pv)
+					return byte2word(0);
+				pa += 2 + (pv>>5);
+			}
+		}
+		else
+			fault("get_next_prop not impl for v4+");
 	}
 	word objGetPropertyLen(uint16_t propAddr) const {
 		if (!propAddr)
@@ -231,7 +248,7 @@ private:
 		else if (m_header->version < 4)
 			return byte2word((read_mem8(propAddr) >> 5)+1);
 		else
-			fault("v5+ get_prop_len not implemented");
+			fault("v4+ get_prop_len not implemented");
 	}
 	word objGetSibling(uint16_t o) const {
 		if (!o || o>m_objCount)
@@ -265,20 +282,22 @@ private:
 
 	uint8_t read_mem8(uint32_t addr) const {
 		if (addr >= m_readOnlySize)
-			fault("out of range address %x (highest is %x)",addr,m_readOnlySize);
+			memfault("out of range address %x (highest is %x)",addr,m_readOnlySize);
 		return addr < m_dynamicSize? m_dynamic[addr] : m_readOnly[addr];
 	}
 	word read_mem16(uint32_t addr) const {
+		if (addr >= m_readOnlySize)
+			memfault("out of range address %x (highest is %x)",addr,m_readOnlySize);
 		return addr+1 < m_dynamicSize? *(word*)(m_dynamic+addr) : *(word*)(m_readOnly+addr);
 	}
 	void write_mem8(uint32_t addr,uint8_t v) {
 		if (addr>=m_dynamicSize)
-			fault("out of range write to %06x",addr);
+			memfault("out of range write to %06x",addr);
 		m_dynamic[addr] = v;
 	}
 	void write_mem16(uint32_t addr,word v) {
 		if (addr+1>=m_dynamicSize)
-			fault("out of range write to %06x",addr);
+			memfault("out of range write to %06x",addr);
 		m_dynamic[addr] = v.hi;
 		m_dynamic[addr+1] = v.lo;
 	}
@@ -321,6 +340,7 @@ private:
 	uint32_t call(uint32_t pc,int dest,word operands[],uint8_t opCount);
 	uint32_t r_return(uint16_t v);
 	[[noreturn]] void fault(const char*,...) const;
+	[[noreturn]] void memfault(const char*,...) const;
 	union {
 		const uint8_t *m_readOnly; 	// can be in flash etc or memory mapped file
 		const storyHeader *m_header;	
