@@ -34,7 +34,7 @@ void machine::init(const void *data) {
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 		"\033\n0123456789.,!?_#'\"/\\-:()",
 		26*3);
-	m_debug = false;
+	m_debug = true;
 	run(m_header->initialPCAddr.getU());
 }
 
@@ -183,7 +183,7 @@ void machine::encode_text(word dest[],const char *src,uint8_t len) {
 	int maxStore = m_header->version>=4? 9 : 6, stored = 0;
 	auto store = [&](uint8_t c) {
 		if (stored < maxStore) {
-			printf("{{storing zchar %d}}\n",c);
+			//printf("{{storing zchar %d}}\n",c);
 			dest[stored/3].setZscii(stored%3,c);
 			++stored;
 		}
@@ -233,7 +233,7 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 			fault("read_input (v1-4) past dynamic memory");
 		memcpy(m_dynamic + textAddr + 1,buffer,sl);
 		write_mem8(textAddr + 1 + sl,0);
-		printf("{{read [%*.*s]}}\n",sl,sl,m_dynamic+textAddr+1);
+		//printf("{{read [%*.*s]}}\n",sl,sl,m_dynamic+textAddr+1);
 		offset = 1;
 	}
 	else {
@@ -252,11 +252,12 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 	uint16_t separators = dictAddr;
 	dictAddr += numSeparators;
 	uint8_t entryLength = read_mem8(dictAddr++);
-	uint16_t numWords = read_mem16(dictAddr++).getU();
+	uint16_t numWords = read_mem16(dictAddr).getU();
+	dictAddr+=2;
 	uint8_t stop = offset + sl;
 	uint8_t maxParsed = read_mem8(parseAddr);
 	uint8_t numParsed = 0;
-	printf("{{%d separators, %d words, %d bytes per entry}}\n",numSeparators,numWords,entryLength);
+	//printf("{{%d separators, %d words, %d bytes per entry}}\n",numSeparators,numWords,entryLength);
 	while (offset < stop && numParsed < maxParsed) {
 		// skip spaces
 		while (m_dynamic[textAddr+offset] == 32 && offset<stop)
@@ -266,14 +267,14 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 		uint8_t wordLen = 1;
 		// if it's not a word separator, keep looking until we get to end, space, or a word separator
 		if (!memchr(m_dynamic + separators,m_dynamic[textAddr+offset],numSeparators)) {
-			while (offset+wordLen < stop && m_dynamic[textAddr+offset+wordLen+1]!=32 && 
-					!memchr(m_dynamic + separators,m_dynamic[textAddr+offset+wordLen+1],numSeparators))
+			while (offset+wordLen < stop && m_dynamic[textAddr+offset+wordLen]!=32 && 
+					!memchr(m_dynamic + separators,m_dynamic[textAddr+offset+wordLen],numSeparators))
 				++wordLen;
 		}
 		word zword[3];
-		printf("{{encoding %*.*s}}\n",wordLen,wordLen,m_dynamic+textAddr+offset);
+		//printf("{{encoding %*.*s}}\n",wordLen,wordLen,m_dynamic+textAddr+offset);
 		encode_text(zword,(char*)m_dynamic + textAddr + offset,wordLen);
-		printf("{{%04x,%04x}}\n",zword[0].getU(),zword[1].getU());
+		//printf("{{%04x,%04x}}\n",zword[0].getU(),zword[1].getU());
 		uint8_t byteCount = m_header->version<5? 4 : 6;
 		// we could do a binary search here but machines are orders of magnitude faster now.
 		uint16_t i;
@@ -286,11 +287,13 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 			write_mem16(parseAddr+2+numParsed*4,word2word(dictAddr + i * entryLength));
 		write_mem8(parseAddr+2+numParsed*4+2,wordLen);
 		write_mem8(parseAddr+2+numParsed*4+3,offset);
+		/* printf("{{%02x%02x%02x%02x}}\n",m_dynamic[parseAddr+2+numParsed*4],m_dynamic[parseAddr+2+numParsed*4+1],
+			m_dynamic[parseAddr+2+numParsed*4+2],m_dynamic[parseAddr+2+numParsed*4+3]); */
 		offset += wordLen;
 		++numParsed;
 	}
 	write_mem8(parseAddr+1,numParsed);
-	printf("{{%d words parsed}}\n",numParsed);
+	// printf("{{%d words parsed}}\n",numParsed);
 	return 0;
 }
 
