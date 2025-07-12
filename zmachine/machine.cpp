@@ -99,12 +99,6 @@ void machine::init(const void *data,bool debug) {
 	m_globalsOffset = m_header->globalVarsTableAddr.getU();
 	m_abbreviations = m_header->abbreviationsAddr.getU();
 	m_readOnlySize = m_header->storyLength.getU() << m_storyShift;
-	m_objectSmall = (object_header_small*) (m_dynamic + m_header->objectTableAddr.getU());
-	m_objCount = m_header->version<4
-		? (m_objectSmall->objTable[0].propAddr.getU() - (m_header->objectTableAddr.getU() + 31*2))/9
-		: (m_objectLarge->objTable[0].propAddr.getU() - (m_header->objectTableAddr.getU() + 63*2))/14;
-	if (debug)
-		printf("%d objects detected in story\n",m_objCount);
 	memcpy(m_zscii,
 		version>=5 && m_header->alphabetTableAddress.getU()? 
 			(const char*)m_readOnly + m_header->alphabetTableAddress.getU() :
@@ -112,6 +106,19 @@ void machine::init(const void *data,bool debug) {
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 		"\033\n0123456789.,!?_#'\"/\\-:()",
 		26*3);
+	m_objectSmall = (object_header_small*) (m_dynamic + m_header->objectTableAddr.getU());
+	m_objCount = m_header->version<4
+		? (m_objectSmall->objTable[0].propAddr.getU() - (m_header->objectTableAddr.getU() + 31*2))/9
+		: (m_objectLarge->objTable[0].propAddr.getU() - (m_header->objectTableAddr.getU() + 63*2))/14;
+	if (debug) {
+		printf("%d objects detected in story\n",m_objCount);
+		for (int i=1; i<=m_objCount; i++) {
+			printf("Object %d named [",i);
+			objPrint(i);
+			printf("] parent %d child %d sibling %d\n",objGetParent(i).getU(),objGetChild(i).getU(),objGetSibling(i).getU());
+		}
+	}
+
 	m_debug = debug;
 	run(m_header->initialPCAddr.getU());
 }
@@ -558,6 +565,7 @@ void machine::run(uint32_t pc) {
 				case 0xB9: if (!m_sp) fault("stack underflow in pop"); --m_sp; break;
 				case 0xBA: exit(0); break;
 				case 0xBB: print_char(10); break;
+				case 0xBC: break;
 				case 0xC1: if (opCount==2)
 							branch(operands[0].getS() == operands[1].getS());
 							else if (opCount==3)
