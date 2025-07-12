@@ -2,27 +2,21 @@
 
 /*
 	Example of a function that takes three parameters and has five locals total
+	Stack grows upward to higher addresses (unlike most modern architectures)
+	(Not sure this is strictly necessary but I want to behave similarly to other working interpreters)
 	Higher addresses
+	User stack area <- SP (localCount+3)
 	local5
 	local4
 	local3/param3
 	local2/param2
 	local1/param1 (LP+3)
-	SP Adjust (lower 4 bits are number of locals, upper 12 bits are storage address)
-	Previous LP (lower 13 bits), and upper three bits of PC (upper 3 bits)
-	return_address <- LP,SP
+	Storage address (or -1 to discard result)
+	Previous LP (lower 13 bits), and upper three bits of return address (upper 3 bits)
+	return_address <- LP
 
-	First, we unpack the function address and get the number of locals. If the address
-	is zero, the number of locals is always zero. The lesser of the number of locals
-	and the number of extra parameters is then pushed onto the stack in reverse order
-	from the previously evaluated array. Any extra locals are initialized from default
-	values (or zero if v5).
-
-	Then, we push the storage address from the instruction so that the return value can
-	be written during teardown.
-
-	Then we push the previous LP value, and finally the return value, which will
-	be the address of the next instruction.
+	First, we set LP to SP, then push the return address, previous LP, and storage
+	address onto the stack, followed by all locals and/or parameters
 
 	When any sort of return is encountered (including a branch to offset 0/1), the result
 	is recorded in an internal register. We then fetch the return address and restore LP.
@@ -32,7 +26,7 @@
 
 class machine {
 public:
-	void init(const void*);
+	void init(const void*,bool debug);
 	void run(uint32_t pc);
 private:
 	// first attribute (zero) is MSB of lowest byte.
@@ -307,9 +301,9 @@ private:
 			fault("invalid reference %d",v);
 		if (!v) {
 			if (write)
-				return m_stack[--m_sp];
-			else
 				return m_stack[m_sp++];
+			else
+				return m_stack[--m_sp];
 		}
 		else if (v < 16)
 			return m_stack[m_lp + v + 2];
@@ -327,14 +321,14 @@ private:
 			return *(word*)(m_dynamic + m_globalsOffset + (v-16)*2);
 	}
 	void push(word w) {
-		if (!m_sp)
+		if (m_sp == kStackSize)
 			fault("stack overflow in push");
-		m_stack[--m_sp] = w;
+		m_stack[m_sp++] = w;
 	}
 	word pop() {
-		if (m_sp == kStackSize)
+		if (m_sp == 0)
 			fault("stack underflow in pop");
-		return m_stack[m_sp++];
+		return m_stack[--m_sp];
 	}
 	// return value of both is new pc value.
 	uint32_t call(uint32_t pc,int dest,word operands[],uint8_t opCount);

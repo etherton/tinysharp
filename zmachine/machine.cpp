@@ -7,14 +7,14 @@
 #include <string.h>
 #include <time.h>
 
-void machine::init(const void *data) {
+void machine::init(const void *data,bool debug) {
 	uint8_t version = *(uint8_t*)data;
 	if (version > 8 || !((1<<version) & (0b1'1011'1000))) {
 		printf("only versions 3,4,5,7,8 supported\n");
 		exit(1);
 	}
 	m_storyShift = version==3? 1 : version<=5? 2 : 3; 
-	m_sp = m_lp = kStackSize;
+	m_sp = m_lp = 0;
 	m_readOnly = (const uint8_t*) data;
 	m_dynamicSize = m_header->staticMemoryAddr.getU();
 	m_dynamic = new uint8_t[m_dynamicSize];
@@ -26,7 +26,8 @@ void machine::init(const void *data) {
 	m_objCount = m_header->version<4
 		? (m_objectSmall->objTable[0].propAddr.getU() - (m_header->objectTableAddr.getU() + 31*2))/9
 		: (m_objectLarge->objTable[0].propAddr.getU() - (m_header->objectTableAddr.getU() + 63*2))/14;
-	printf("%d objects detected in story\n",m_objCount);
+	if (debug)
+		printf("%d objects detected in story\n",m_objCount);
 	memcpy(m_zscii,
 		version>=5 && m_header->alphabetTableAddress.getU()? 
 			(const char*)m_readOnly + m_header->alphabetTableAddress.getU() :
@@ -34,7 +35,7 @@ void machine::init(const void *data) {
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 		"\033\n0123456789.,!?_#'\"/\\-:()",
 		26*3);
-	m_debug = true;
+	m_debug = debug;
 	run(m_header->initialPCAddr.getU());
 }
 
@@ -44,19 +45,10 @@ void machine::print_char(uint8_t c) {
 }
 
 void machine::print_num(int16_t v) {
-	if (v < 0) {
-		putchar('-');
-		v = -v;
-	}
-	int16_t b = 10000;
-	while (b > v)
-		b /= 10;
-	while (b!=1) {
-		putchar(v / b + '0');
-		v %= b;
-		b /= 10;
-	}
-	putchar(v + '0');
+	char buf[8], *b = buf;
+	snprintf(buf,sizeof(buf),"%d",v);
+	while (*b)
+		print_char(*b++);
 }
 
 uint32_t machine::call(uint32_t pc,int storage,word operands[],uint8_t opCount) {
@@ -72,7 +64,6 @@ uint32_t machine::call(uint32_t pc,int storage,word operands[],uint8_t opCount) 
 		return pc;
 	}
 	uint8_t localCount = read_mem8(newPc++);
-	m_sp -= localCount + 3;
 	word *frame = m_stack + m_sp;
 	if (m_header->version < 5) { // there are N initial values for locals here
 		memcpy(frame+3,m_readOnly + newPc,localCount<<1);
@@ -86,20 +77,23 @@ uint32_t machine::call(uint32_t pc,int storage,word operands[],uint8_t opCount) 
 		memcpy(frame+3,operands,opCount<<1);
 	frame[0].set(pc);
 	frame[1].set(((pc >> 16) << 13) | m_lp);
-	frame[2].set(localCount | (storage << 4));
+	frame[2].set(storage);
 	m_lp = m_sp;
+	m_sp += localCount + 3;
+	if (m_debug)
+		printf("call to %06x, %d locals, sp now %03x and lp now %03x\n",newPc,localCount,m_sp,m_lp);
 	return newPc;
 }
 
 uint32_t machine::r_return(uint16_t v) {
+	if (m_debug)
+		printf("returning %04x to caller, sp now %03x; ",v,m_lp);
 	m_sp = m_lp;
-	uint32_t pc = pop().getU();
-	m_lp = pop().getU();
-	m_lp &= (kStackSize-1);
-	pc |= (m_lp >> 13) << 16;
-	int addr = pop().getS();
-	m_sp += addr & 15;
-	addr >>= 4;
+	int32_t pc = m_stack[m_sp].getU() | ((m_stack[m_sp+1].getU() >> 13) << 16);
+	m_lp = m_stack[m_sp+1].getU() & (kStackSize-1);
+	int addr = m_stack[m_sp+2].getS();
+	if (m_debug)
+		printf("new PC is %06x, new lp is %03x, storage addr is %d\n",pc,m_lp,addr);
 	if (addr != -1)
 		ref(addr,true).set(v);
 	return pc;
@@ -335,7 +329,7 @@ void machine::run(uint32_t pc) {
 					break;
 				case 0x8000: 
 					if (m_debug) {
-						if (op==0) printf("-(sp)");
+						if (op==0) printf("(sp)++");
 						else if (op<16) printf("L%d",op-1);
 						else printf("G%d",op-16);
 					}
@@ -515,5 +509,5 @@ int main(int argc,char **argv) {
 	fclose(f);
 	
 	machine m;
-	m.init(story);
+	m.init(story,argc>2&&!strcmp(argv[2],"-debug"));
 }
