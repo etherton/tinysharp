@@ -270,9 +270,9 @@ private:
 	void objPrint(uint16_t o) {
 		if (!o || o>m_objCount)
 			fault("print_obj object %d out of range",o);	
-		print_zscii(m_header->version<4
-			? m_objectSmall->objTable[o-1].propAddr.getU() + 1
-			: m_objectLarge->objTable[o-1].propAddr.getU() + 1);	
+		uint16_t pa = m_header->version<4? m_objectSmall->objTable[o-1].propAddr.getU() : m_objectLarge->objTable[o-1].propAddr.getU();
+		if (read_mem8(pa))
+			print_zscii(pa+1);	
 	}
 
 	uint8_t read_mem8(uint32_t addr) const {
