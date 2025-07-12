@@ -226,7 +226,7 @@ private:
 			pa += 1 + (read_mem8(pa)<<1);
 			for(;;) {
 				uint8_t pv = read_mem8(pa);
-				if ((pv & 31) > prop)
+				if (!prop || (pv & 31) < prop)
 					return byte2word(pv & 31);
 				else if (!pv)
 					return byte2word(0);
