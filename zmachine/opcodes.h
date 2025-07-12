@@ -60,24 +60,24 @@ static const uint8_t decode[256+32] = {
 
 static const char *opcode_names[256+32] = {
 	// 00-0x7F
-	"?00", "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?1D", "?1E", "?1F",
-	"?20", "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?3D", "?3E", "31F",
-	"?40", "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?5D", "?5E", "?5F",
-	"?60", "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?7D", "?7E", "?7F",
+	"?00", "je", "jl", "jg", "dec_chk", "inc_chk", "jin $o $o", "test", "or", "and", "test_attr $o $a", "set_attr $o $a", "clear_attr $o $a", "store", "insert_obj $o $o", "loadw", "loadb", "get_prop $o $p", "get_prop_addr $o $p", "get_next_prop $o $p", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?1D", "?1E", "?1F",
+	"?20", "je", "jl", "jg", "dec_chk", "inc_chk", "jin $o $o", "test", "or", "and", "test_attr $o $a", "set_attr $o $a", "clear_attr $o $a", "store", "insert_obj $o $o", "loadw", "loadb", "get_prop $o $p", "get_prop_addr $o $p", "get_next_prop $o $p", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?3D", "?3E", "31F",
+	"?40", "je", "jl", "jg", "dec_chk", "inc_chk", "jin $o $o", "test", "or", "and", "test_attr $o $a", "set_attr $o $a", "clear_attr $o $a", "store", "insert_obj $o $o", "loadw", "loadb", "get_prop $o $p", "get_prop_addr $o $p", "get_next_prop $o $p", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?5D", "?5E", "?5F",
+	"?60", "je", "jl", "jg", "dec_chk", "inc_chk", "jin $o $o", "test", "or", "and", "test_attr $o $a", "set_attr $o $a", "clear_attr $o $a", "store", "insert_obj $o $o", "loadw", "loadb", "get_prop $o $p", "get_prop_addr $o $p", "get_next_prop $o $p", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?7D", "?7E", "?7F",
 
 	// 0x80-0xAF
-	"jz", "get_sibling","get_child","get_parent","get_prop_len","inc","dec","print_addr","call_1s","remove_obj","print_obj","ret","jump","print_paddr","load","not/call1n",
-	"jz", "get_sibling","get_child","get_parent","get_prop_len","inc","dec","print_addr","call_1s","remove_obj","print_obj","ret","jump","print_paddr","load","not/call1n",
-	"jz", "get_sibling","get_child","get_parent","get_prop_len","inc","dec","print_addr","call_1s","remove_obj","print_obj","ret","jump","print_paddr","load","not/call1n",
+	"jz", "get_sibling $o","get_child $o","get_parent $o","get_prop_len","inc","dec","print_addr","call_1s","remove_obj $o","print_obj $o","ret","jump","print_paddr","load","not/call1n",
+	"jz", "get_sibling $o","get_child $o","get_parent $o","get_prop_len","inc","dec","print_addr","call_1s","remove_obj $o","print_obj $o","ret","jump","print_paddr","load","not/call1n",
+	"jz", "get_sibling $o","get_child $o","get_parent $o","get_prop_len","inc","dec","print_addr","call_1s","remove_obj $o","print_obj $o","ret","jump","print_paddr","load","not/call1n",
 
 	// 0xB0-0xBF
 	"rtrue","rfalse","print","print_ret","nop","save","restore","restart","ret_popped","pop/catch","quit","new_line","show_status","verify","EXT_BE","piracy",
 
 	// 0xC0-0xDF
-	"?C0", "je", "jl", "jg", "dec_chk", "inc_chk", "jin", "test", "or", "and", "test_attr", "set_attr", "clear_attr", "store", "insert_obj", "loadw", "loadb", "get_prop", "get_prop_addr", "get_next_prop", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?DD", "?DE", "?DF",
+	"?C0", "je", "jl", "jg", "dec_chk", "inc_chk", "jin $o $o", "test", "or", "and", "test_attr $o $a", "set_attr $o $a", "clear_attr $o $a", "store", "insert_obj $o $o", "loadw", "loadb", "get_prop $o $p", "get_prop_addr $o $p", "get_next_prop$o $p", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?DD", "?DE", "?DF",
 
 	//0xE0-0xFF
-	"call_vs","storew","storeb","put_prop","sread","print_char","print_num","random","push","pull","split_window","set_window","call_vs2","erase_window","erase_line","set_cursor",
+	"call_vs","storew","storeb","put_prop $o $p","sread","print_char","print_num","random","push","pull","split_window","set_window","call_vs2","erase_window","erase_line","set_cursor",
 	"get_cursor","set_text_style","buffer_mode","output_stream","input_stream","sound_effect","read_char","scan_table","not","call_vn","call_vn2","tokenise","encode_text","copy_table","print_table","check_arg_count",
 
 	// 0x100-0x1F

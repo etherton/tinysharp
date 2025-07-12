@@ -177,7 +177,7 @@ private:
 	word objGetPropertyAddr(uint16_t o,uint16_t prop) const {
 		if (!o || o>m_objCount)
 			fault("get_prop_addr object %d out of range",o);
-		if (!prop || prop>31)
+		if (!prop || prop>(m_header->version < 4? 31 : 63))
 			fault("get_prop_addr property index %d out of range",prop);
 		// this is the only one that returns a default property if it's not present
 		// properties are stored in descending order.
@@ -353,5 +353,5 @@ private:
 	uint32_t m_readOnlySize;
 	uint32_t m_faultpc;
 	uint8_t m_storyShift;
-	bool m_debug;
+	uint8_t m_debug;
 };

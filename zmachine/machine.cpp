@@ -7,6 +7,83 @@
 #include <string.h>
 #include <time.h>
 
+
+const char *attribute_names[] = {
+	"clothing",
+	"staggered",
+	"fightbit",
+	"visitied",
+	"water_room",
+	"maze_room",
+	"dry_land",
+	"concealed",
+
+	"scope_inside",
+	"sacred",
+	"supporter",
+	"open",
+	"transparent",
+	"trytakebit",
+	"scenery",
+	"turnable",
+
+	"readable",
+	"takeable",
+	"rmingbit",
+	"container",
+	"light",
+	"edible",
+	"drinkable",
+	"door",
+
+	"climbable",
+	"flame",
+	"flammable",
+	"vehicle",
+	"toolbit",
+	"weapon",
+	"animate",
+	"on"
+};
+
+const char *property_names[] = {
+	nullptr,
+	"?1",
+	"container_action",
+	"?3",
+	"pseudo",
+	"contains",
+	"vtype",
+	"strength",
+
+	"text_string",
+	"initial2",
+	"capacity",
+	"description",
+	"trophy_value",
+	"take_value",
+	"initial",
+	"size",
+
+	"adjectives",
+	"action",
+	"name",
+	"land_to",
+	"out_to",
+	"in_to",
+	"down_to",
+	"up_to",
+
+	"southwest_to",
+	"southeast_to",
+	"northwest_to",
+	"northeast_to",
+	"south_to",
+	"west_to",
+	"east_to",
+	"north_to",
+};
+
 void machine::init(const void *data,bool debug) {
 	uint8_t version = *(uint8_t*)data;
 	if (version > 8 || !((1<<version) & (0b1'1011'1000))) {
@@ -71,28 +148,25 @@ uint32_t machine::call(uint32_t pc,int storage,word operands[],uint8_t opCount) 
 	}
 	else // the values are always zero
 		memset(frame+3,0,localCount<<1);
-	if (opCount > localCount)
-		fault("too many parameters for function");
-	else
-		memcpy(frame+3,operands,opCount<<1);
+	memcpy(frame+3,operands,opCount < localCount? opCount<<1 : localCount<<1);
 	frame[0].set(pc);
 	frame[1].set(((pc >> 16) << 13) | m_lp);
 	frame[2].set(storage);
 	m_lp = m_sp;
 	m_sp += localCount + 3;
-	if (m_debug)
+	if (m_debug > 1)
 		printf("call to %06x, %d locals, sp now %03x and lp now %03x\n",newPc,localCount,m_sp,m_lp);
 	return newPc;
 }
 
 uint32_t machine::r_return(uint16_t v) {
-	if (m_debug)
+	if (m_debug > 1)
 		printf("returning %04x to caller, sp now %03x; ",v,m_lp);
 	m_sp = m_lp;
 	int32_t pc = m_stack[m_sp].getU() | ((m_stack[m_sp+1].getU() >> 13) << 16);
 	m_lp = m_stack[m_sp+1].getU() & (kStackSize-1);
 	int addr = m_stack[m_sp+2].getS();
-	if (m_debug)
+	if (m_debug > 1)
 		printf("new PC is %06x, new lp is %03x, storage addr is %d\n",pc,m_lp,addr);
 	if (addr != -1)
 		ref(addr,true).set(v);
@@ -294,14 +368,17 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 void machine::run(uint32_t pc) {
 	for (;;) {
 		m_faultpc = pc;
-		// if (pc == 0x8edc) __builtin_debugtrap();
+		// if (pc == 0x8c6) __builtin_debugtrap();
 		uint16_t opcode = read_mem8(pc++);
 		if (opcode == 0xBE && m_header->version>=5)
 			opcode = 0x100 | read_mem8(pc++);
 		if (opcode >= 0x120)
 			fault("invalid extended opcode");
 
-		if (m_debug) printf("%06x: %s ",m_faultpc,opcode_names[opcode]);
+		int opcodeLen = strlen(opcode_names[opcode]);
+		if (strchr(opcode_names[opcode],'$'))
+			opcodeLen = strchr(opcode_names[opcode],'$') - opcode_names[opcode] - 1;
+		if (m_debug) printf("%06x: %*.*s ",m_faultpc,opcodeLen,opcodeLen,opcode_names[opcode]);
 		uint16_t types = opTypes[opcode >> 4] << 8;
 		if (!types)
 			types = read_mem8(pc++) << 8;
@@ -312,6 +389,7 @@ void machine::run(uint32_t pc) {
 		// remember the last op (used for jumps)
 		uint8_t opCount = 0;
 		word operands[8];
+		const char *nextType = strchr(opcode_names[opcode],'$');
 		while (types != 0xFFFF) {
 			uint8_t op = read_mem8(pc++);
 			if (m_debug && opCount)
@@ -329,7 +407,7 @@ void machine::run(uint32_t pc) {
 					break;
 				case 0x8000: 
 					if (m_debug) {
-						if (op==0) printf("(sp)++");
+						if (op==0) printf("--(sp)");
 						else if (op<16) printf("L%d",op-1);
 						else printf("G%d",op-16);
 					}
@@ -337,6 +415,23 @@ void machine::run(uint32_t pc) {
 					if (m_debug)
 						printf(" [$%04x]",operands[opCount-1].getU());
 					break;
+			}
+			if (m_debug && nextType) {
+				if (nextType[1]=='o') {
+					print_char('{');
+					if (operands[opCount-1].notZero())
+						objPrint(operands[opCount-1].getU());
+					print_char('}');
+					print_char(' ');
+				}
+				else if (nextType[1] == 'a') {
+					printf(",%s ",attribute_names[operands[opCount-1].lo]);
+				}
+				else if (nextType[1] == 'p')
+					printf("p?%s ",property_names[operands[opCount-1].lo]);
+				else
+					fault("bug in opcode type string");
+				nextType = strchr(nextType+1,'$');
 			}
 			types = (types << 2) | 0x3;
 		}
@@ -348,7 +443,7 @@ void machine::run(uint32_t pc) {
 		if (decode_byte & 1) {
 			dest = read_mem8(pc++);
 			if (m_debug) {
-				if (!dest) printf(" -> (sp)");
+				if (!dest) printf(" -> (sp)++");
 				else if (dest < 16) printf(" -> L%d",dest-1);
 				else printf(" -> G%d",dest-16);
 			}
@@ -446,7 +541,7 @@ void machine::run(uint32_t pc) {
 				case 0xB: pc = r_return(operands[0].getS()); break;
 				case 0xC: pc += operands[0].getS() - 2; break;
 				case 0xD: print_zscii(operands[0].getU() << m_storyShift); break;
-				case 0xE: ref(operands[1].getS(),true) = var(operands[0].getS());
+				case 0xE: ref(dest,true) = var(operands[0].getS()); break;
 				case 0xF: if (m_header->version < 5) ref(dest,true).set(~operands[0].getU());
 					  else pc = call(pc,-1,operands,opCount); break;
 			}
@@ -458,6 +553,7 @@ void machine::run(uint32_t pc) {
 				case 0xB2: pc = print_zscii(pc); break;
 				case 0xB3: pc = print_zscii(pc); pc = r_return(1); break;
 				case 0xB4: break; // nop
+				case 0xB7: m_sp =  m_lp = 0; memcpy(m_dynamic, m_readOnly, m_dynamicSize); pc = m_header->initialPCAddr.getU(); break;
 				case 0xB8: if (!m_sp) fault("stack underflow in ret_popped"); pc = r_return(m_stack[--m_sp].getU()); break;
 				case 0xB9: if (!m_sp) fault("stack underflow in pop"); --m_sp; break;
 				case 0xBA: exit(0); break;
