@@ -121,12 +121,14 @@ private:
 			if (p)
 				m_objectSmall->objTable[p-1].child = m_objectSmall->objTable[o-1].sibling;
 			m_objectSmall->objTable[o-1].parent = 0;
+			m_objectSmall->objTable[o-1].sibling = 0;
 		}
 		else {
 			word p = m_objectLarge->objTable[o-1].parent;
 			if (p.notZero())
 				m_objectLarge->objTable[p.getU()-1].child = m_objectLarge->objTable[o-1].sibling;
 			m_objectLarge->objTable[o-1].parent.set(0);
+			m_objectLarge->objTable[o-1].sibling.set(0);
 		}
 	}
 	void objMoveTo(uint16_t o1,uint16_t o2) {
@@ -167,7 +169,7 @@ private:
 					else
 						fault("attempted to call get_prop on property that is %d bytes",(pv>>5)+1);
 				}
-				pa += (pv>>5)+1;
+				pa += 1 + (pv>>5);
 			} 
 		}
 		else {
@@ -179,19 +181,18 @@ private:
 			fault("get_prop_addr object %d out of range",o);
 		if (!prop || prop>(m_header->version < 4? 31 : 63))
 			fault("get_prop_addr property index %d out of range",prop);
-		// this is the only one that returns a default property if it's not present
 		// properties are stored in descending order.
 		if (m_header->version < 4) {
 			uint16_t pa = m_objectSmall->objTable[o-1].propAddr.getU();
 			// skip object description
 			pa += 1 + (read_mem8(pa)<<1);
 			for(;;) {
-				uint8_t pv = read_mem8(pa);
+				uint8_t pv = read_mem8(pa++);
 				if ((pv & 31) < prop)
 					return byte2word(0);
 				else if ((pv & 31) == prop)
 					return word2word(pa);
-				pa += 2 + (pv >> 5);
+				pa += 1 + (pv >> 5);
 			}
 		}
 		else {
@@ -202,11 +203,11 @@ private:
 		word pa = objGetPropertyAddr(o,prop);
 		if (pa.notZero()) {
 			if (m_header->version < 4) {
-				uint8_t pl = (read_mem8(pa.getU())>>5) + 1;
+				uint8_t pl = (read_mem8(pa.getU()-1)>>5) + 1;
 				if (pl==1)
-					write_mem8(pa.getU()+1,value.lo);
+					write_mem8(pa.getU(),value.lo);
 				else if (pl==2)
-					write_mem16(pa.getU()+1,value);
+					write_mem16(pa.getU(),value);
 				else
 					fault("attempted to put_prop a property of size %d",pl);
 			}
@@ -240,7 +241,7 @@ private:
 		if (!propAddr)
 			return byte2word(0);
 		else if (m_header->version < 4)
-			return byte2word((read_mem8(propAddr) >> 5)+1);
+			return byte2word((read_mem8(propAddr-1) >> 5)+1);
 		else
 			fault("v4+ get_prop_len not implemented");
 	}
@@ -346,7 +347,7 @@ private:
 	void encode_text(word dest[],const char *src,uint8_t wordLen);
 	uint8_t read_input(uint16_t textAddr,uint16_t parseAddr);
 	uint8_t *m_dynamic;		// everything up to 'static' cutoff
-	static const uint16_t kStackSize = 2048;
+	static const uint16_t kStackSize = 2048; // 1<<13 (8192) is largest possible value
 	word m_stack[kStackSize];
 	char m_zscii[26*3];
 	uint16_t m_sp, m_lp, m_dynamicSize, m_globalsOffset, m_abbreviations, m_objCount;
