@@ -191,7 +191,7 @@ private:
 			} 
 		}
 		else {
-			uint16_t pa = m_objectSmall->objTable[o-1].propAddr.getU();
+			uint16_t pa = m_objectLarge->objTable[o-1].propAddr.getU();
 			// skip object description
 			pa += 1 + (read_mem8(pa)<<1);
 			for(;;) {
@@ -199,7 +199,7 @@ private:
 				uint8_t pn = (pv & 63);
 				uint8_t ps = (pv & 128)? zeroIs64(read_mem8(pa++) & 63) : pv & 64? 2 : 1;
 				if (pn < prop)
-					return m_objectSmall->defaultProps[prop-1];
+					return m_objectLarge->defaultProps[prop-1];
 				else if (pn == prop) {
 					if (ps==1)
 						return byte2word(read_mem8(pa));
@@ -232,23 +232,37 @@ private:
 			}
 		}
 		else {
-			fault("get_prop_addr v4+ not impl");
+			uint16_t pa = m_objectLarge->objTable[o-1].propAddr.getU();
+			// skip object description
+			pa += 1 + (read_mem8(pa)<<1);
+			for(;;) {
+				uint8_t pv = read_mem8(pa++);
+				uint8_t pn = (pv & 63);
+				uint8_t ps = (pv & 128)? zeroIs64(read_mem8(pa++) & 63) : pv & 64? 2 : 1;
+				if (pn < prop)
+					return byte2word(0);
+				else if (pn == prop)
+					return word2word(pa);
+				pa += ps;
+			}
 		}
 	}
 	void objSetProperty(uint16_t o,uint16_t prop,word value) {
 		word pa = objGetPropertyAddr(o,prop);
 		if (pa.notZero()) {
-			if (m_header->version < 4) {
-				uint8_t pl = (read_mem8(pa.getU()-1)>>5) + 1;
-				if (pl==1)
-					write_mem8(pa.getU(),value.lo);
-				else if (pl==2)
-					write_mem16(pa.getU(),value);
-				else
-					fault("attempted to put_prop a property of size %d",pl);
+			uint8_t pl;
+			if (m_header->version < 4)
+				pl = (read_mem8(pa.getU()-1)>>5) + 1;
+			else {
+				uint8_t pv = read_mem8(pa.getU()-1);
+				pl = (pv & 128)? zeroIs64(pv & 63) : pv & 64? 2 : 1;
 			}
+			if (pl==1)
+				write_mem8(pa.getU(),value.lo);
+			else if (pl==2)
+				write_mem16(pa.getU(),value);
 			else
-				fault("set_prop v4+ not impl yet");
+				fault("attempted to put_prop a property of size %d",pl);
 		}
 		else
 			fault("put_prop failed on missing property");
@@ -270,16 +284,31 @@ private:
 				pa += 2 + (pv>>5);
 			}
 		}
-		else
-			fault("get_next_prop not impl for v4+");
+		else {
+			uint16_t pa = m_objectLarge->objTable[o-1].propAddr.getU();
+			// skip object description
+			pa += 1 + (read_mem8(pa)<<1);
+			for(;;) {
+				uint8_t pv = read_mem8(pa++);
+				uint8_t pn = pv & 63;
+				uint8_t pl = (pv & 128)? zeroIs64(read_mem8(pa++)) : pv & 64? 2 : 1;
+				if (!prop || pn < prop)
+					return byte2word(pn);
+				else if (!pn)
+					return byte2word(0);
+				pa += pl;
+			}
+		}
 	}
 	word objGetPropertyLen(uint16_t propAddr) const {
 		if (!propAddr)
 			return byte2word(0);
 		else if (m_header->version < 4)
 			return byte2word((read_mem8(propAddr-1) >> 5)+1);
-		else
-			fault("v4+ get_prop_len not implemented");
+		else {
+			uint8_t pv = read_mem8(propAddr-1);
+			return byte2word((pv & 128)? zeroIs64(pv & 63) : pv & 64? 2 : 1);
+		}
 	}
 	word objGetSibling(uint16_t o) const {
 		if (!o || o>m_objCount)
