@@ -100,6 +100,7 @@ void machine::init(const void *data,bool debug) {
 	m_readOnly = (const uint8_t*) data;
 	m_dynamicSize = m_header->staticMemoryAddr.getU();
 	m_dynamic = new uint8_t[m_dynamicSize];
+	m_undoDynamic = new uint8_t[m_dynamicSize];
 	memcpy(m_dynamic, m_readOnly, m_dynamicSize);
 	m_globalsOffset = m_header->globalVarsTableAddr.getU();
 	m_abbreviations = m_header->abbreviationsAddr.getU();
@@ -273,6 +274,8 @@ void machine::updateExtents() {
 
 void machine::showStatus() {
 	updateExtents();
+	if (m_debug)
+		return;
 	uint16_t globals = m_header->globalVarsTableAddr.getU();
 	printf("\0337\033[f\033[7m");
 	m_printed = 0;
@@ -684,6 +687,17 @@ void machine::run(uint32_t pc) {
 				case 0xF9: pc = call(pc,-1,operands,opCount); break;
 				case 0xFA: pc = call(pc,-1,operands,opCount); break;
 				case 0xFF: branch(operands[0].getU() <= (m_stack[m_lp+2].lo & 15)); break;
+				case 0x109: 
+					ref(dest,true) = byte2word(1); // save_undo
+					memcpy(m_undoDynamic, m_dynamic, m_dynamicSize);
+					m_undoSp = m_sp; m_undoLp = m_lp; m_undoPc = pc;
+					memcpy(m_undoStack, m_stack, sizeof(m_stack));
+					break;
+				case 0x10A:
+					memcpy(m_dynamic, m_undoDynamic, m_dynamicSize);
+					m_sp = m_undoSp; m_lp = m_undoLp; pc = m_undoPc;
+					memcpy(m_stack, m_undoStack, sizeof(m_stack));
+					break;
 				default: fault("unimplemented 0OP/VAR/EXT opcode"); break;
 			}
 		}
