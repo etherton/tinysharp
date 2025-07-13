@@ -318,7 +318,10 @@ private:
 			: m_objectLarge->objTable[o-1].sibling;				
 	}
 	word objGetChild(uint16_t o) const {
-		if (!o || o>m_objCount)
+		// theatre.z5 might have a bug in it?
+		if (!o)
+			return byte2word(0);
+		if (/*!o ||*/ o>m_objCount)
 			fault("get_child object %d out of range",o);
 		return m_header->version < 4
 			? byte2word(m_objectSmall->objTable[o-1].child)
@@ -433,6 +436,7 @@ private:
 	};
 	void encode_text(word dest[],const char *src,uint8_t wordLen);
 	uint8_t read_input(uint16_t textAddr,uint16_t parseAddr);
+	uint8_t tokenise(uint16_t textAddr,uint16_t parseAddr,uint8_t offset = 2);
 	uint8_t *m_dynamic;		// everything up to 'static' cutoff
 	uint8_t *m_undoDynamic; // for save_undo
 	static const uint16_t kStackSize = 2048; // 1<<13 (8192) is largest possible value

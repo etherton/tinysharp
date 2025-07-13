@@ -374,14 +374,24 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 	}
 	else {
 		uint8_t s = read_mem8(textAddr);
-		if (sl > s)
-			sl = s;
+		uint8_t soFar = read_mem8(textAddr+1);
+		if (soFar)
+			printf("{{%d inputs bytes already there}}\n",soFar);
+		if (sl > s - soFar)
+			sl = s - soFar;
 		m_dynamic[textAddr+1] = sl;
-		if (textAddr + 2 + sl > m_dynamicSize)
+		if (textAddr + 2 + soFar + sl > m_dynamicSize)
 			fault("read_input (v5+) past dynamic memory");
-		memcpy(m_dynamic + textAddr + 2,buffer,sl);
+		memcpy(m_dynamic + textAddr + 2 + soFar,buffer,sl);
 		offset = 2;
 	}
+	if (parseAddr)	
+		return tokenise(textAddr,parseAddr,offset);
+	else
+		return 13;
+}
+
+uint8_t machine::tokenise(uint16_t textAddr,uint16_t parseAddr,uint8_t offset) {
 	uint16_t dictAddr = m_header->dictionaryAddr.getU();
 	// the separators are actually stored as parsed words. spaces are not.
 	uint8_t numSeparators = read_mem8(dictAddr++);
@@ -390,6 +400,7 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 	uint8_t entryLength = read_mem8(dictAddr++);
 	uint16_t numWords = read_mem16(dictAddr).getU();
 	dictAddr+=2;
+	uint8_t sl = m_header->version<5? strlen((char*)m_dynamic+textAddr+1) : m_dynamic[textAddr+2];
 	uint8_t stop = offset + sl;
 	uint8_t maxParsed = read_mem8(parseAddr);
 	uint8_t numParsed = 0;
@@ -430,7 +441,7 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 	}
 	write_mem8(parseAddr+1,numParsed);
 	// printf("{{%d words parsed}}\n",numParsed);
-	return 0;
+	return 13;
 }
 
 void machine::run(uint32_t pc) {
@@ -689,6 +700,10 @@ void machine::run(uint32_t pc) {
 							break;
 				case 0xF9: pc = call(pc,-1,operands,opCount); break;
 				case 0xFA: pc = call(pc,-1,operands,opCount); break;
+				case 0xFB: 
+						if (opCount != 2) fault("only two-operand form of tokenise is supported");
+						tokenise(operands[0].getU(),operands[1].getU());
+						break;
 				case 0xFF: branch(operands[0].getU() <= (m_stack[m_lp+2].lo & 15)); break;
 				case 0x109: 
 					ref(dest,true) = byte2word(1); // save_undo
