@@ -7,6 +7,11 @@
 #include <string.h>
 #include <time.h>
 
+// https://github.com/sindresorhus/macos-terminal-size/blob/main/terminal-size.c
+#include <fcntl.h>     // open(), O_EVTONLY, O_NONBLOCK
+#include <unistd.h>    // close()
+#include <sys/ioctl.h> // ioctl()
+
 
 const char *attribute_names[] = {
 	"clothing",
@@ -118,7 +123,7 @@ void machine::init(const void *data,bool debug) {
 			printf("] parent %d child %d sibling %d\n",objGetParent(i).getU(),objGetChild(i).getU(),objGetSibling(i).getU());
 		}
 	}
-
+	updateExtents();
 	m_debug = debug;
 	run(m_header->initialPCAddr.getU());
 }
@@ -126,6 +131,7 @@ void machine::init(const void *data,bool debug) {
 
 void machine::print_char(uint8_t c) {
 	putchar(c);
+	m_printed++;
 }
 
 void machine::print_num(int16_t v) {
@@ -244,6 +250,37 @@ void machine::memfault(const char *fmt,...) const {
 	printf("\n");
 	va_end(args);
 	exit(1);
+}
+
+void machine::updateExtents() {
+	int fd = open("/dev/tty",O_EVTONLY | O_NONBLOCK);
+	if (fd != -1) {
+		struct winsize ws;
+		int result = ioctl(fd,TIOCGWINSZ, &ws);
+		close(fd);
+		if (result != -1) {
+			write_mem8(0x20,ws.ws_row);
+			write_mem8(0x21,ws.ws_col);
+		}
+	}
+}
+
+void machine::showStatus() {
+	updateExtents();
+	uint16_t globals = m_header->globalVarsTableAddr.getU();
+	printf("\0337\033[f\033[7m");
+	m_printed = 0;
+	objPrint(read_mem16(globals).getU());
+	uint8_t screenWidth = read_mem8(0x21);
+	int16_t score = read_mem16(globals+2).getS();
+	uint16_t moves = read_mem16(globals+4).getU();
+	char scoreBuf[16];
+	snprintf(scoreBuf,16,"%d/%d",score,moves);
+	screenWidth -= strlen(scoreBuf);
+	while (m_printed < screenWidth)
+		print_char(' ');
+	printf("%s\0338",scoreBuf);
+	fflush(stdout);
 }
 
 static int32_t random_seed = 0;
@@ -574,14 +611,18 @@ void machine::run(uint32_t pc) {
 							c[0].data = m_dynamic; c[0].size = m_dynamicSize;
 							c[1].data = &m_sp; c[1].size = (kStackSize + 2) * 2;
 							c[2].data = &pc; c[2].size = 4;
-							readSaveData(c,3); }
+							readSaveData(c,3); updateExtents(); }
 							break;
-				case 0xB7: m_sp =  m_lp = 0; memcpy(m_dynamic, m_readOnly, m_dynamicSize); pc = m_header->initialPCAddr.getU(); break;
+				case 0xB7: m_sp =  m_lp = 0; 
+							memcpy(m_dynamic, m_readOnly, m_dynamicSize); 
+							updateExtents();
+							pc = m_header->initialPCAddr.getU();
+							 break;
 				case 0xB8: if (!m_sp) fault("stack underflow in ret_popped"); pc = r_return(m_stack[--m_sp].getU()); break;
 				case 0xB9: if (!m_sp) fault("stack underflow in pop"); --m_sp; break;
 				case 0xBA: exit(0); break;
 				case 0xBB: print_char(10); break;
-				case 0xBC: break;
+				case 0xBC: showStatus(); break;
 				case 0xC1: if (opCount==2)
 							branch(operands[0].getS() == operands[1].getS());
 							else if (opCount==3)
@@ -595,6 +636,7 @@ void machine::run(uint32_t pc) {
 				case 0xE2: write_mem8(operands[0].getU()+operands[1].getU(),operands[2].lo); break;
 				case 0xE3: objSetProperty(operands[0].getU(),operands[1].getU(),operands[2]); break;
 				case 0xE4: if (opCount != 2) fault("only two operand read opcode supported");
+						   showStatus();
 						   if (m_header->version>=5)
 						   	ref(dest,true).setByte(read_input(operands[0].getU(),operands[1].getU()));
 							else read_input(operands[0].getU(),operands[1].getU());
