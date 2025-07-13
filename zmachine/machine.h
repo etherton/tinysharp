@@ -353,14 +353,14 @@ private:
 	void write_mem8(uint32_t addr,uint8_t v) {
 		if (addr>=m_dynamicSize)
 			memfault("out of range write to %06x",addr);
-		if (addr < 0x38)
+		if (addr < 0x38 && addr != 0x10 && addr != 0x11)
 			memfault("illegal write to header");
 		m_dynamic[addr] = v;
 	}
 	void write_mem16(uint32_t addr,word v) {
 		if (addr+1>=m_dynamicSize)
 			memfault("out of range write to %06x",addr);
-		if (addr < 0x38)
+		if (addr < 0x38 && addr != 0x10)
 			memfault("illegal write to header");
 		m_dynamic[addr] = v.hi;
 		m_dynamic[addr+1] = v.lo;
@@ -389,6 +389,24 @@ private:
 			return m_stack[m_lp + v + 2];
 		else
 			return *(word*)(m_dynamic + m_globalsOffset + (v-16)*2);
+	}
+	bool scanTable(uint8_t dest,word x,uint16_t table,uint16_t len,uint8_t form) {
+		if (form & 0x80) {
+			form &= 0x7F;
+			for (uint16_t i=0; i<len; i++,table+=form)
+				if (read_mem16(table)==x) {
+					ref(dest,true) = word2word(table);
+					return true;
+				}
+		}
+		else {
+			for (uint16_t i=0; i<len; i++,table+=form)
+				if (read_mem8(table)==x.lo) {
+					ref(dest,true) = word2word(table);
+					return true;
+				}
+		}
+		return false;
 	}
 	void push(word w) {
 		if (m_sp == kStackSize)

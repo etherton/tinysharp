@@ -274,7 +274,7 @@ void machine::updateExtents() {
 
 void machine::showStatus() {
 	updateExtents();
-	if (m_debug)
+	if (m_debug || m_header->version > 3)
 		return;
 	uint16_t globals = m_header->globalVarsTableAddr.getU();
 	printf("\0337\033[f\033[7m");
@@ -684,6 +684,9 @@ void machine::run(uint32_t pc) {
 				case 0xF2: break; // buffer_mode
 				case 0xF3: break; // output_stream
 				case 0xF6: ref(dest,true).setByte(13); break; // read_char
+				case 0xF7: branch(scanTable(dest,operands[0],operands[1].getU(),operands[2].getU(),
+							m_header->version>=5&&opCount==4?operands[3].lo:0x82));
+							break;
 				case 0xF9: pc = call(pc,-1,operands,opCount); break;
 				case 0xFA: pc = call(pc,-1,operands,opCount); break;
 				case 0xFF: branch(operands[0].getU() <= (m_stack[m_lp+2].lo & 15)); break;
