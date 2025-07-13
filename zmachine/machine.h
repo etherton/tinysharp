@@ -78,16 +78,10 @@ private:
 			fault("jin first object %d of range",o1);
 		if (!o2 || o2 > m_objCount)
 			fault("jin second object %d of range",o2);
-		int deadman = 100;
-		while (o1) {
-			if (!--deadman) fault("infinite loop in object table");
-			if (o1 == o2)
-				return true;
-			o1 = m_header->version<4
+		return o2 == (m_header->version<4
 				? m_objectSmall->objTable[o1-1].parent 
-				: m_objectLarge->objTable[o1-1].parent.getU();
-		}
-		return false;
+				: m_objectLarge->objTable[o1-1].parent.getU());
+
 	}
 	bool objTestAttribute(uint16_t o,uint16_t attr) const {
 		if (!o || o > m_objCount)
