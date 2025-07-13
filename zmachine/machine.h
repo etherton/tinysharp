@@ -11,7 +11,7 @@
 	local3/param3
 	local2/param2
 	local1/param1 (LP+3)
-	Storage address (or -1 to discard result)
+	Storage address (or -1 to discard result) (shifted left 4), or'd with number of parameters (0-15)
 	Previous LP (lower 13 bits), and upper three bits of return address (upper 3 bits)
 	return_address <- LP
 
@@ -61,6 +61,9 @@ private:
 		void clearAttribute(uint16_t a) {
 			attr[a >> 3] &= ~(0x80 >> (a & 7));
 		}
+		/* Either both size bytes have bit 7 set (bits 0-5 of first byte are prop number, bits 0-5 of second
+			byte are the prop size, in bytes, with 0 meaning 64 bytes) or there is a single size byte with bit
+			7 clear, 0-5 contain the property number, and bit 6 clear means size=1, bit 6 set means size=2 */
 	};
 	struct object_header_small {
 		word defaultProps[31];
@@ -122,7 +125,7 @@ private:
 			if (p && m_objectSmall->objTable[p-1].child == o)
 				m_objectSmall->objTable[p-1].child = s;
 			// scan entire object table to find dangling sibling reference (parent may be zero)
-			else for (uint16_t i=1; i<m_objCount; i++)
+			else for (uint16_t i=1; i<=m_objCount; i++)
 				if (m_objectSmall->objTable[i-1].sibling == o) {
 					m_objectSmall->objTable[i-1].sibling = s;
 					break;
@@ -132,10 +135,17 @@ private:
 		}
 		else {
 			word p = m_objectLarge->objTable[o-1].parent;
-			if (p.notZero())
-				m_objectLarge->objTable[p.getU()-1].child = m_objectLarge->objTable[o-1].sibling;
-			m_objectLarge->objTable[o-1].parent.set(0);
-			m_objectLarge->objTable[o-1].sibling.set(0);
+			word s = m_objectLarge->objTable[o-1].sibling;
+			if (p.notZero() && m_objectLarge->objTable[p.getU()-1].child.getU() == o)
+				m_objectLarge->objTable[p.getU()-1].child = s;
+			// scan entire object table to find dangling sibling reference (parent may be zero)
+			else for (uint16_t i=1; i<=m_objCount; i++)
+				if (m_objectLarge->objTable[i-1].sibling.getU() == o) {
+					m_objectLarge->objTable[i-1].sibling = s;
+					break;
+				}
+			m_objectLarge->objTable[o-1].parent.setByte(0);
+			m_objectLarge->objTable[o-1].sibling.setByte(0);
 		}
 	}
 	void objMoveTo(uint16_t o1,uint16_t o2) {
@@ -153,10 +163,11 @@ private:
 			m_objectLarge->objTable[o2-1].child.set(o1);
 		}
 	}
+	static uint8_t zeroIs64(uint8_t f) { return f? f : 64; }
 	word objGetProperty(uint16_t o,uint16_t prop) const {
 		if (!o || o>m_objCount)
 			fault("get_prop object %d out of range",o);
-		if (!prop || prop>31)
+		if (!prop || prop>(m_header->version>4? 31 : 63))
 			fault("get_prop property index %d out of range",prop);
 		// this is the only one that returns a default property if it's not present
 		// properties are stored in descending order.
@@ -180,7 +191,25 @@ private:
 			} 
 		}
 		else {
-			fault("get_prop v4+ not impl");
+			uint16_t pa = m_objectSmall->objTable[o-1].propAddr.getU();
+			// skip object description
+			pa += 1 + (read_mem8(pa)<<1);
+			for(;;) {
+				uint8_t pv = read_mem8(pa++);
+				uint8_t pn = (pv & 63);
+				uint8_t ps = (pv & 128)? zeroIs64(read_mem8(pa++) & 63) : pv & 64? 2 : 1;
+				if (pn < prop)
+					return m_objectSmall->defaultProps[prop-1];
+				else if (pn == prop) {
+					if (ps==1)
+						return byte2word(read_mem8(pa));
+					else if (ps==2)
+						return read_mem16(pa);
+					else
+						fault("attempted to call get_prop on property that is %d bytes",ps);
+				}
+				pa += ps;
+			} 
 		}
 	}
 	word objGetPropertyAddr(uint16_t o,uint16_t prop) const {

@@ -157,6 +157,9 @@ uint32_t machine::call(uint32_t pc,int storage,word operands[],uint8_t opCount) 
 		return pc;
 	}
 	uint8_t localCount = read_mem8(newPc++);
+	uint8_t larger = localCount > opCount? localCount : opCount;
+	if (m_sp + larger + 3 > kStackSize)
+		fault("stack overflow in routine call");
 	word *frame = m_stack + m_sp;
 	if (m_header->version < 5) { // there are N initial values for locals here
 		memcpy(frame+3,m_readOnly + newPc,localCount<<1);
@@ -164,14 +167,14 @@ uint32_t machine::call(uint32_t pc,int storage,word operands[],uint8_t opCount) 
 	}
 	else // the values are always zero
 		memset(frame+3,0,localCount<<1);
-	memcpy(frame+3,operands,opCount < localCount? opCount<<1 : localCount<<1);
+	memcpy(frame+3,operands,opCount<<1);
 	frame[0].set(pc);
 	frame[1].set(((pc >> 16) << 13) | m_lp);
-	frame[2].set(storage);
+	frame[2].set((storage<<4) | larger);
 	m_lp = m_sp;
-	m_sp += localCount + 3;
+	m_sp += larger + 3;
 	if (m_debug > 1)
-		printf("call to %06x, %d locals, sp now %03x and lp now %03x\n",newPc,localCount,m_sp,m_lp);
+		printf("call to %06x, %d locals, sp now %03x and lp now %03x\n",newPc,larger,m_sp,m_lp);
 	return newPc;
 }
 
@@ -181,7 +184,7 @@ uint32_t machine::r_return(uint16_t v) {
 	m_sp = m_lp;
 	int32_t pc = m_stack[m_sp].getU() | ((m_stack[m_sp+1].getU() >> 13) << 16);
 	m_lp = m_stack[m_sp+1].getU() & (kStackSize-1);
-	int addr = m_stack[m_sp+2].getS();
+	int addr = m_stack[m_sp+2].getS() >> 4;
 	if (m_debug > 1)
 		printf("new PC is %06x, new lp is %03x, storage addr is %d\n",pc,m_lp,addr);
 	if (addr != -1)
@@ -669,9 +672,17 @@ void machine::run(uint32_t pc) {
 							break;
 				case 0xE8: push(operands[0]); break;
 				case 0xE9: var(operands[0].getS()) = pop(); break;
+				case 0xEA: break; // split_window height
+				case 0xEB: break; // set_window window_num
 				case 0xEC: pc = call(pc,dest,operands,opCount); break;
+				case 0xED: break; // erase_window
+				case 0xEF: break; // set_cursor line col
+				case 0xF1: break; // set_text_style
+				case 0xF2: break; // buffer_mode
+				case 0xF6: ref(dest,true).setByte(13); break; // read_char
 				case 0xF9: pc = call(pc,-1,operands,opCount); break;
 				case 0xFA: pc = call(pc,-1,operands,opCount); break;
+				case 0xFF: branch(operands[0].getU() <= (m_stack[m_lp+2].lo & 15)); break;
 				default: fault("unimplemented 0OP/VAR/EXT opcode"); break;
 			}
 		}
