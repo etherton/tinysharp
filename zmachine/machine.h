@@ -33,6 +33,7 @@ public:
 	bool readSaveData(chunk *chunks,uint32_t count);
 	void showStatus();
 	void updateExtents();
+	void printObjTree();
 private:
 	// first attribute (zero) is MSB of lowest byte.
 	struct object_small {	
@@ -117,8 +118,15 @@ private:
 			fault("remove_obj object %d out of range",o);
 		if (m_header->version < 4) {
 			uint8_t p = m_objectSmall->objTable[o-1].parent;
-			if (p)
-				m_objectSmall->objTable[p-1].child = m_objectSmall->objTable[o-1].sibling;
+			uint8_t s = m_objectSmall->objTable[o-1].sibling;
+			if (p && m_objectSmall->objTable[p-1].child == o)
+				m_objectSmall->objTable[p-1].child = s;
+			// scan entire object table to find dangling sibling reference (parent may be zero)
+			else for (uint16_t i=1; i<m_objCount; i++)
+				if (m_objectSmall->objTable[i-1].sibling == o) {
+					m_objectSmall->objTable[i-1].sibling = s;
+					break;
+				}
 			m_objectSmall->objTable[o-1].parent = 0;
 			m_objectSmall->objTable[o-1].sibling = 0;
 		}

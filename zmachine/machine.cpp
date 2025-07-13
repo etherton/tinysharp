@@ -117,17 +117,20 @@ void machine::init(const void *data,bool debug) {
 		: (m_objectLarge->objTable[0].propAddr.getU() - (m_header->objectTableAddr.getU() + 63*2))/14;
 	if (debug) {
 		printf("%d objects detected in story\n",m_objCount);
-		for (int i=1; i<=m_objCount; i++) {
-			printf("Object %d named [",i);
-			objPrint(i);
-			printf("] parent %d child %d sibling %d\n",objGetParent(i).getU(),objGetChild(i).getU(),objGetSibling(i).getU());
-		}
+		printObjTree();
 	}
 	updateExtents();
 	m_debug = debug;
 	run(m_header->initialPCAddr.getU());
 }
 
+void machine::printObjTree() {
+	for (int i=1; i<=m_objCount; i++) {
+		printf("Object %d named [",i);
+		objPrint(i);
+		printf("] parent %d child %d sibling %d\n",objGetParent(i).getU(),objGetChild(i).getU(),objGetSibling(i).getU());
+	}
+}
 
 void machine::print_char(uint8_t c) {
 	putchar(c);
@@ -335,6 +338,14 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 		fgets(buffer,sizeof(buffer),stdin);
 		char *t = buffer;
 		while (*t) if (*t>='A'&&*t<='Z') *t++ +=32; else ++t;
+		if (!strncmp(buffer,"#random ",8)) {
+			random_seed = atoi(buffer+9);
+			continue;
+		}
+		else if (!strncmp(buffer,"#objtree",8)) {
+			printObjTree();
+			continue;
+		}
 	} while (strlen(buffer) >= 240);
 	uint8_t sl = strlen(buffer)-1, offset;
 	if (m_header->version < 5) {
