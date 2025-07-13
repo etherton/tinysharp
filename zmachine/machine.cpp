@@ -373,6 +373,7 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 }
 
 void machine::run(uint32_t pc) {
+	random_seed = 2;
 	for (;;) {
 		m_faultpc = pc;
 		// if (pc == 0x8c6) __builtin_debugtrap();
@@ -560,6 +561,21 @@ void machine::run(uint32_t pc) {
 				case 0xB2: pc = print_zscii(pc); break;
 				case 0xB3: pc = print_zscii(pc); pc = r_return(1); break;
 				case 0xB4: break; // nop
+				case 0xB5: { chunk c[3]; 
+							c[0].data = m_dynamic; c[0].size = m_dynamicSize;
+							c[1].data = &m_sp; c[1].size = (kStackSize + 2) * 2;
+							c[2].data = &pc; c[2].size = 4;
+							if (writeSaveData(c,3)) {
+								if (m_header->version<4) 
+									branch(true);
+							} }
+							break;
+				case 0xB6: { chunk c[3];
+							c[0].data = m_dynamic; c[0].size = m_dynamicSize;
+							c[1].data = &m_sp; c[1].size = (kStackSize + 2) * 2;
+							c[2].data = &pc; c[2].size = 4;
+							readSaveData(c,3); }
+							break;
 				case 0xB7: m_sp =  m_lp = 0; memcpy(m_dynamic, m_readOnly, m_dynamicSize); pc = m_header->initialPCAddr.getU(); break;
 				case 0xB8: if (!m_sp) fault("stack underflow in ret_popped"); pc = r_return(m_stack[--m_sp].getU()); break;
 				case 0xB9: if (!m_sp) fault("stack underflow in pop"); --m_sp; break;
@@ -602,6 +618,25 @@ void machine::run(uint32_t pc) {
 	}
 }
 
+bool machine::writeSaveData(chunk *chunks,uint32_t count) {
+	FILE *f = fopen("save.dat","wb");
+	if (!f)
+		return false;
+	for (uint32_t i=0; i<count; i++)
+		fwrite(chunks[i].data,1,chunks[i].size,f);
+	fclose(f);
+	return true;
+}
+
+bool machine::readSaveData(chunk *chunks,uint32_t count) {
+	FILE *f = fopen("save.dat","rb");
+	if (!f)
+		return false;
+	for (uint32_t i=0; i<count; i++)
+		fread(chunks[i].data,1,chunks[i].size,f);
+	fclose(f);
+	return true;
+}
 
 int main(int argc,char **argv) {
 	FILE *f = fopen(argv[1],"rb");

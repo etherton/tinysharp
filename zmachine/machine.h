@@ -25,9 +25,12 @@
 */
 
 class machine {
+	struct chunk { void *data; uint32_t size; };
 public:
 	void init(const void*,bool debug);
 	void run(uint32_t pc);
+	bool writeSaveData(chunk *chunks,uint32_t count);
+	bool readSaveData(chunk *chunks,uint32_t count);
 private:
 	// first attribute (zero) is MSB of lowest byte.
 	struct object_small {	
@@ -348,9 +351,10 @@ private:
 	uint8_t read_input(uint16_t textAddr,uint16_t parseAddr);
 	uint8_t *m_dynamic;		// everything up to 'static' cutoff
 	static const uint16_t kStackSize = 2048; // 1<<13 (8192) is largest possible value
+	uint16_t m_sp, m_lp;
 	word m_stack[kStackSize];
 	char m_zscii[26*3];
-	uint16_t m_sp, m_lp, m_dynamicSize, m_globalsOffset, m_abbreviations, m_objCount;
+	uint16_t m_dynamicSize, m_globalsOffset, m_abbreviations, m_objCount;
 	uint32_t m_readOnlySize;
 	uint32_t m_faultpc;
 	uint8_t m_storyShift;
