@@ -337,6 +337,9 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 	bool internal;
 	do {
 		fgets(buffer,sizeof(buffer),stdin);
+		while (strlen(buffer) && buffer[strlen(buffer)-1]==10)
+			buffer[strlen(buffer)-1] = 0;
+		// printf("[[%s]]\n",buffer);
 		for (char *t = buffer; *t; t++)
 			if (*t>='A'&&*t<='Z') 
 				*t +=32; 
@@ -351,7 +354,7 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 			internal = true;
 		}
 	} while (strlen(buffer) >= 240 || internal);
-	uint8_t sl = strlen(buffer)-1, offset;
+	uint8_t sl = strlen(buffer), offset;
 	if (m_header->version < 5) {
 		uint8_t s = read_mem8(textAddr);
 		if (sl > s-1)
