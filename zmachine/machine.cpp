@@ -334,19 +334,23 @@ void machine::encode_text(word dest[],const char *src,uint8_t len) {
 
 uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 	char buffer[256];
+	bool internal;
 	do {
 		fgets(buffer,sizeof(buffer),stdin);
-		char *t = buffer;
-		while (*t) if (*t>='A'&&*t<='Z') *t++ +=32; else ++t;
+		for (char *t = buffer; *t; t++)
+			if (*t>='A'&&*t<='Z') 
+				*t +=32; 
+		internal = false;
 		if (!strncmp(buffer,"#random ",8)) {
 			random_seed = atoi(buffer+9);
-			continue;
+			printf("{random_seed set to %d}\n",random_seed);
+			internal = true;
 		}
 		else if (!strncmp(buffer,"#objtree",8)) {
 			printObjTree();
-			continue;
+			internal = true;
 		}
-	} while (strlen(buffer) >= 240);
+	} while (strlen(buffer) >= 240 || internal);
 	uint8_t sl = strlen(buffer)-1, offset;
 	if (m_header->version < 5) {
 		uint8_t s = read_mem8(textAddr);
