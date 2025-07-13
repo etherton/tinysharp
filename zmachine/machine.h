@@ -353,11 +353,15 @@ private:
 	void write_mem8(uint32_t addr,uint8_t v) {
 		if (addr>=m_dynamicSize)
 			memfault("out of range write to %06x",addr);
+		if (addr < 0x38)
+			memfault("illegal write to header");
 		m_dynamic[addr] = v;
 	}
 	void write_mem16(uint32_t addr,word v) {
 		if (addr+1>=m_dynamicSize)
 			memfault("out of range write to %06x",addr);
+		if (addr < 0x38)
+			memfault("illegal write to header");
 		m_dynamic[addr] = v.hi;
 		m_dynamic[addr+1] = v.lo;
 	}

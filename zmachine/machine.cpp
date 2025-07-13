@@ -265,8 +265,8 @@ void machine::updateExtents() {
 		int result = ioctl(fd,TIOCGWINSZ, &ws);
 		close(fd);
 		if (result != -1) {
-			write_mem8(0x20,ws.ws_row);
-			write_mem8(0x21,ws.ws_col);
+			m_dynamic[0x20] = ws.ws_row;
+			m_dynamic[0x21] = ws.ws_col;
 		}
 	}
 }
@@ -679,6 +679,7 @@ void machine::run(uint32_t pc) {
 				case 0xEF: break; // set_cursor line col
 				case 0xF1: break; // set_text_style
 				case 0xF2: break; // buffer_mode
+				case 0xF3: break; // output_stream
 				case 0xF6: ref(dest,true).setByte(13); break; // read_char
 				case 0xF9: pc = call(pc,-1,operands,opCount); break;
 				case 0xFA: pc = call(pc,-1,operands,opCount); break;
