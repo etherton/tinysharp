@@ -122,6 +122,10 @@ void machine::init(const void *data,bool debug) {
 	}
 	updateExtents();
 	m_debug = debug;
+	m_windowSplit = 0;
+	m_currentWindow = 0;
+	m_outputEnables = 1 << 1;
+	m_cursorX = m_cursorY = 1;
 	run(m_header->initialPCAddr.getU());
 }
 
@@ -134,7 +138,24 @@ void machine::printObjTree() {
 }
 
 void machine::print_char(uint8_t c) {
-	putchar(c);
+	if (m_outputEnables & (1 << 1)) {
+		putchar(c);
+		if (c == 10) {
+			m_cursorX = 1;
+			if (m_currentWindow==1 && m_cursorY < m_windowSplit)
+				m_cursorY++;
+			else if (!m_currentWindow && m_cursorY < m_dynamic[0x21])
+				m_cursorY++;
+		}
+		else
+			m_cursorX++;
+	}
+	if (m_outputEnables & (1 << 3)) {
+		word *cp = (word*)(m_dynamic + m_outputBuffer);
+		write_mem8(m_outputBuffer + 2 + cp->getU(),c);
+		cp->inc();
+	}
+		
 	m_printed++;
 }
 
@@ -292,6 +313,40 @@ void machine::showStatus() {
 	fflush(stdout);
 }
 
+void machine::setWindow(uint8_t window) {
+	if (window && !m_windowSplit)
+		fault("setWindow %d called with no split",window);
+	/* window 1 is always the top (aka status line) */
+	if (window) {
+		printf("\033[1;%dr",m_windowSplit); 
+		setCursor(m_cursorX,m_cursorY);
+	}
+	else if (m_windowSplit)
+		printf("\033[%d;%dr\033[%d;1H",m_windowSplit+1,m_dynamic[0x21],m_dynamic[0x21] - m_windowSplit);
+	else
+		printf("\033[1;%dr\033[%d;1H",m_dynamic[0x21],m_dynamic[0x21] - m_windowSplit);
+	fflush(stdout);
+}
+
+void machine::setCursor(uint8_t x,uint8_t y) {
+	printf("\033[%d;%dH",y,x);
+	fflush(stdout);
+	m_cursorX = x;
+	m_cursorY = y;
+}
+
+void machine::setOutput(int enable,uint16_t tableAddr) {
+	if (enable > 0) {
+		m_outputEnables |= (1 << enable);
+		if (enable == 3) {
+			write_mem16(tableAddr,byte2word(0));
+			m_outputBuffer = tableAddr;
+		}
+	}
+	else if (enable < 0)
+		m_outputEnables &= ~(1 << -enable);
+}
+
 static int32_t random_seed = 0;
 static int randomNumber(void) {
 	// borrowed from mojozork so I can use that project's validation script
@@ -369,7 +424,7 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 			fault("read_input (v1-4) past dynamic memory");
 		memcpy(m_dynamic + textAddr + 1,buffer,sl);
 		write_mem8(textAddr + 1 + sl,0);
-		printf("{{read [%*.*s]}}\n",sl,sl,m_dynamic+textAddr+1);
+		//printf("{{read [%*.*s]}}\n",sl,sl,m_dynamic+textAddr+1);
 		offset = 1;
 	}
 	else {
@@ -693,14 +748,14 @@ void machine::run(uint32_t pc) {
 							break;
 				case 0xE8: push(operands[0]); break;
 				case 0xE9: var(operands[0].getS()) = pop(); break;
-				case 0xEA: break; // split_window height
-				case 0xEB: break; // set_window window_num
+				case 0xEA: m_windowSplit = operands[0].getU(); break;
+				case 0xEB: setWindow(operands[0].getU()); break;
 				case 0xEC: pc = call(pc,dest,operands,opCount); break;
 				case 0xED: break; // erase_window
-				case 0xEF: break; // set_cursor line col
+				case 0xEF: setCursor(operands[1].getU(),operands[0].getU()); break; // set_cursor line col
 				case 0xF1: break; // set_text_style
 				case 0xF2: break; // buffer_mode
-				case 0xF3: break; // output_stream
+				case 0xF3: setOutput(operands[0].getS(),opCount>1?operands[1].getU():0); break; // output_stream
 				case 0xF6: ref(dest,true).setByte(13); break; // read_char
 				case 0xF7: branch(scanTable(dest,operands[0],operands[1].getU(),operands[2].getU(),
 							m_header->version>=5&&opCount==4?operands[3].lo:0x82));

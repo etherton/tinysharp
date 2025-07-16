@@ -427,6 +427,9 @@ private:
 	uint32_t r_return(uint16_t v);
 	[[noreturn]] void fault(const char*,...) const;
 	[[noreturn]] void memfault(const char*,...) const;
+	void setWindow(uint8_t w);
+	void setCursor(uint8_t x,uint8_t y);
+	void setOutput(int enable,uint16_t tableAddr);
 	union {
 		const uint8_t *m_readOnly; 	// can be in flash etc or memory mapped file
 		const storyHeader *m_header;	
@@ -451,6 +454,11 @@ private:
 	uint32_t m_readOnlySize;
 	uint32_t m_faultpc;
 	uint32_t m_printed;
+	uint16_t m_outputBuffer;
 	uint8_t m_storyShift;
 	uint8_t m_debug;
+	uint8_t m_windowSplit;
+	uint8_t m_outputEnables;
+	uint8_t m_cursorX, m_cursorY;
+	uint8_t m_currentWindow;
 };
