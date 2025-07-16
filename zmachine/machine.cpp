@@ -369,7 +369,7 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 			fault("read_input (v1-4) past dynamic memory");
 		memcpy(m_dynamic + textAddr + 1,buffer,sl);
 		write_mem8(textAddr + 1 + sl,0);
-		//printf("{{read [%*.*s]}}\n",sl,sl,m_dynamic+textAddr+1);
+		printf("{{read [%*.*s]}}\n",sl,sl,m_dynamic+textAddr+1);
 		offset = 1;
 	}
 	else {
@@ -383,6 +383,7 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 		if (textAddr + 2 + soFar + sl > m_dynamicSize)
 			fault("read_input (v5+) past dynamic memory");
 		memcpy(m_dynamic + textAddr + 2 + soFar,buffer,sl);
+		// printf("{{read [%*.*s]}}\n",sl,sl,m_dynamic+textAddr+2);
 		offset = 2;
 	}
 	if (parseAddr)	
@@ -400,12 +401,14 @@ uint8_t machine::tokenise(uint16_t textAddr,uint16_t parseAddr,uint8_t offset) {
 	uint8_t entryLength = read_mem8(dictAddr++);
 	uint16_t numWords = read_mem16(dictAddr).getU();
 	dictAddr+=2;
-	uint8_t sl = m_header->version<5? strlen((char*)m_dynamic+textAddr+1) : m_dynamic[textAddr+2];
+	uint8_t sl = m_header->version<5? strlen((char*)m_dynamic+textAddr+1) : m_dynamic[textAddr+1];
 	uint8_t stop = offset + sl;
 	uint8_t maxParsed = read_mem8(parseAddr);
 	uint8_t numParsed = 0;
-	//printf("{{%d separators, %d words, %d bytes per entry}}\n",numSeparators,numWords,entryLength);
+	//printf("{{%d separators, %d words, %d bytes per entry}}\n",numSeparators,numWords,entryLength)
+	// printf("{{offset=%d,stop=%d}}\n",offset,stop);
 	while (offset < stop && numParsed < maxParsed) {
+		// printf("{{offset=%d}}\n",offset);
 		// skip spaces
 		while (m_dynamic[textAddr+offset] == 32 && offset<stop)
 			++offset;
@@ -419,9 +422,9 @@ uint8_t machine::tokenise(uint16_t textAddr,uint16_t parseAddr,uint8_t offset) {
 				++wordLen;
 		}
 		word zword[3];
-		//printf("{{encoding %*.*s}}\n",wordLen,wordLen,m_dynamic+textAddr+offset);
+		// printf("{{encoding %*.*s}}\n",wordLen,wordLen,m_dynamic+textAddr+offset);
 		encode_text(zword,(char*)m_dynamic + textAddr + offset,wordLen);
-		//printf("{{%04x,%04x}}\n",zword[0].getU(),zword[1].getU());
+		// printf("{{%04x,%04x}}\n",zword[0].getU(),zword[1].getU());
 		uint8_t byteCount = m_header->version<5? 4 : 6;
 		// we could do a binary search here but machines are orders of magnitude faster now.
 		uint16_t i;
@@ -442,6 +445,10 @@ uint8_t machine::tokenise(uint16_t textAddr,uint16_t parseAddr,uint8_t offset) {
 	write_mem8(parseAddr+1,numParsed);
 	// printf("{{%d words parsed}}\n",numParsed);
 	return 13;
+}
+
+void machine::printTable(uint16_t zsciiAddr,uint16_t width,uint16_t height,uint16_t skip) {
+	printf("{{%d slots in zscii table @%04x,w=%d,h=%d}}\n",read_mem16(zsciiAddr).getU(),zsciiAddr,width,height);
 }
 
 void machine::run(uint32_t pc) {
@@ -703,6 +710,9 @@ void machine::run(uint32_t pc) {
 				case 0xFB: 
 						if (opCount != 2) fault("only two-operand form of tokenise is supported");
 						tokenise(operands[0].getU(),operands[1].getU());
+						break;
+				case 0xFE: printTable(operands[0].getU(),operands[1].getU(),opCount>2?operands[2].getU():1,
+						opCount>3?operands[3].getU():0);
 						break;
 				case 0xFF: branch(operands[0].getU() <= (m_stack[m_lp+2].lo & 15)); break;
 				case 0x109: 

@@ -411,6 +411,7 @@ private:
 		}
 		return false;
 	}
+	void printTable(uint16_t zsciiAddr,uint16_t width,uint16_t height,uint16_t skip);
 	void push(word w) {
 		if (m_sp == kStackSize)
 			fault("stack overflow in push");
