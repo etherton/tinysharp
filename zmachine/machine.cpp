@@ -13,6 +13,9 @@
 #include <sys/ioctl.h> // ioctl()
 
 
+#define HEIGHT 0x20
+#define WIDTH 0x21
+
 const char *attribute_names[] = {
 	"clothing",
 	"staggered",
@@ -124,8 +127,9 @@ void machine::init(const void *data,bool debug) {
 	m_debug = debug;
 	m_windowSplit = 0;
 	m_currentWindow = 0;
-	m_outputEnables = 1 << 1;
+	m_outputEnables = 3; // buffering enabled in window 0, stream 1 enabled
 	m_cursorX = m_cursorY = 1;
+	m_printed = 0;
 	run(m_header->initialPCAddr.getU());
 }
 
@@ -137,26 +141,54 @@ void machine::printObjTree() {
 	}
 }
 
+void machine::finishChar(uint8_t c) {
+	if (c == 10) {
+		m_cursorX = 1;
+		if (m_currentWindow==1 && m_cursorY < m_windowSplit)
+			m_cursorY++;
+		else if (!m_currentWindow && m_cursorY < m_dynamic[HEIGHT])
+			m_cursorY++;
+	}
+	else
+		m_cursorX++;
+
+}
 void machine::print_char(uint8_t c) {
 	if (m_outputEnables & (1 << 1)) {
-		putchar(c);
-		if (c == 10) {
-			m_cursorX = 1;
-			if (m_currentWindow==1 && m_cursorY < m_windowSplit)
-				m_cursorY++;
-			else if (!m_currentWindow && m_cursorY < m_dynamic[0x21])
-				m_cursorY++;
+		// are we buffering?
+		if (m_currentWindow==0 && (m_outputEnables&1)) {
+			if (c==10 || c==32) {
+				if (m_printed && m_cursorX + m_printed > m_dynamic[WIDTH]) {
+					putchar(10);
+					finishChar(10);
+				}
+				if (m_printed)
+					printf("%s",m_lineBuffer);
+				m_cursorX += m_printed;
+				m_printed = 0;
+				if (m_cursorX != m_dynamic[WIDTH]) {
+					putchar(c);
+					finishChar(c);
+				}
+				else
+					finishChar(10);
+			}
+			else {
+				m_lineBuffer[m_printed++] = c;
+				m_lineBuffer[m_printed] = 0;
+			}
 		}
-		else
-			m_cursorX++;
+		else {
+			putchar(c);
+			finishChar(c);
+			m_printed++;
+		}
 	}
 	if (m_outputEnables & (1 << 3)) {
 		word *cp = (word*)(m_dynamic + m_outputBuffer);
 		write_mem8(m_outputBuffer + 2 + cp->getU(),c);
 		cp->inc();
 	}
-		
-	m_printed++;
 }
 
 void machine::print_num(int16_t v) {
@@ -287,8 +319,8 @@ void machine::updateExtents() {
 		int result = ioctl(fd,TIOCGWINSZ, &ws);
 		close(fd);
 		if (result != -1) {
-			m_dynamic[0x20] = ws.ws_row;
-			m_dynamic[0x21] = ws.ws_col;
+			m_dynamic[HEIGHT] = ws.ws_row;
+			m_dynamic[WIDTH] = ws.ws_col;
 		}
 	}
 }
@@ -298,10 +330,14 @@ void machine::showStatus() {
 	if (m_debug || m_header->version > 3)
 		return;
 	uint16_t globals = m_header->globalVarsTableAddr.getU();
+	if (m_printed)
+		printf("%s",m_lineBuffer);	
 	printf("\0337\033[f\033[7m");
+	uint8_t save = m_outputEnables;
+	m_outputEnables &= ~1;
 	m_printed = 0;
 	objPrint(read_mem16(globals).getU());
-	uint8_t screenWidth = read_mem8(0x21);
+	uint8_t screenWidth = read_mem8(WIDTH);
 	int16_t score = read_mem16(globals+2).getS();
 	uint16_t moves = read_mem16(globals+4).getU();
 	char scoreBuf[16];
@@ -310,6 +346,8 @@ void machine::showStatus() {
 	while (m_printed < screenWidth)
 		print_char(' ');
 	printf("%s\0338",scoreBuf);
+	m_outputEnables = save;
+	m_printed = 0;
 	fflush(stdout);
 }
 
@@ -322,9 +360,9 @@ void machine::setWindow(uint8_t window) {
 		setCursor(m_cursorX,m_cursorY);
 	}
 	else if (m_windowSplit)
-		printf("\033[%d;%dr\033[%d;1H",m_windowSplit+1,m_dynamic[0x21],m_dynamic[0x21] - m_windowSplit);
+		printf("\033[%d;%dr\033[%d;1H",m_windowSplit+1,m_dynamic[HEIGHT],m_dynamic[HEIGHT] - m_windowSplit);
 	else
-		printf("\033[1;%dr\033[%d;1H",m_dynamic[0x21],m_dynamic[0x21] - m_windowSplit);
+		printf("\033[1;%dr\033[%d;1H",m_dynamic[HEIGHT],m_dynamic[HEIGHT] - m_windowSplit);
 	fflush(stdout);
 }
 
@@ -396,6 +434,11 @@ void machine::encode_text(word dest[],const char *src,uint8_t len) {
 uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 	char buffer[256];
 	bool internal;
+	if (m_printed) {
+		printf("%s",m_lineBuffer);
+		fflush(stdout);
+		m_printed = 0;
+	}
 	do {
 		fgets(buffer,sizeof(buffer),stdin);
 		while (strlen(buffer) && buffer[strlen(buffer)-1]==10)
@@ -754,7 +797,7 @@ void machine::run(uint32_t pc) {
 				case 0xED: break; // erase_window
 				case 0xEF: setCursor(operands[1].getU(),operands[0].getU()); break; // set_cursor line col
 				case 0xF1: break; // set_text_style
-				case 0xF2: break; // buffer_mode
+				case 0xF2: if (operands[0].notZero()) m_outputEnables |= 1; else m_outputEnables &= ~1; break; // buffer_mode
 				case 0xF3: setOutput(operands[0].getS(),opCount>1?operands[1].getU():0); break; // output_stream
 				case 0xF6: ref(dest,true).setByte(13); break; // read_char
 				case 0xF7: branch(scanTable(dest,operands[0],operands[1].getU(),operands[2].getU(),
@@ -816,6 +859,6 @@ int main(int argc,char **argv) {
 	fread(story,1,size,f);
 	fclose(f);
 	
-	machine m;
-	m.init(story,argc>2&&!strcmp(argv[2],"-debug"));
+	machine *m = new machine;
+	m->init(story,argc>2&&!strcmp(argv[2],"-debug"));
 }

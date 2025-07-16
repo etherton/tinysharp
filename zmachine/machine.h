@@ -76,6 +76,7 @@ private:
 	uint32_t print_zscii(uint32_t addr);
 	void printz(uint8_t ch);
 	void print_char(uint8_t ch);
+	void finishChar(uint8_t ch);
 	void print_num(int16_t v);
 	uint8_t m_abbrev, m_shift;
 	uint16_t m_extended;
@@ -450,13 +451,14 @@ private:
 	word m_undoStack[kStackSize];
 	uint32_t m_undoPc;
 	char m_zscii[26*3];
+	char m_lineBuffer[257];
 	uint16_t m_dynamicSize, m_globalsOffset, m_abbreviations, m_objCount;
 	uint32_t m_readOnlySize;
 	uint32_t m_faultpc;
-	uint32_t m_printed;
 	uint16_t m_outputBuffer;
 	uint8_t m_storyShift;
 	uint8_t m_debug;
+	uint8_t m_printed;
 	uint8_t m_windowSplit;
 	uint8_t m_outputEnables;
 	uint8_t m_cursorX, m_cursorY;
