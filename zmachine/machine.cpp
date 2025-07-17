@@ -400,6 +400,13 @@ void machine::setWindow(uint8_t window) {
 	m_currentWindow = window;
 }
 
+void machine::eraseWindow(int16_t cmd) {
+	if (cmd == 1)
+		printf("\033[H\033[2K");
+	else
+		printf("\033[\033[2J");
+}
+
 void machine::setCursor(uint8_t x,uint8_t y) {
 	printf("\033[%d;%dH",y,x);
 	fflush(stdout);
@@ -824,7 +831,7 @@ void machine::run(uint32_t pc) {
 				case 0xEA: m_windowSplit = operands[0].getU(); break;
 				case 0xEB: setWindow(operands[0].getU()); break;
 				case 0xEC: pc = call(pc,dest,operands,opCount); break;
-				case 0xED: break; // erase_window
+				case 0xED: eraseWindow(operands[0].getS()); break; // erase_window
 				case 0xEF: setCursor(operands[1].getU(),operands[0].getU()); break; // set_cursor line col
 				case 0xF1: setTextStyle(operands[0].lo); break; // set_text_style
 				case 0xF2: if (operands[0].notZero()) m_outputEnables |= 1; else m_outputEnables &= ~1; break; // buffer_mode

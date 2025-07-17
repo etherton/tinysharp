@@ -433,6 +433,7 @@ private:
 	void setOutput(int enable,uint16_t tableAddr);
 	void setTextStyle(uint8_t style);
 	void flushMainWindow();
+	void eraseWindow(int16_t cmd);
 	union {
 		const uint8_t *m_readOnly; 	// can be in flash etc or memory mapped file
 		const storyHeader *m_header;	
