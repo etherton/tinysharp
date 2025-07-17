@@ -465,5 +465,6 @@ private:
 	uint8_t m_windowSplit;
 	uint8_t m_outputEnables;
 	uint8_t m_cursorX, m_cursorY;
+	uint8_t m_saveX, m_saveY;
 	uint8_t m_currentWindow;
 };

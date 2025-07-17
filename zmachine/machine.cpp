@@ -190,7 +190,7 @@ void machine::print_char(uint8_t c) {
 					finishChar(10);
 				}
 				flushMainWindow();
-				if (m_cursorX != m_dynamic[WIDTH]) {
+				if (m_cursorX != m_dynamic[WIDTH] + 1) {
 					putchar(c);
 					finishChar(c);
 				}
@@ -381,14 +381,21 @@ void machine::showStatus() {
 void machine::setWindow(uint8_t window) {
 	if (window && !m_windowSplit)
 		fault("setWindow %d called with no split",window);
-	if (m_currentWindow == 0)
+	if (m_currentWindow == 0) {
 		flushMainWindow();
+		m_saveX = m_cursorX;
+		m_saveY = m_cursorY;
+	}
 	/* window 1 is always the top (aka status line) */
 	if (window) {
-		printf("\0337\033[H"); 
+		printf("\0337\033[H");
+		m_cursorX = m_cursorY = 1;
 	}
-	else
+	else if (!window) {
 		printf("\0338");
+		m_cursorX = m_saveX;
+		m_cursorY = m_saveY;
+	}
 	fflush(stdout);
 	m_currentWindow = window;
 }
