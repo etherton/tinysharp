@@ -431,6 +431,8 @@ private:
 	void setWindow(uint8_t w);
 	void setCursor(uint8_t x,uint8_t y);
 	void setOutput(int enable,uint16_t tableAddr);
+	void setTextStyle(uint8_t style);
+	void flushMainWindow();
 	union {
 		const uint8_t *m_readOnly; 	// can be in flash etc or memory mapped file
 		const storyHeader *m_header;	
@@ -451,7 +453,7 @@ private:
 	word m_undoStack[kStackSize];
 	uint32_t m_undoPc;
 	char m_zscii[26*3];
-	char m_lineBuffer[257];
+	char m_lineBuffer[256];
 	uint16_t m_dynamicSize, m_globalsOffset, m_abbreviations, m_objCount;
 	uint32_t m_readOnlySize;
 	uint32_t m_faultpc;
@@ -459,6 +461,7 @@ private:
 	uint8_t m_storyShift;
 	uint8_t m_debug;
 	uint8_t m_printed;
+	uint8_t m_stored;
 	uint8_t m_windowSplit;
 	uint8_t m_outputEnables;
 	uint8_t m_cursorX, m_cursorY;

@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <termios.h>
+#include <unistd.h>
 
 // https://github.com/sindresorhus/macos-terminal-size/blob/main/terminal-size.c
 #include <fcntl.h>     // open(), O_EVTONLY, O_NONBLOCK
@@ -92,6 +94,16 @@ const char *property_names[] = {
 	"north_to",
 };
 
+static struct termios orig_termios, raw_termios;
+
+static void standard_mode() {
+	tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+}
+
+static void raw_mode() {
+	tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw_termios);
+}
+
 void machine::init(const void *data,bool debug) {
 	uint8_t version = *(uint8_t*)data;
 	if (version > 8 || !((1<<version) & (0b1'1011'1000))) {
@@ -125,11 +137,17 @@ void machine::init(const void *data,bool debug) {
 	}
 	updateExtents();
 	m_debug = debug;
-	m_windowSplit = 0;
+	m_windowSplit = m_header->version < 4;
 	m_currentWindow = 0;
 	m_outputEnables = 3; // buffering enabled in window 0, stream 1 enabled
 	m_cursorX = m_cursorY = 1;
 	m_printed = 0;
+	m_stored = 0;
+
+	tcgetattr(STDIN_FILENO, &orig_termios);
+	atexit(standard_mode);
+	cfmakeraw(&raw_termios);
+
 	run(m_header->initialPCAddr.getU());
 }
 
@@ -151,21 +169,27 @@ void machine::finishChar(uint8_t c) {
 	}
 	else
 		m_cursorX++;
-
 }
+
+void machine::flushMainWindow() {
+	if (m_stored) {
+		for (int i=0; i<m_stored; i++)
+			putchar(m_lineBuffer[i]);
+		m_cursorX += m_stored;
+		m_stored = 0;
+	}
+}
+
 void machine::print_char(uint8_t c) {
 	if (m_outputEnables & (1 << 1)) {
 		// are we buffering?
 		if (m_currentWindow==0 && (m_outputEnables&1)) {
 			if (c==10 || c==32) {
-				if (m_printed && m_cursorX + m_printed > m_dynamic[WIDTH]) {
+				if (m_stored && m_cursorX + m_stored > m_dynamic[WIDTH]) {
 					putchar(10);
 					finishChar(10);
 				}
-				if (m_printed)
-					printf("%s",m_lineBuffer);
-				m_cursorX += m_printed;
-				m_printed = 0;
+				flushMainWindow();
 				if (m_cursorX != m_dynamic[WIDTH]) {
 					putchar(c);
 					finishChar(c);
@@ -173,10 +197,8 @@ void machine::print_char(uint8_t c) {
 				else
 					finishChar(10);
 			}
-			else {
-				m_lineBuffer[m_printed++] = c;
-				m_lineBuffer[m_printed] = 0;
-			}
+			else
+				m_lineBuffer[m_stored++] = c;
 		}
 		else {
 			putchar(c);
@@ -325,16 +347,21 @@ void machine::updateExtents() {
 	}
 }
 
+void machine::setTextStyle(uint8_t style) {
+	if (style == 1)
+		printf("\033[7m");
+	else if (style == 0)
+		printf("\033[0m");
+}
+
 void machine::showStatus() {
 	updateExtents();
 	if (m_debug || m_header->version > 3)
 		return;
 	uint16_t globals = m_header->globalVarsTableAddr.getU();
-	if (m_printed)
-		printf("%s",m_lineBuffer);	
-	printf("\0337\033[f\033[7m");
-	uint8_t save = m_outputEnables;
-	m_outputEnables &= ~1;
+	flushMainWindow();
+	setWindow(1);
+	setTextStyle(1);
 	m_printed = 0;
 	objPrint(read_mem16(globals).getU());
 	uint8_t screenWidth = read_mem8(WIDTH);
@@ -345,25 +372,25 @@ void machine::showStatus() {
 	screenWidth -= strlen(scoreBuf);
 	while (m_printed < screenWidth)
 		print_char(' ');
-	printf("%s\0338",scoreBuf);
-	m_outputEnables = save;
-	m_printed = 0;
+	printf("%s",scoreBuf);
+	setTextStyle(0);
+	setWindow(0);
 	fflush(stdout);
 }
 
 void machine::setWindow(uint8_t window) {
 	if (window && !m_windowSplit)
 		fault("setWindow %d called with no split",window);
+	if (m_currentWindow == 0)
+		flushMainWindow();
 	/* window 1 is always the top (aka status line) */
 	if (window) {
-		printf("\033[1;%dr",m_windowSplit); 
-		setCursor(m_cursorX,m_cursorY);
+		printf("\0337\033[H"); 
 	}
-	else if (m_windowSplit)
-		printf("\033[%d;%dr\033[%d;1H",m_windowSplit+1,m_dynamic[HEIGHT],m_dynamic[HEIGHT] - m_windowSplit);
 	else
-		printf("\033[1;%dr\033[%d;1H",m_dynamic[HEIGHT],m_dynamic[HEIGHT] - m_windowSplit);
+		printf("\0338");
 	fflush(stdout);
+	m_currentWindow = window;
 }
 
 void machine::setCursor(uint8_t x,uint8_t y) {
@@ -434,11 +461,7 @@ void machine::encode_text(word dest[],const char *src,uint8_t len) {
 uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 	char buffer[256];
 	bool internal;
-	if (m_printed) {
-		printf("%s",m_lineBuffer);
-		fflush(stdout);
-		m_printed = 0;
-	}
+	flushMainWindow();
 	do {
 		fgets(buffer,sizeof(buffer),stdin);
 		while (strlen(buffer) && buffer[strlen(buffer)-1]==10)
@@ -796,10 +819,11 @@ void machine::run(uint32_t pc) {
 				case 0xEC: pc = call(pc,dest,operands,opCount); break;
 				case 0xED: break; // erase_window
 				case 0xEF: setCursor(operands[1].getU(),operands[0].getU()); break; // set_cursor line col
-				case 0xF1: break; // set_text_style
+				case 0xF1: setTextStyle(operands[0].lo); break; // set_text_style
 				case 0xF2: if (operands[0].notZero()) m_outputEnables |= 1; else m_outputEnables &= ~1; break; // buffer_mode
 				case 0xF3: setOutput(operands[0].getS(),opCount>1?operands[1].getU():0); break; // output_stream
-				case 0xF6: ref(dest,true).setByte(13); break; // read_char
+				case 0xF5: break; // sound_effect
+				case 0xF6: raw_mode(); read(STDIN_FILENO, &ref(dest,true).lo, 1); standard_mode(); break; // read_char
 				case 0xF7: branch(scanTable(dest,operands[0],operands[1].getU(),operands[2].getU(),
 							m_header->version>=5&&opCount==4?operands[3].lo:0x82));
 							break;
