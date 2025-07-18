@@ -306,8 +306,8 @@ uint32_t machine::print_zscii(uint32_t addr) {
 	do {
 		w = read_mem16(addr).getU();
 		printz((w >> 10) & 31);
-		printz((w >> 5) & 31);
-		printz(w & 31);
+			printz((w >> 5) & 31);
+			printz(w & 31);
 		addr+=2;
 	} while (!(w & 0x8000));
 	return addr;
@@ -583,7 +583,12 @@ uint8_t machine::tokenise(uint16_t textAddr,uint16_t parseAddr,uint8_t offset) {
 }
 
 void machine::printTable(uint16_t zsciiAddr,uint16_t width,uint16_t height,uint16_t skip) {
-	printf("{{%d slots in zscii table @%04x,w=%d,h=%d}}\n",read_mem16(zsciiAddr).getU(),zsciiAddr,width,height);
+	while (height--) {
+		for (uint16_t i=0; i<width; i++)
+			print_char(read_mem8(zsciiAddr++));
+		zsciiAddr += skip;
+		print_char(10);
+	}
 }
 
 void machine::run(uint32_t pc) {
