@@ -18,82 +18,6 @@
 #define HEIGHT 0x20
 #define WIDTH 0x21
 
-const char *attribute_names[] = {
-	"clothing",
-	"staggered",
-	"fightbit",
-	"visitied",
-	"water_room",
-	"maze_room",
-	"dry_land",
-	"concealed",
-
-	"scope_inside",
-	"sacred",
-	"supporter",
-	"open",
-	"transparent",
-	"trytakebit",
-	"scenery",
-	"turnable",
-
-	"readable",
-	"takeable",
-	"rmingbit",
-	"container",
-	"light",
-	"edible",
-	"drinkable",
-	"door",
-
-	"climbable",
-	"flame",
-	"flammable",
-	"vehicle",
-	"toolbit",
-	"weapon",
-	"animate",
-	"on"
-};
-
-const char *property_names[] = {
-	nullptr,
-	"?1",
-	"container_action",
-	"?3",
-	"pseudo",
-	"contains",
-	"vtype",
-	"strength",
-
-	"text_string",
-	"initial2",
-	"capacity",
-	"description",
-	"trophy_value",
-	"take_value",
-	"initial",
-	"size",
-
-	"adjectives",
-	"action",
-	"name",
-	"land_to",
-	"out_to",
-	"in_to",
-	"down_to",
-	"up_to",
-
-	"southwest_to",
-	"southeast_to",
-	"northwest_to",
-	"northeast_to",
-	"south_to",
-	"west_to",
-	"east_to",
-	"north_to",
-};
-
 static struct termios orig_termios, raw_termios;
 
 static void standard_mode() {
@@ -652,10 +576,10 @@ void machine::run(uint32_t pc) {
 					print_char(' ');
 				}
 				else if (nextType[1] == 'a') {
-					printf(",%s ",attribute_names[operands[opCount-1].lo]);
+					printf(",attribte%d ",operands[opCount-1].lo);
 				}
 				else if (nextType[1] == 'p')
-					printf("p?%s ",property_names[operands[opCount-1].lo]);
+					printf("prop?%d ",operands[opCount-1].lo);
 				else
 					fault("bug in opcode type string");
 				nextType = strchr(nextType+1,'$');
