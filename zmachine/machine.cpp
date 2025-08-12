@@ -50,9 +50,6 @@ void machine::init(const void *data,bool debug) {
 	m_cursorX = m_cursorY = 1;
 	m_printed = 0;
 	m_stored = 0;
-
-	interface::init();
-
 	run(m_header->initialPCAddr.getU());
 }
 
@@ -756,6 +753,7 @@ void machine::run(uint32_t pc) {
 }
 
 int main(int argc,char **argv) {
+	interface::init();
 	char *story = interface::readStory(argv[1]);
 	if (story) {
 		machine *m = new machine;
