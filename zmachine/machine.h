@@ -28,12 +28,13 @@ struct chunk { void *data; uint32_t size; };
 
 class interface {
 public:
+	static char *readStory(const char*);
 	static void init();
 	static void putchar(int ch);
 	static int readchar();
 	static int readline(char*dest,unsigned destSize);
-	static bool writeChunks(chunk *chunks,unsigned count);
-	static bool readChunks(chunk *chunks,unsigned count);
+	static bool writeSaveData(chunk *chunks,unsigned count);
+	static bool readSaveData(chunk *chunks,unsigned count);
 	static void setTextStyle(uint8_t);
 	static void setCursor(uint8_t,uint8_t);
 	static void setWindow(uint8_t);
@@ -45,8 +46,6 @@ class machine {
 public:
 	void init(const void*,bool debug);
 	void run(uint32_t pc);
-	bool writeSaveData(chunk *chunks,uint32_t count);
-	bool readSaveData(chunk *chunks,uint32_t count);
 	void showStatus();
 	void updateExtents();
 	void printObjTree();
@@ -447,9 +446,7 @@ private:
 	void setWindow(uint8_t w);
 	void setCursor(uint8_t x,uint8_t y);
 	void setOutput(int enable,uint16_t tableAddr);
-	void setTextStyle(uint8_t style);
 	void flushMainWindow();
-	void eraseWindow(int16_t cmd);
 	union {
 		const uint8_t *m_readOnly; 	// can be in flash etc or memory mapped file
 		const storyHeader *m_header;	

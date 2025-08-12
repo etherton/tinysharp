@@ -360,7 +360,6 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 	flushMainWindow();
 	do {
 		interface::readline(buffer,sizeof(buffer));
-		fgets(buffer,sizeof(buffer),stdin);
 		while (strlen(buffer) && buffer[strlen(buffer)-1]==10)
 			buffer[strlen(buffer)-1] = 0;
 		// printf("[[%s]]\n",buffer);
@@ -667,7 +666,7 @@ void machine::run(uint32_t pc) {
 							c[0].data = m_dynamic; c[0].size = m_dynamicSize;
 							c[1].data = &m_sp; c[1].size = (kStackSize + 2) * 2;
 							c[2].data = &pc; c[2].size = 4;
-							if (writeSaveData(c,3)) {
+							if (interface::writeSaveData(c,3)) {
 								if (m_header->version<4) 
 									branch(true);
 							} }
@@ -676,7 +675,7 @@ void machine::run(uint32_t pc) {
 							c[0].data = m_dynamic; c[0].size = m_dynamicSize;
 							c[1].data = &m_sp; c[1].size = (kStackSize + 2) * 2;
 							c[2].data = &pc; c[2].size = 4;
-							readSaveData(c,3); updateExtents(); }
+							interface::readSaveData(c,3); updateExtents(); }
 							break;
 				case 0xB7: m_sp =  m_lp = 0; 
 							memcpy(m_dynamic, m_readOnly, m_dynamicSize); 
@@ -756,35 +755,10 @@ void machine::run(uint32_t pc) {
 	}
 }
 
-bool machine::writeSaveData(chunk *chunks,uint32_t count) {
-	FILE *f = fopen("save.dat","wb");
-	if (!f)
-		return false;
-	for (uint32_t i=0; i<count; i++)
-		fwrite(chunks[i].data,1,chunks[i].size,f);
-	fclose(f);
-	return true;
-}
-
-bool machine::readSaveData(chunk *chunks,uint32_t count) {
-	FILE *f = fopen("save.dat","rb");
-	if (!f)
-		return false;
-	for (uint32_t i=0; i<count; i++)
-		fread(chunks[i].data,1,chunks[i].size,f);
-	fclose(f);
-	return true;
-}
-
 int main(int argc,char **argv) {
-	FILE *f = fopen(argv[1],"rb");
-	fseek(f,0,SEEK_END);
-	long size = ftell(f);
-	rewind(f);
-	char *story = new char[size];
-	fread(story,1,size,f);
-	fclose(f);
-	
-	machine *m = new machine;
-	m->init(story,argc>2&&!strcmp(argv[2],"-debug"));
+	char *story = interface::readStory(argv[1]);
+	if (story) {
+		machine *m = new machine;
+		m->init(story,argc>2&&!strcmp(argv[2],"-debug"));
+	}
 }

@@ -83,3 +83,36 @@ void interface::updateExtents(uint8_t &width,uint8_t &height) {
 		}
 	}
 }
+
+bool interface::writeSaveData(chunk *chunks,uint32_t count) {
+	FILE *f = fopen("save.dat","wb");
+	if (!f)
+		return false;
+	for (uint32_t i=0; i<count; i++)
+		fwrite(chunks[i].data,1,chunks[i].size,f);
+	fclose(f);
+	return true;
+}
+
+bool interface::readSaveData(chunk *chunks,uint32_t count) {
+	FILE *f = fopen("save.dat","rb");
+	if (!f)
+		return false;
+	for (uint32_t i=0; i<count; i++)
+		fread(chunks[i].data,1,chunks[i].size,f);
+	fclose(f);
+	return true;
+}
+
+char* interface::readStory(const char *name) {
+	FILE *f = fopen(name,"rb");
+    if (!f)
+        return nullptr;
+	fseek(f,0,SEEK_END);
+	long size = ftell(f);
+	rewind(f);
+	char *story = new char[size];
+	fread(story,1,size,f);
+	fclose(f);
+    return story;
+}
