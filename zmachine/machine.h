@@ -24,8 +24,24 @@
 	the context of the calling function.
 */
 
+struct chunk { void *data; uint32_t size; };
+
+class interface {
+public:
+	static void init();
+	static void putchar(int ch);
+	static int readchar();
+	static int readline(char*dest,unsigned destSize);
+	static bool writeChunks(chunk *chunks,unsigned count);
+	static bool readChunks(chunk *chunks,unsigned count);
+	static void setTextStyle(uint8_t);
+	static void setCursor(uint8_t,uint8_t);
+	static void setWindow(uint8_t);
+	static void eraseWindow(uint8_t);
+	static void updateExtents(uint8_t&,uint8_t&);
+};
+
 class machine {
-	struct chunk { void *data; uint32_t size; };
 public:
 	void init(const void*,bool debug);
 	void run(uint32_t pc);

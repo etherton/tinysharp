@@ -6,27 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <termios.h>
-#include <unistd.h>
-
-// https://github.com/sindresorhus/macos-terminal-size/blob/main/terminal-size.c
-#include <fcntl.h>     // open(), O_EVTONLY, O_NONBLOCK
-#include <unistd.h>    // close()
-#include <sys/ioctl.h> // ioctl()
 
 
 #define HEIGHT 0x20
 #define WIDTH 0x21
-
-static struct termios orig_termios, raw_termios;
-
-static void standard_mode() {
-	tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
-}
-
-static void raw_mode() {
-	tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw_termios);
-}
 
 void machine::init(const void *data,bool debug) {
 	uint8_t version = *(uint8_t*)data;
@@ -68,9 +51,7 @@ void machine::init(const void *data,bool debug) {
 	m_printed = 0;
 	m_stored = 0;
 
-	tcgetattr(STDIN_FILENO, &orig_termios);
-	atexit(standard_mode);
-	cfmakeraw(&raw_termios);
+	interface::init();
 
 	run(m_header->initialPCAddr.getU());
 }
@@ -98,7 +79,7 @@ void machine::finishChar(uint8_t c) {
 void machine::flushMainWindow() {
 	if (m_stored) {
 		for (int i=0; i<m_stored; i++)
-			putchar(m_lineBuffer[i]);
+			interface::putchar(m_lineBuffer[i]);
 		m_cursorX += m_stored;
 		m_stored = 0;
 	}
@@ -110,12 +91,12 @@ void machine::print_char(uint8_t c) {
 		if (m_currentWindow==0 && (m_outputEnables&1)) {
 			if (c==10 || c==32) {
 				if (m_stored && m_cursorX + m_stored > m_dynamic[WIDTH]) {
-					putchar(10);
+					interface::putchar(10);
 					finishChar(10);
 				}
 				flushMainWindow();
 				if (m_cursorX != m_dynamic[WIDTH] + 1) {
-					putchar(c);
+					interface::putchar(c);
 					finishChar(c);
 				}
 				else
@@ -125,7 +106,7 @@ void machine::print_char(uint8_t c) {
 				m_lineBuffer[m_stored++] = c;
 		}
 		else {
-			putchar(c);
+			interface::putchar(c);
 			finishChar(c);
 			m_printed++;
 		}
@@ -259,24 +240,11 @@ void machine::memfault(const char *fmt,...) const {
 }
 
 void machine::updateExtents() {
-	int fd = open("/dev/tty",O_EVTONLY | O_NONBLOCK);
-	if (fd != -1) {
-		struct winsize ws;
-		int result = ioctl(fd,TIOCGWINSZ, &ws);
-		close(fd);
-		if (result != -1) {
-			m_dynamic[HEIGHT] = ws.ws_row;
-			m_dynamic[WIDTH] = ws.ws_col;
-		}
-	}
+	interface::updateExtents(m_dynamic[WIDTH],m_dynamic[HEIGHT]);
+
 }
 
-void machine::setTextStyle(uint8_t style) {
-	if (style == 1)
-		printf("\033[7m");
-	else if (style == 0)
-		printf("\033[0m");
-}
+
 
 void machine::showStatus() {
 	updateExtents();
@@ -285,7 +253,7 @@ void machine::showStatus() {
 	uint16_t globals = m_header->globalVarsTableAddr.getU();
 	flushMainWindow();
 	setWindow(1);
-	setTextStyle(1);
+	interface::setTextStyle(1);
 	m_printed = 0;
 	objPrint(read_mem16(globals).getU());
 	uint8_t screenWidth = read_mem8(WIDTH);
@@ -296,8 +264,9 @@ void machine::showStatus() {
 	screenWidth -= strlen(scoreBuf);
 	while (m_printed < screenWidth)
 		print_char(' ');
-	printf("%s",scoreBuf);
-	setTextStyle(0);
+	for (int i=0; i<16 && scoreBuf[i]; i++)
+		interface::putchar(scoreBuf[i]);
+	interface::setTextStyle(0);
 	setWindow(0);
 	fflush(stdout);
 }
@@ -310,30 +279,19 @@ void machine::setWindow(uint8_t window) {
 		m_saveX = m_cursorX;
 		m_saveY = m_cursorY;
 	}
+	interface::setWindow(window);
 	/* window 1 is always the top (aka status line) */
-	if (window) {
-		printf("\0337\033[H");
+	if (window)
 		m_cursorX = m_cursorY = 1;
-	}
 	else if (!window) {
-		printf("\0338");
 		m_cursorX = m_saveX;
 		m_cursorY = m_saveY;
 	}
-	fflush(stdout);
 	m_currentWindow = window;
 }
 
-void machine::eraseWindow(int16_t cmd) {
-	if (cmd == 1)
-		printf("\033[H\033[2K");
-	else
-		printf("\033[\033[2J");
-}
-
 void machine::setCursor(uint8_t x,uint8_t y) {
-	printf("\033[%d;%dH",y,x);
-	fflush(stdout);
+	interface::setCursor(x,y);
 	m_cursorX = x;
 	m_cursorY = y;
 }
@@ -401,6 +359,7 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 	bool internal;
 	flushMainWindow();
 	do {
+		interface::readline(buffer,sizeof(buffer));
 		fgets(buffer,sizeof(buffer),stdin);
 		while (strlen(buffer) && buffer[strlen(buffer)-1]==10)
 			buffer[strlen(buffer)-1] = 0;
@@ -434,8 +393,8 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 	else {
 		uint8_t s = read_mem8(textAddr);
 		uint8_t soFar = read_mem8(textAddr+1);
-		if (soFar)
-			printf("{{%d inputs bytes already there}}\n",soFar);
+		/* if (soFar)
+			printf("{{%d inputs bytes already there}}\n",soFar); */
 		if (sl > s - soFar)
 			sl = s - soFar;
 		m_dynamic[textAddr+1] = sl;
@@ -760,13 +719,13 @@ void machine::run(uint32_t pc) {
 				case 0xEA: m_windowSplit = operands[0].getU(); break;
 				case 0xEB: setWindow(operands[0].getU()); break;
 				case 0xEC: pc = call(pc,dest,operands,opCount); break;
-				case 0xED: eraseWindow(operands[0].getS()); break; // erase_window
+				case 0xED: interface::eraseWindow(operands[0].getS()); break; // erase_window
 				case 0xEF: setCursor(operands[1].getU(),operands[0].getU()); break; // set_cursor line col
-				case 0xF1: setTextStyle(operands[0].lo); break; // set_text_style
+				case 0xF1: interface::setTextStyle(operands[0].lo); break; // set_text_style
 				case 0xF2: if (operands[0].notZero()) m_outputEnables |= 1; else m_outputEnables &= ~1; break; // buffer_mode
 				case 0xF3: setOutput(operands[0].getS(),opCount>1?operands[1].getU():0); break; // output_stream
 				case 0xF5: break; // sound_effect
-				case 0xF6: raw_mode(); read(STDIN_FILENO, &ref(dest,true).lo, 1); standard_mode(); break; // read_char
+				case 0xF6: ref(dest,true).lo = interface::readchar(); break; // read_char
 				case 0xF7: branch(scanTable(dest,operands[0],operands[1].getU(),operands[2].getU(),
 							m_header->version>=5&&opCount==4?operands[3].lo:0x82));
 							break;
