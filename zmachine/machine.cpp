@@ -725,6 +725,7 @@ void machine::run(uint32_t pc) {
 				case 0xF7: branch(scanTable(dest,operands[0],operands[1].getU(),operands[2].getU(),
 							m_header->version>=5&&opCount==4?operands[3].lo:0x82));
 							break;
+				case 0xF8: ref(dest,true).set(~operands[0].getU()); break;
 				case 0xF9: pc = call(pc,-1,operands,opCount); break;
 				case 0xFA: pc = call(pc,-1,operands,opCount); break;
 				case 0xFB: 
@@ -735,6 +736,10 @@ void machine::run(uint32_t pc) {
 						opCount>3?operands[3].getU():0);
 						break;
 				case 0xFF: branch(operands[0].getU() <= (m_stack[m_lp+2].lo & 15)); break;
+				case 0x102: ref(dest,true).set(operands[1].lo <= 15? operands[0].getU() << operands[1].lo :
+						operands[0].getU() >> (256 - operands[1].lo)); break;
+				case 0x103: ref(dest,true).set(operands[1].lo <= 15? operands[0].getS() << operands[1].lo :
+						operands[0].getS() >> (256 - operands[1].lo)); break;
 				case 0x109: 
 					ref(dest,true) = byte2word(1); // save_undo
 					memcpy(m_undoDynamic, m_dynamic, m_dynamicSize);
