@@ -743,6 +743,7 @@ void machine::run(uint32_t pc) {
 				case 0x109: 
 					ref(dest,true) = byte2word(1); // save_undo
 					memcpy(m_undoDynamic, m_dynamic, m_dynamicSize);
+					m_undoDest = dest;
 					m_undoSp = m_sp; m_undoLp = m_lp; m_undoPc = pc;
 					memcpy(m_undoStack, m_stack, sizeof(m_stack));
 					break;
@@ -750,6 +751,7 @@ void machine::run(uint32_t pc) {
 					memcpy(m_dynamic, m_undoDynamic, m_dynamicSize);
 					m_sp = m_undoSp; m_lp = m_undoLp; pc = m_undoPc;
 					memcpy(m_stack, m_undoStack, sizeof(m_stack));
+					ref(m_undoDest,true) = byte2word(2);
 					break;
 				default: fault("unimplemented 0OP/VAR/EXT opcode"); break;
 			}

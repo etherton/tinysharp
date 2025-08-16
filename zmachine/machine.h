@@ -464,6 +464,7 @@ private:
 	uint16_t m_sp, m_lp;
 	word m_stack[kStackSize];
 	uint16_t m_undoSp, m_undoLp;
+	uint8_t m_undoDest;
 	word m_undoStack[kStackSize];
 	uint32_t m_undoPc;
 	char m_zscii[26*3];
