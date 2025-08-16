@@ -612,8 +612,8 @@ void machine::run(uint32_t pc) {
 				case 0x0C: objClearAttribute(operands[0].getU(),operands[1].getU()); break;
 				case 0x0D: var(operands[0].getS()) = operands[1]; break;
 				case 0x0E: objMoveTo(operands[0].getU(),operands[1].getU()); break;
-				case 0x0F: ref(dest,true) = read_mem16(operands[0].getU() + (operands[1].getU()<<1)); break;
-				case 0x10: ref(dest,true).setByte(read_mem8(operands[0].getU() + operands[1].getU())); break;
+				case 0x0F: ref(dest,true) = read_mem16((uint16_t)(operands[0].getU() + (operands[1].getU()<<1))); break;
+				case 0x10: ref(dest,true).setByte(read_mem8((uint16_t)(operands[0].getU() + operands[1].getU()))); break;
 				case 0x11: ref(dest,true) = objGetProperty(operands[0].getU(),operands[1].getU()); break;
 				case 0x12: ref(dest,true) = objGetPropertyAddr(operands[0].getU(),operands[1].getU()); break;
 				case 0x13: ref(dest,true) = objGetNextProperty(operands[0].getU(),operands[1].getU()); break;
@@ -693,8 +693,8 @@ void machine::run(uint32_t pc) {
 							else fault("impossible jz variant");
 							break;
 				case 0xE0: pc = call(pc,dest,operands,opCount); break;
-				case 0xE1: write_mem16(operands[0].getU()+(operands[1].getU()<<1),operands[2]); break;
-				case 0xE2: write_mem8(operands[0].getU()+operands[1].getU(),operands[2].lo); break;
+				case 0xE1: write_mem16(uint16_t(operands[0].getU()+(operands[1].getU()<<1)),operands[2]); break;
+				case 0xE2: write_mem8(uint16_t(operands[0].getU()+operands[1].getU()),operands[2].lo); break;
 				case 0xE3: objSetProperty(operands[0].getU(),operands[1].getU(),operands[2]); break;
 				case 0xE4: if (opCount != 2) fault("only two operand read opcode supported");
 						   showStatus();
