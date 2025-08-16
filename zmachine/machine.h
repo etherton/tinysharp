@@ -403,7 +403,7 @@ private:
 		if (v<0||v>255)
 			fault("invalid variable %d",v);
 		else if (!v)
-			return m_stack[m_sp];
+			return m_stack[m_sp-1];
 		else if (v < 16)
 			return m_stack[m_lp + v + 2];
 		else
