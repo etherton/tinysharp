@@ -458,15 +458,14 @@ private:
 	void encode_text(word dest[],const char *src,uint8_t wordLen);
 	uint8_t read_input(uint16_t textAddr,uint16_t parseAddr);
 	uint8_t tokenise(uint16_t textAddr,uint16_t parseAddr,uint8_t offset = 2);
+	uint16_t encodeDelta(uint32_t pc,uint8_t *buffer);
+	uint32_t applyDelta(const uint8_t *buffer);
 	uint8_t *m_dynamic;		// everything up to 'static' cutoff
-	uint8_t *m_undoDynamic; // for save_undo
 	static const uint16_t kStackSize = 2048; // 1<<13 (8192) is largest possible value
 	uint16_t m_sp, m_lp;
 	word m_stack[kStackSize];
-	uint16_t m_undoSp, m_undoLp;
-	uint8_t m_undoDest;
-	word m_undoStack[kStackSize];
-	uint32_t m_undoPc;
+	uint8_t m_undoBuffer[4096];
+	uint16_t m_undoTop;
 	char m_zscii[26*3];
 	char m_lineBuffer[256];
 	uint16_t m_dynamicSize, m_globalsOffset, m_abbreviations, m_objCount;

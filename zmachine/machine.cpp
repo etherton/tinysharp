@@ -22,7 +22,6 @@ void machine::init(const void *data,bool debug) {
 	m_readOnly = (const uint8_t*) data;
 	m_dynamicSize = m_header->staticMemoryAddr.getU();
 	m_dynamic = new uint8_t[m_dynamicSize];
-	m_undoDynamic = new uint8_t[m_dynamicSize];
 	memcpy(m_dynamic, m_readOnly, m_dynamicSize);
 	m_globalsOffset = m_header->globalVarsTableAddr.getU();
 	m_abbreviations = m_header->abbreviationsAddr.getU();
@@ -54,6 +53,7 @@ void machine::init(const void *data,bool debug) {
 	m_cursorX = m_cursorY = 1;
 	m_printed = 0;
 	m_stored = 0;
+	m_undoTop = 0;
 	run(m_header->initialPCAddr.getU());
 }
 
@@ -490,6 +490,72 @@ void machine::printTable(uint16_t zsciiAddr,uint16_t width,uint16_t height,uint1
 	}
 }
 
+uint16_t machine::encodeDelta(uint32_t pc,uint8_t *buffer) {
+	uint16_t outSize = 0;
+	if (buffer) {
+		buffer[0] = pc >> 24;
+		buffer[1] = pc >> 16;
+		buffer[2] = pc >> 8;
+		buffer[3] = pc;
+
+		buffer[4] = m_sp >> 8;
+		buffer[5] = m_sp;
+		buffer[6] = m_lp >> 8;
+		buffer[7] = m_lp;
+		memcpy(buffer + 8,m_stack,m_sp + m_sp);
+		buffer += 8 + m_sp + m_sp;
+	}
+	outSize += 4 + 2 + 2 + m_sp + m_sp;
+	uint16_t start = 0;
+	for (;;) {
+		while (start < m_dynamicSize && m_dynamic[start]==m_readOnly[start])
+			++start;
+		if (start == m_dynamicSize)
+			break;
+		uint32_t end = start;
+		while (end < m_dynamicSize && m_dynamic[end]!=m_readOnly[end])
+			++end;
+		uint16_t runLength = end-start;
+		// printf("{encode offset %d count %d}\n",start,runLength);
+		if (buffer) {
+			buffer[0] = start >> 8;
+			buffer[1] = start;
+			buffer[2] = runLength >> 8;
+			buffer[3] = runLength;
+			memcpy(buffer+4,m_dynamic + start, runLength);
+			buffer += 4+runLength;
+		}
+		outSize += 4 + runLength;
+		if (end == m_dynamicSize)
+			break;
+		start = end;
+	}
+	outSize += 4;
+	if (buffer) {
+		buffer[0] = buffer[1] = 0xFF;
+		buffer[2] = outSize >> 8;
+		buffer[3] = outSize;
+	}
+	return outSize;
+}
+
+uint32_t machine::applyDelta(const uint8_t *buffer) {
+	uint32_t pc = (buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3];
+	m_sp = (buffer[4] << 8) | buffer[5];
+	m_lp = (buffer[6] << 8) | buffer[7];
+	memcpy(m_stack,buffer + 8,m_sp + m_sp);
+	buffer += 8 + m_sp + m_sp;
+	memcpy(m_dynamic,m_readOnly,m_dynamicSize);
+	do {
+		uint16_t offset = (buffer[0] << 8) | buffer[1];
+		uint16_t count = (buffer[2] << 8) | buffer[3];
+		//printf("{offset = %d, count = %d}\n",offset,count);
+		memcpy(m_dynamic + offset,buffer+4,count);
+		buffer += 4 + count;
+	} while (buffer[0]!=0xFF || buffer[1]!=0xFF);
+	return pc;
+}
+
 void machine::run(uint32_t pc) {
 	random_seed = 2;
 	for (;;) {
@@ -781,18 +847,21 @@ void machine::run(uint32_t pc) {
 						operands[0].getU() >> (256 - operands[1].lo)); break;
 				case 0x103: ref(dest,true).set(operands[1].lo <= 15? operands[0].getS() << operands[1].lo :
 						operands[0].getS() >> (256 - operands[1].lo)); break;
-				case 0x109: 
-					memcpy(m_undoDynamic, m_dynamic, m_dynamicSize);
-					m_undoDest = dest;
-					m_undoSp = m_sp; m_undoLp = m_lp; m_undoPc = pc;
-					memcpy(m_undoStack, m_stack, sizeof(m_stack));
+				case 0x109:
+					if (m_undoTop + encodeDelta(0,nullptr) > sizeof(m_undoBuffer))
+						m_undoTop = 0;
+					m_undoTop += encodeDelta(pc | (dest<<20),m_undoBuffer + m_undoTop);
 					ref(dest,true) = byte2word(1); // save_undo
 					break;
 				case 0x10A:
-					memcpy(m_dynamic, m_undoDynamic, m_dynamicSize);
-					m_sp = m_undoSp; m_lp = m_undoLp; pc = m_undoPc;
-					memcpy(m_stack, m_undoStack, sizeof(m_stack));
-					ref(m_undoDest,true) = byte2word(2);
+					if (m_undoTop) {
+						m_undoTop -= (m_undoBuffer[m_undoTop-2] << 8) | m_undoBuffer[m_undoTop-1];
+						pc = applyDelta(m_undoBuffer + m_undoTop);
+						ref(pc >> 20,true) = byte2word(2);
+						pc &= 0xF'FFFF;
+					}
+					else
+						ref(dest,true) = byte2word(0);
 					break;
 				default: fault("unimplemented 0OP/VAR/EXT opcode"); break;
 			}
