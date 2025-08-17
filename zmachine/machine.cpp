@@ -13,8 +13,8 @@
 
 void machine::init(const void *data,bool debug) {
 	uint8_t version = *(uint8_t*)data;
-	if (version > 8 || !((1<<version) & (0b1'1011'1000))) {
-		printf("only versions 3,4,5,7,8 supported\n");
+	if (version > 8 || !((1<<version) & (0b1'0011'1000))) {
+		printf("only versions 3,4,5,8 supported\n");
 		exit(1);
 	}
 	m_storyShift = version==3? 1 : version<=5? 2 : 3; 

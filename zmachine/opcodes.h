@@ -1,8 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
 
-static const char storyScales[] = "\000\002\002\002\004\004\010\010\010";
-
 static const uint8_t opTypes[16+2] = {
 	0b0101'1111, // 0x00-0x3F
 	0b0101'1111,
