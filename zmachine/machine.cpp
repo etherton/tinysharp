@@ -89,6 +89,8 @@ void machine::flushMainWindow() {
 }
 
 void machine::print_char(uint8_t c) {
+	if (!c)
+		return;
 	if (m_outputEnables & (1 << 1)) {
 		// are we buffering?
 		if (m_currentWindow==0 && (m_outputEnables&1)) {
