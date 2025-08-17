@@ -58,6 +58,7 @@ static const uint8_t decode[256+32] = {
 	St,St,St,St,St,0,Br,0, 0,St,St,0,St,0,0,0, 0,0,0,St,0,0,0,0, Br,0,0,Br,0,0,0,0
 };
 
+#if ENABLE_DEBUG
 static const char *opcode_names[256+32] = {
 	// 00-0x7F
 	"?00", "je", "jl", "jg", "dec_chk", "inc_chk", "jin $o $o", "test", "or", "and", "test_attr $o $a", "set_attr $o $a", "clear_attr $o $a", "store", "insert_obj $o $o", "loadw", "loadb", "get_prop $o $p", "get_prop_addr $o $p", "get_next_prop $o $p", "add", "sub", "mul", "div", "mod", "call_2s", "call_2n", "set_colour", "throw", "?1D", "?1E", "?1F",
@@ -84,3 +85,4 @@ static const char *opcode_names[256+32] = {
 	"save","restore","log_shift","art_shift","set_font","draw_picture","picture_data","erase_picture","set_margins","save_undo","restore_undo","print_unicode","check_unicode","ext0D","ext0E","ext0F",
 	"move_window","window_size","window_style","get_wind_prop","scroll_window","pop_stack","read_mouse","mouse_window","push_stack","put_wind_prop","print_form","make_menu","picture_table","ext1D","ext1E","ext1F"
 };
+#endif

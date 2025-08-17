@@ -38,12 +38,16 @@ void machine::init(const void *data,bool debug) {
 	m_objCount = m_header->version<4
 		? (m_objectSmall->objTable[0].propAddr.getU() - (m_header->objectTableAddr.getU() + 31*2))/9
 		: (m_objectLarge->objTable[0].propAddr.getU() - (m_header->objectTableAddr.getU() + 63*2))/14;
+#if ENABLE_DEBUG
 	if (debug) {
 		printf("%d objects detected in story\n",m_objCount);
 		printObjTree();
 	}
+#endif
 	updateExtents();
+#if ENABLE_DEBUG
 	m_debug = debug;
+#endif
 	m_windowSplit = m_header->version < 4;
 	m_currentWindow = 0;
 	m_outputEnables = 3; // buffering enabled in window 0, stream 1 enabled
@@ -53,6 +57,7 @@ void machine::init(const void *data,bool debug) {
 	run(m_header->initialPCAddr.getU());
 }
 
+#if ENABLE_DEBUG
 void machine::printObjTree() {
 	for (int i=1; i<=m_objCount; i++) {
 		printf("Object %d named [",i);
@@ -60,6 +65,7 @@ void machine::printObjTree() {
 		printf("] parent %d child %d sibling %d\n",objGetParent(i).getU(),objGetChild(i).getU(),objGetSibling(i).getU());
 	}
 }
+#endif
 
 void machine::finishChar(uint8_t c) {
 	if (c == 10) {
@@ -151,20 +157,26 @@ uint32_t machine::call(uint32_t pc,int storage,word operands[],uint8_t opCount) 
 	frame[2].set((storage<<4) | larger);
 	m_lp = m_sp;
 	m_sp += larger + 3;
+#if ENABLE_DEBUG
 	if (m_debug > 1)
 		printf("call to %06x, %d locals, sp now %03x and lp now %03x\n",newPc,larger,m_sp,m_lp);
+#endif
 	return newPc;
 }
 
 uint32_t machine::r_return(uint16_t v) {
+#if ENABLE_DEBUG
 	if (m_debug > 1)
 		printf("returning %04x to caller, sp now %03x; ",v,m_lp);
-	m_sp = m_lp;
+#endif
+		m_sp = m_lp;
 	int32_t pc = m_stack[m_sp].getU() | ((m_stack[m_sp+1].getU() >> 13) << 16);
 	m_lp = m_stack[m_sp+1].getU() & (kStackSize-1);
 	int addr = m_stack[m_sp+2].getS() >> 4;
+#if ENABLE_DEBUG
 	if (m_debug > 1)
 		printf("new PC is %06x, new lp is %03x, storage addr is %d\n",pc,m_lp,addr);
+#endif
 	if (addr != -1)
 		ref(addr,true).set(v);
 	return pc;
@@ -245,7 +257,11 @@ void machine::updateExtents() {
 
 void machine::showStatus() {
 	updateExtents();
-	if (m_debug || m_header->version > 3)
+	if (
+#if ENABLE_DEBUG
+		m_debug || 
+#endif
+		m_header->version > 3)
 		return;
 	uint16_t globals = m_header->globalVarsTableAddr.getU();
 	flushMainWindow();
@@ -369,10 +385,12 @@ uint8_t machine::read_input(uint16_t textAddr,uint16_t parseAddr) {
 			printf("{random_seed set to %d}\n",random_seed);
 			internal = true;
 		}
+#if ENABLE_DEBUG
 		else if (!strncmp(buffer,"#objtree",8)) {
 			printObjTree();
 			internal = true;
 		}
+#endif
 	} while (strlen(buffer) >= 240 || internal);
 	uint8_t sl = strlen(buffer), offset;
 	if (m_header->version < 5) {
@@ -480,11 +498,12 @@ void machine::run(uint32_t pc) {
 			opcode = 0x100 | read_mem8(pc++);
 		if (opcode >= 0x120)
 			fault("invalid extended opcode");
-
+#if ENABLE_DEBUG
 		int opcodeLen = strlen(opcode_names[opcode]);
 		if (strchr(opcode_names[opcode],'$'))
 			opcodeLen = strchr(opcode_names[opcode],'$') - opcode_names[opcode] - 1;
 		if (m_debug) printf("%06x: %*.*s ",m_faultpc,opcodeLen,opcodeLen,opcode_names[opcode]);
+#endif
 		uint16_t types = opTypes[opcode >> 4] << 8;
 		if (!types)
 			types = read_mem8(pc++) << 8;
@@ -495,33 +514,46 @@ void machine::run(uint32_t pc) {
 		// remember the last op (used for jumps)
 		uint8_t opCount = 0;
 		word operands[8];
+#if ENABLE_DEBUG
 		const char *nextType = strchr(opcode_names[opcode],'$');
+#endif
 		while (types != 0xFFFF) {
 			uint8_t op = read_mem8(pc++);
+#if ENABLE_DEBUG
 			if (m_debug && opCount)
 				printf(", ");
+#endif
 			switch (types & 0xC000) {
 				case 0x0000: 
 					operands[opCount++].setHL(op,read_mem8(pc++)); 
+#if ENABLE_DEBUG
 					if (m_debug) 
 						printf("$%04x",operands[opCount-1].getU()); 
+#endif
 					break;
 				case 0x4000: 
 					operands[opCount++].setByte(op); 
+#if ENABLE_DEBUG
 					if (m_debug)
 						printf("$%02x",op);
+#endif
 					break;
 				case 0x8000: 
+#if ENABLE_DEBUG
 					if (m_debug) {
 						if (op==0) printf("--(sp)");
 						else if (op<16) printf("L%d",op-1);
 						else printf("G%d",op-16);
 					}
+#endif
 					operands[opCount++] = ref(op, false); 
+#if ENABLE_DEBUG
 					if (m_debug)
 						printf(" [$%04x]",operands[opCount-1].getU());
+#endif
 					break;
 			}
+#if ENABLE_DEBUG
 			if (m_debug && nextType) {
 				if (nextType[1]=='o') {
 					print_char('{');
@@ -539,6 +571,7 @@ void machine::run(uint32_t pc) {
 					fault("bug in opcode type string");
 				nextType = strchr(nextType+1,'$');
 			}
+#endif
 			types = (types << 2) | 0x3;
 		}
 			
@@ -548,11 +581,13 @@ void machine::run(uint32_t pc) {
 		bool branch_cond;
 		if (decode_byte & 1) {
 			dest = read_mem8(pc++);
+#if ENABLE_DEBUG
 			if (m_debug) {
 				if (!dest) printf(" -> (sp)++");
 				else if (dest < 16) printf(" -> L%d",dest-1);
 				else printf(" -> G%d",dest-16);
 			}
+#endif
 		}
 		if (decode_byte & 2) {
 			branch_offset = read_mem8(pc++);
@@ -565,15 +600,19 @@ void machine::run(uint32_t pc) {
 					branch_offset |= 0xC0;
 				branch_offset = (branch_offset << 8) | read_mem8(pc++);
 			}
+#if ENABLE_DEBUG
 			if (m_debug) {
 				if (branch_offset==0||branch_offset==1)
 					printf(" ?%s%s",branch_cond?"":"~",branch_offset?"rtrue":"rfalse");
 				else
 					printf(" ?%s (%04d)",branch_cond?"":"~",branch_offset);
 			}
+#endif
 		}
+#if ENABLE_DEBUG
 		if (m_debug)
 			printf("\n");
+#endif
 		auto branch = [&](bool test) {
 			if (branch_offset == -32768)
 				fault("interpreter bug, branch set up incorrectly");
