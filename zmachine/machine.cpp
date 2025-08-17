@@ -741,11 +741,11 @@ void machine::run(uint32_t pc) {
 				case 0x103: ref(dest,true).set(operands[1].lo <= 15? operands[0].getS() << operands[1].lo :
 						operands[0].getS() >> (256 - operands[1].lo)); break;
 				case 0x109: 
-					ref(dest,true) = byte2word(1); // save_undo
 					memcpy(m_undoDynamic, m_dynamic, m_dynamicSize);
 					m_undoDest = dest;
 					m_undoSp = m_sp; m_undoLp = m_lp; m_undoPc = pc;
 					memcpy(m_undoStack, m_stack, sizeof(m_stack));
+					ref(dest,true) = byte2word(1); // save_undo
 					break;
 				case 0x10A:
 					memcpy(m_dynamic, m_undoDynamic, m_dynamicSize);
