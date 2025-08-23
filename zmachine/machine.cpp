@@ -156,7 +156,7 @@ uint32_t machine::call(uint32_t pc,int storage,word operands[],uint8_t opCount) 
 	memcpy(frame+3,operands,opCount<<1);
 	frame[0].set(pc);
 	frame[1].set(((pc >> 16) << 13) | m_lp);
-	frame[2].set((storage<<4) | larger);
+	frame[2].set((storage<<5) | opCount);
 	m_lp = m_sp;
 	m_sp += larger + 3;
 #if ENABLE_DEBUG
@@ -174,7 +174,7 @@ uint32_t machine::r_return(uint16_t v) {
 		m_sp = m_lp;
 	int32_t pc = m_stack[m_sp].getU() | ((m_stack[m_sp+1].getU() >> 13) << 16);
 	m_lp = m_stack[m_sp+1].getU() & (kStackSize-1);
-	int addr = m_stack[m_sp+2].getS() >> 4;
+	int addr = m_stack[m_sp+2].getS() >> 5;
 #if ENABLE_DEBUG
 	if (m_debug > 1)
 		printf("new PC is %06x, new lp is %03x, storage addr is %d\n",pc,m_lp,addr);
@@ -842,7 +842,7 @@ void machine::run(uint32_t pc) {
 				case 0xFE: printTable(operands[0].getU(),operands[1].getU(),opCount>2?operands[2].getU():1,
 						opCount>3?operands[3].getU():0);
 						break;
-				case 0xFF: branch(operands[0].getU() <= (m_stack[m_lp+2].lo & 15)); break;
+				case 0xFF: branch(operands[0].getU() <= (m_stack[m_lp+2].lo & 31)); break;
 				case 0x102: ref(dest,true).set(operands[1].lo <= 15? operands[0].getU() << operands[1].lo :
 						operands[0].getU() >> (256 - operands[1].lo)); break;
 				case 0x103: ref(dest,true).set(operands[1].lo <= 15? operands[0].getS() << operands[1].lo :
@@ -875,5 +875,5 @@ int main(int argc,char **argv) {
 	if (story) {
 		machine *m = new machine;
 		m->init(story,argc>2&&!strcmp(argv[2],"-debug"));
-	}
+	}	
 }
