@@ -285,6 +285,8 @@ private:
 	}
 	word objGetNextProperty(uint16_t o,uint16_t prop) const {
 		// given a property number (or zero for first property) return the NEXT property number (or zero)
+		// properties are in descending numerical order, so if we're searching for N and find something
+		// less than N, it's not present.
 		if (!o||o>m_objCount)
 			fault("get_next_prop invalid object number %d",o);
 		if (m_header->version < 4) {
@@ -307,7 +309,7 @@ private:
 			for(;;) {
 				uint8_t pv = read_mem8(pa++);
 				uint8_t pn = pv & 63;
-				uint8_t pl = (pv & 128)? zeroIs64(read_mem8(pa++)) : pv & 64? 2 : 1;
+				uint8_t pl = (pv & 128)? zeroIs64(read_mem8(pa++) & 63) : pv & 64? 2 : 1;
 				if (!prop || pn < prop)
 					return byte2word(pn);
 				else if (!pn)
