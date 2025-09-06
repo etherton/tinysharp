@@ -13,6 +13,8 @@
 
 static struct termios orig_termios, raw_termios;
 
+static FILE *input_file;
+
 static void standard_mode() {
 	tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
 }
@@ -21,10 +23,21 @@ static void raw_mode() {
 	tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw_termios);
 }
 
-void interface::init() {
+void interface::init(int argc,char **argv) {
 	tcgetattr(STDIN_FILENO, &orig_termios);
 	atexit(standard_mode);
 	cfmakeraw(&raw_termios);
+
+	input_file = stdin;
+	for (int i=1; i<argc; i++) {
+		if (!strcmp(argv[i],"-script") && i+1<argc) {
+			input_file = fopen(argv[++i],"r");
+			if (!input_file) {
+					fprintf(stderr,"unable to open script file %s\n",argv[i]);
+					exit(1);
+			}
+		}
+	}
 }
 
 void interface::putchar(int ch) {
@@ -32,7 +45,14 @@ void interface::putchar(int ch) {
 }
 
 int interface::readline(char *dest,unsigned destSize) {
-    return strlen(fgets(dest,destSize,stdin));
+	char *answer = fgets(dest,destSize,input_file);
+	if (!answer)
+		answer = fgets(dest,destSize,input_file = stdin);
+	if (!answer)
+		exit(1);
+	if (input_file != stdin)
+		printf("%s",answer);
+	return strlen(answer);
 }
 
 int interface::readchar() {
@@ -116,3 +136,4 @@ char* interface::readStory(const char *name) {
 	fclose(f);
     return story;
 }
+

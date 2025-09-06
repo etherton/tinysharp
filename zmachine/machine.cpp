@@ -872,7 +872,7 @@ void machine::run(uint32_t pc) {
 }
 
 int main(int argc,char **argv) {
-	interface::init();
+	interface::init(argc,argv);
 	char *story = interface::readStory(argv[1]);
 	if (story) {
 		machine *m = new machine;

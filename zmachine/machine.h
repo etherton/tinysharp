@@ -29,7 +29,7 @@ struct chunk { void *data; uint32_t size; };
 class interface {
 public:
 	static char *readStory(const char*);
-	static void init();
+	static void init(int,char**);
 	static void putchar(int ch);
 	static int readchar();
 	static int readline(char*dest,unsigned destSize);
