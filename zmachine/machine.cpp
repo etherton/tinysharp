@@ -791,6 +791,8 @@ void machine::run(uint32_t pc) {
 				case 0xBA: exit(0); break;
 				case 0xBB: print_char(10); break;
 				case 0xBC: showStatus(); break;
+				case 0xBD: branch(true); break; // fake verify?
+				case 0xBF: branch(true); break; // fake piracy
 				case 0xC1: if (opCount==2)
 							branch(operands[0].getS() == operands[1].getS());
 							else if (opCount==3)
@@ -863,7 +865,7 @@ void machine::run(uint32_t pc) {
 					else
 						ref(dest,true) = byte2word(0);
 					break;
-				default: fault("unimplemented 0OP/VAR/EXT opcode"); break;
+				default: fault("unimplemented 0OP/VAR/EXT opcode %d (0x%x)",opcode,opcode); break;
 			}
 		}
 	}
