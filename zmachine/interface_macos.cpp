@@ -14,6 +14,7 @@
 static struct termios orig_termios, raw_termios;
 
 static FILE *input_file;
+static bool nostatus;
 
 static void standard_mode() {
 	tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
@@ -31,31 +32,40 @@ void interface::init(int argc,char **argv) {
 	input_file = stdin;
 	for (int i=1; i<argc; i++) {
 		if (!strcmp(argv[i],"-script") && i+1<argc) {
-			input_file = fopen(argv[++i],"r");
+			input_file = fopen(argv[++i],"rt");
 			if (!input_file) {
 					fprintf(stderr,"unable to open script file %s\n",argv[i]);
 					exit(1);
 			}
+			else
+				nostatus = true;
 		}
 	}
 }
 
+static int window;
+
 void interface::putchar(int ch) {
-    putc(ch, stdout);
+	if (!window || !nostatus)
+    	putc(ch, stdout);
 }
 
 int interface::readline(char *dest,unsigned destSize) {
 	char *answer = fgets(dest,destSize,input_file);
-	if (!answer)
+	if (!answer || !strcmp(answer,"#end\n")) {
+		printf("{end of test script}\n");
 		answer = fgets(dest,destSize,input_file = stdin);
+	}
 	if (!answer)
 		exit(1);
 	if (input_file != stdin)
-		printf("%s",answer);
+		printf("{%*.*s}\n",(int)strlen(answer)-1,(int)strlen(answer)-1,answer);
 	return strlen(answer);
 }
 
 int interface::readchar() {
+	if (nostatus)
+		return 32;
     char result;
     raw_mode(); 
     read(STDIN_FILENO, &result, 1); 
@@ -65,14 +75,19 @@ int interface::readchar() {
 
 
 void interface::setTextStyle(uint8_t style) {
-	if (style == 1)
+	if (nostatus)
+		;
+	else if (style == 1)
 		printf("\033[7m");
 	else if (style == 0)
 		printf("\033[0m");
 }
 
-void interface::setWindow(uint8_t window) {
-    if (window)
+void interface::setWindow(uint8_t w) {
+	window = w;
+	if (nostatus)
+		;
+    else if (window)
     	printf("\0337\033[H");
     else
     	printf("\0338");
@@ -80,14 +95,19 @@ void interface::setWindow(uint8_t window) {
 }
 
 void interface::eraseWindow(uint8_t cmd) {
-    if (cmd == 1)
+	if (nostatus)
+		;
+    else if (cmd == 1)
 		printf("\033[H\033[2K");
 	else
 		printf("\033[\033[2J");
 }
 
 void interface::setCursor(uint8_t x,uint8_t y) {
-	printf("\033[%d;%dH",y,x);
+	if (nostatus)
+		;
+	else
+		printf("\033[%d;%dH",y,x);
 	fflush(stdout);
 }
 
