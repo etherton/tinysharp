@@ -13,7 +13,8 @@
 
 static struct termios orig_termios, raw_termios;
 
-static FILE *input_file;
+static char *script_text;
+static long script_size, script_offset;
 static bool nostatus;
 
 static void standard_mode() {
@@ -29,11 +30,10 @@ void interface::init(int argc,char **argv) {
 	atexit(standard_mode);
 	cfmakeraw(&raw_termios);
 
-	input_file = stdin;
 	for (int i=1; i<argc; i++) {
 		if (!strcmp(argv[i],"-script") && i+1<argc) {
-			input_file = fopen(argv[++i],"rt");
-			if (!input_file) {
+			script_text = readStory(argv[++i],&script_size);
+			if (!script_text) {
 					fprintf(stderr,"unable to open script file %s\n",argv[i]);
 					exit(1);
 			}
@@ -50,17 +50,22 @@ void interface::putchar(int ch) {
     	putc(ch, stdout);
 }
 
-int interface::readline(char *dest,unsigned destSize) {
-	char *answer = fgets(dest,destSize,input_file);
-	if (!answer || !strcmp(answer,"#end\n")) {
-		printf("{end of test script}\n");
-		answer = fgets(dest,destSize,input_file = stdin);
+void interface::readline(char *dest,unsigned destSize) {
+	if (script_offset < script_size) {
+		unsigned offset = 0;
+		while (destSize--) {
+			dest[offset] = script_text[script_offset++];
+			if (dest[offset++] == '\n')
+				break;
+		}
+		dest[offset] = 0;
+		printf("%s",dest);
+		if (script_offset >= script_size)
+			printf("{end of script, resuming interactive input}\n");
+		return;
 	}
-	if (!answer)
-		exit(1);
-	if (input_file != stdin)
-		printf("{%*.*s}\n",(int)strlen(answer)-1,(int)strlen(answer)-1,answer);
-	return strlen(answer);
+
+	fgets(dest,destSize,stdin);
 }
 
 int interface::readchar() {
@@ -144,7 +149,7 @@ bool interface::readSaveData(chunk *chunks,uint32_t count) {
 	return true;
 }
 
-char* interface::readStory(const char *name) {
+char* interface::readStory(const char *name,long *sizePtr) {
 	FILE *f = fopen(name,"rb");
     if (!f)
         return nullptr;
@@ -152,6 +157,8 @@ char* interface::readStory(const char *name) {
 	long size = ftell(f);
 	rewind(f);
 	char *story = new char[size];
+	if (sizePtr)
+		*sizePtr = size;
 	fread(story,1,size,f);
 	fclose(f);
     return story;

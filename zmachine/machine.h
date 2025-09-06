@@ -28,11 +28,11 @@ struct chunk { void *data; uint32_t size; };
 
 class interface {
 public:
-	static char *readStory(const char*);
+	static char *readStory(const char*,long *sizePtr = nullptr);
 	static void init(int,char**);
 	static void putchar(int ch);
 	static int readchar();
-	static int readline(char*dest,unsigned destSize);
+	static void readline(char*dest,unsigned destSize);
 	static bool writeSaveData(chunk *chunks,unsigned count);
 	static bool readSaveData(chunk *chunks,unsigned count);
 	static void setTextStyle(uint8_t);
