@@ -97,9 +97,9 @@ private:
 	uint16_t m_extended;
 	bool objIsChildOf(uint16_t o1,uint16_t o2) const {
 		if (!o1 || o1 > m_objCount)
-			fault("jin first object %d of range",o1);
-		if (!o2 || o2 > m_objCount)
-			fault("jin second object %d of range",o2);
+			fault("jin first object %d out of range",o1);
+		if (o2 > m_objCount)
+			fault("jin second object %d out of range",o2);
 		return o2 == (m_header->version<4
 				? m_objectSmall->objTable[o1-1].parent 
 				: m_objectLarge->objTable[o1-1].parent.getU());
@@ -107,7 +107,7 @@ private:
 	}
 	bool objTestAttribute(uint16_t o,uint16_t attr) const {
 		if (!o || o > m_objCount)
-			fault("test_attr object %d of range",o);
+			fault("test_attr object %d out of range",o);
 		if (attr >= (m_header->version<4? 32 : 48))
 			fault("test_attr attribute %d out of range",attr);
 		return m_header->version < 4
@@ -116,7 +116,7 @@ private:
 	}
 	void objSetAttribute(uint16_t o,uint16_t attr) {
 		if (!o || o > m_objCount)
-			fault("set_attr object %d of range",o);
+			fault("set_attr object %d out of range",o);
 		if (attr >= (m_header->version<4? 32 : 48))
 			fault("set_attr attribute %d out of range",attr);
 		return m_header->version < 4
@@ -125,7 +125,7 @@ private:
 	}
 	void objClearAttribute(uint16_t o,uint16_t attr) {
 		if (!o || o > m_objCount)
-			fault("clear_attr object %d of range",o);
+			fault("clear_attr object %d out of range",o);
 		if (attr >= (m_header->version<4? 32 : 48))
 			fault("clear_attr attribute %d out of range",attr);
 		return m_header->version < 4
