@@ -88,6 +88,19 @@ void interface::setTextStyle(uint8_t style) {
 		printf("\033[0m");
 }
 
+void interface::setTextColor(uint8_t fore,uint8_t back) {
+	// terminal colors are black, red, green, yellow, blue, magenta, cyan, white, (reserved), default
+	// interpreter colors are current, default, black, red, green, yellow, blue, magenta, cyan, white
+	if (nostatus)
+		;
+	else {
+		if (fore != 0)
+			printf("\033[3%cm"," 901234567"[fore]);
+		if (back != 0)
+			printf("\033[4%cm"," 901234567"[back]);
+	}
+}
+
 void interface::setWindow(uint8_t w) {
 	window = w;
 	if (nostatus)

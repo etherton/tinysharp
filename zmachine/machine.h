@@ -36,6 +36,7 @@ public:
 	static bool writeSaveData(chunk *chunks,unsigned count);
 	static bool readSaveData(chunk *chunks,unsigned count);
 	static void setTextStyle(uint8_t);
+	static void setTextColor(uint8_t fore,uint8_t back);
 	static void setCursor(uint8_t,uint8_t);
 	static void setWindow(uint8_t);
 	static void eraseWindow(uint8_t);

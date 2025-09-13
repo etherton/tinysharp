@@ -22,6 +22,10 @@ void machine::init(const void *data,bool debug) {
 	m_dynamicSize = m_header->staticMemoryAddr.getU();
 	m_dynamic = new uint8_t[m_dynamicSize];
 	memcpy(m_dynamic, m_readOnly, m_dynamicSize);
+	if (version==3)
+		m_dynamic[1] |= 32; // screen splitting available
+	else if (version>=5)
+		m_dynamic[1] |= 1; // colours available
 	m_globalsOffset = m_header->globalVarsTableAddr.getU();
 	m_abbreviations = m_header->abbreviationsAddr.getU();
 	m_readOnlySize = m_header->storyLength.getU() << m_storyShift;
@@ -732,6 +736,7 @@ void machine::run(uint32_t pc) {
 					ref(dest,true).set(operands[0].getS() % operands[1].getS()); break;
 				case 0x19: pc = call(pc,dest,operands,opCount); break;
 				case 0x1A: pc = call(pc,-1,operands,opCount); break;
+				case 0x1B: interface::setTextColor(operands[0].lo,operands[1].lo); break;
 				default: fault("unimplemented 2OP opcode"); break;
 			}
 		}
