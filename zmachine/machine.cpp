@@ -12,11 +12,11 @@
 
 void machine::init(const void *data,bool debug) {
 	uint8_t version = *(uint8_t*)data;
-	if (version > 8 || !((1<<version) & (0b1'0011'1000))) {
-		printf("only versions 3,4,5,8 supported\n");
+	if (version > 8 || !((1<<version) & (0b1'1011'1000))) {
+		printf("only versions 3,4,5,7,8 supported\n");
 		exit(1);
 	}
-	m_storyShift = version==3? 1 : version<=5? 2 : 3; 
+	m_storyShift = version==3? 1 : version<=7? 2 : 3; 
 	m_sp = m_lp = 0;
 	m_readOnly = (const uint8_t*) data;
 	m_dynamicSize = m_header->staticMemoryAddr.getU();
@@ -26,9 +26,16 @@ void machine::init(const void *data,bool debug) {
 		m_dynamic[1] |= 32; // screen splitting available
 	else if (version>=5)
 		m_dynamic[1] |= 1; // colours available
+	if (version==6 || version==7) {
+		m_routinesOffset = m_header->routinesOffsetDiv8.getU() << 3;
+		m_staticStringOffset = m_header->staticStringsOffsetDiv8.getU() << 3;
+	}
+	else
+		m_routinesOffset = m_staticStringOffset = 0;
+
 	m_globalsOffset = m_header->globalVarsTableAddr.getU();
 	m_abbreviations = m_header->abbreviationsAddr.getU();
-	m_readOnlySize = m_header->storyLength.getU() << m_storyShift;
+	m_readOnlySize = m_header->storyLength.getU() << (m_storyShift + (version==6||version==7));
 	memcpy(m_zscii,
 		version>=5 && m_header->alphabetTableAddress.getU()? 
 			(const char*)m_readOnly + m_header->alphabetTableAddress.getU() :
@@ -136,7 +143,7 @@ void machine::print_num(int16_t v) {
 uint32_t machine::call(uint32_t pc,int storage,word operands[],uint8_t opCount) {
 	if (!opCount)
 		fault("impossible call with no address");
-	uint32_t newPc = operands[0].getU() << m_storyShift;
+	uint32_t newPc = m_routinesOffset + (operands[0].getU() << m_storyShift);
 	++operands;
 	--opCount;
 	// a call to zero does nothing except return zero
@@ -757,7 +764,7 @@ void machine::run(uint32_t pc) {
 				case 0xA: objPrint(operands[0].getU()); break;
 				case 0xB: pc = r_return(operands[0].getS()); break;
 				case 0xC: pc += operands[0].getS() - 2; break;
-				case 0xD: print_zscii(operands[0].getU() << m_storyShift); break;
+				case 0xD: print_zscii(m_staticStringOffset + (operands[0].getU() << m_storyShift)); break;
 				case 0xE: ref(dest,true) = var(operands[0].getS()); break;
 				case 0xF: if (m_header->version < 5) ref(dest,true).set(~operands[0].getU());
 					  else pc = call(pc,-1,operands,opCount); break;

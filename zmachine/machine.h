@@ -474,6 +474,7 @@ private:
 	uint16_t m_dynamicSize, m_globalsOffset, m_abbreviations, m_objCount;
 	uint32_t m_readOnlySize;
 	uint32_t m_faultpc;
+	uint32_t m_routinesOffset, m_staticStringOffset;
 	uint16_t m_outputBuffer;
 	uint8_t m_storyShift;
 	uint8_t m_debug;
