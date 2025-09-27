@@ -177,3 +177,11 @@ char* interface::readStory(const char *name,long *sizePtr) {
     return story;
 }
 
+int main(int argc,char **argv) {
+	interface::init(argc,argv);
+	char *story = interface::readStory(argv[1]);
+	if (story) {
+		machine *m = new machine;
+		m->init(story,argc>2&&!strcmp(argv[2],"-debug"));
+	}	
+}

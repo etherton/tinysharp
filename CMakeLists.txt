@@ -39,6 +39,7 @@ add_subdirectory(fs)
 add_subdirectory(hal)
 add_subdirectory(ide)
 add_subdirectory(language)
+add_subdirectory(zmachine)
 add_executable(tinysharp tinysharp.cpp )
 
 pico_set_program_name(tinysharp "tinysharp")
@@ -54,6 +55,7 @@ target_link_libraries(tinysharp
 	hal
 	ide
 	language
+	zmachine
 	hardware_flash
 	hardware_gpio
         pico_stdlib)
