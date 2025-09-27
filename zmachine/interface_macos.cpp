@@ -143,7 +143,13 @@ void interface::updateExtents(uint8_t &width,uint8_t &height) {
 }
 
 bool interface::writeSaveData(chunk *chunks,uint32_t count) {
-	FILE *f = fopen("save.dat","wb");
+	char buf[64];
+	printf("Save as?");
+	fgets(buf,sizeof(buf),stdin);
+	buf[strlen(buf)-1] = 0;
+	if (buf[0]==0)
+		return false;
+	FILE *f = fopen(buf,"wb");
 	if (!f)
 		return false;
 	for (uint32_t i=0; i<count; i++)
@@ -153,7 +159,13 @@ bool interface::writeSaveData(chunk *chunks,uint32_t count) {
 }
 
 bool interface::readSaveData(chunk *chunks,uint32_t count) {
-	FILE *f = fopen("save.dat","rb");
+	char buf[64];
+	printf("Load from?");
+	fgets(buf,sizeof(buf),stdin);
+	buf[strlen(buf)-1] = 0;
+	if (buf[0]==0)
+		return false;
+	FILE *f = fopen(buf,"rb");
 	if (!f)
 		return false;
 	for (uint32_t i=0; i<count; i++)
