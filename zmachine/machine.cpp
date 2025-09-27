@@ -714,70 +714,70 @@ void machine::run(uint32_t pc) {
 		if (opcode < 0x80 || (opcode >= 0xC2 && opcode < 0xE0)) { // 2OP (except for jz VAR that can take more than two ops)
 			if (opCount != 2)
 				fault("2OP with something other than two operands");
-			switch (opcode & 31) {
-				case 0x01: branch(operands[0].getS() == operands[1].getS()); break;
-				case 0x02: branch(operands[0].getS() < operands[1].getS()); break; 
-				case 0x03: branch(operands[0].getS() > operands[1].getS()); break;
-				case 0x04: branch(var(operands[0].getS()).dec() < operands[1].getS()); break;
-				case 0x05: branch(var(operands[0].getS()).inc() > operands[1].getS()); break;
-				case 0x06: branch(objIsChildOf(operands[0].getU(),operands[1].getU())); break;
-				case 0x07: branch((operands[0].getU() & operands[1].getU()) == operands[1].getU()); break;
-				case 0x08: ref(dest,true).set(operands[0].getU() | operands[1].getU()); break;
-				case 0x09: ref(dest,true).set(operands[0].getU() & operands[1].getU()); break;
-				case 0x0A: branch(objTestAttribute(operands[0].getU(),operands[1].getU())); break;
-				case 0x0B: objSetAttribute(operands[0].getU(),operands[1].getU()); break;
-				case 0x0C: objClearAttribute(operands[0].getU(),operands[1].getU()); break;
-				case 0x0D: var(operands[0].getS()) = operands[1]; break;
-				case 0x0E: objMoveTo(operands[0].getU(),operands[1].getU()); break;
-				case 0x0F: ref(dest,true) = read_mem16((uint16_t)(operands[0].getU() + (operands[1].getU()<<1))); break;
-				case 0x10: ref(dest,true).setByte(read_mem8((uint16_t)(operands[0].getU() + operands[1].getU()))); break;
-				case 0x11: ref(dest,true) = objGetProperty(operands[0].getU(),operands[1].getU()); break;
-				case 0x12: ref(dest,true) = objGetPropertyAddr(operands[0].getU(),operands[1].getU()); break;
-				case 0x13: ref(dest,true) = objGetNextProperty(operands[0].getU(),operands[1].getU()); break;
-				case 0x14: ref(dest,true).set(operands[0].getS() + operands[1].getS()); break;
-				case 0x15: ref(dest,true).set(operands[0].getS() - operands[1].getS()); break;
-				case 0x16: ref(dest,true).set(operands[0].getS() * operands[1].getS()); break;
-				case 0x17: if (!operands[1].getS()) fault("division by zero"); 
+			switch ((_2op)(opcode & 31)) {
+				case _2op::je: branch(operands[0].getS() == operands[1].getS()); break;
+				case _2op::jl: branch(operands[0].getS() < operands[1].getS()); break; 
+				case _2op::jg: branch(operands[0].getS() > operands[1].getS()); break;
+				case _2op::dec_chk: branch(var(operands[0].getS()).dec() < operands[1].getS()); break;
+				case _2op::inc_chk: branch(var(operands[0].getS()).inc() > operands[1].getS()); break;
+				case _2op::jin: branch(objIsChildOf(operands[0].getU(),operands[1].getU())); break;
+				case _2op::test: branch((operands[0].getU() & operands[1].getU()) == operands[1].getU()); break;
+				case _2op::or_: ref(dest,true).set(operands[0].getU() | operands[1].getU()); break;
+				case _2op::and_: ref(dest,true).set(operands[0].getU() & operands[1].getU()); break;
+				case _2op::test_attr: branch(objTestAttribute(operands[0].getU(),operands[1].getU())); break;
+				case _2op::set_attr: objSetAttribute(operands[0].getU(),operands[1].getU()); break;
+				case _2op::clear_attr: objClearAttribute(operands[0].getU(),operands[1].getU()); break;
+				case _2op::store: var(operands[0].getS()) = operands[1]; break;
+				case _2op::insert_obj: objMoveTo(operands[0].getU(),operands[1].getU()); break;
+				case _2op::loadw: ref(dest,true) = read_mem16((uint16_t)(operands[0].getU() + (operands[1].getU()<<1))); break;
+				case _2op::loadb: ref(dest,true).setByte(read_mem8((uint16_t)(operands[0].getU() + operands[1].getU()))); break;
+				case _2op::get_prop: ref(dest,true) = objGetProperty(operands[0].getU(),operands[1].getU()); break;
+				case _2op::get_prop_addr: ref(dest,true) = objGetPropertyAddr(operands[0].getU(),operands[1].getU()); break;
+				case _2op::get_next_prop: ref(dest,true) = objGetNextProperty(operands[0].getU(),operands[1].getU()); break;
+				case _2op::add: ref(dest,true).set(operands[0].getS() + operands[1].getS()); break;
+				case _2op::sub: ref(dest,true).set(operands[0].getS() - operands[1].getS()); break;
+				case _2op::mul: ref(dest,true).set(operands[0].getS() * operands[1].getS()); break;
+				case _2op::div: if (!operands[1].getS()) fault("division by zero"); 
 					ref(dest,true).set(operands[0].getS() / operands[1].getS()); break;
-				case 0x18: if (!operands[1].getS()) fault("modulo by zero"); 
+				case _2op::mod: if (!operands[1].getS()) fault("modulo by zero"); 
 					ref(dest,true).set(operands[0].getS() % operands[1].getS()); break;
-				case 0x19: pc = call(pc,dest,operands,opCount); break;
-				case 0x1A: pc = call(pc,-1,operands,opCount); break;
-				case 0x1B: interface::setTextColor(operands[0].lo,operands[1].lo); break;
-				default: fault("unimplemented 2OP opcode"); break;
+				case _2op::call_2s: pc = call(pc,dest,operands,opCount); break;
+				case _2op::call_2n: pc = call(pc,-1,operands,opCount); break;
+				case _2op::set_colour: interface::setTextColor(operands[0].lo,operands[1].lo); break;
+				default: fault("illegal 2OP opcode"); break;
 			}
 		}
 		else if (opcode >= 0x80 && opcode < 0xB0) {
 			if (opCount != 1)
 				fault("1OP with something other than one operand");
-			switch (opcode & 15) {
-				case 0x0: branch(!operands[0].getU()); break;
-				case 0x1: branch((ref(dest,true) = objGetSibling(operands[0].getU())).notZero()); break;
-				case 0x2: branch((ref(dest,true) = objGetChild(operands[0].getU())).notZero()); break;
-				case 0x3: ref(dest,true) = objGetParent(operands[0].getU()); break;
-				case 0x4: ref(dest,true) = objGetPropertyLen(operands[0].getU()); break;
-				case 0x5: var(operands[0].getS()).inc(); break;
-				case 0x6: var(operands[0].getS()).dec(); break;
-				case 0x7: print_zscii(operands[0].getU()); break;
-				case 0x8: pc = call(pc,dest,operands,opCount); break;
-				case 0x9: objUnparent(operands[0].getU()); break;
-				case 0xA: objPrint(operands[0].getU()); break;
-				case 0xB: pc = r_return(operands[0].getS()); break;
-				case 0xC: pc += operands[0].getS() - 2; break;
-				case 0xD: print_zscii(m_staticStringOffset + (operands[0].getU() << m_storyShift)); break;
-				case 0xE: ref(dest,true) = var(operands[0].getS()); break;
-				case 0xF: if (m_header->version < 5) ref(dest,true).set(~operands[0].getU());
+			switch ((_1op)(opcode & 15)) {
+				case _1op::jz: branch(!operands[0].getU()); break;
+				case _1op::get_sibling: branch((ref(dest,true) = objGetSibling(operands[0].getU())).notZero()); break;
+				case _1op::get_child: branch((ref(dest,true) = objGetChild(operands[0].getU())).notZero()); break;
+				case _1op::get_parent: ref(dest,true) = objGetParent(operands[0].getU()); break;
+				case _1op::get_prop_len: ref(dest,true) = objGetPropertyLen(operands[0].getU()); break;
+				case _1op::inc: var(operands[0].getS()).inc(); break;
+				case _1op::dec: var(operands[0].getS()).dec(); break;
+				case _1op::print_addr: print_zscii(operands[0].getU()); break;
+				case _1op::call_1s: pc = call(pc,dest,operands,opCount); break;
+				case _1op::remove_obj: objUnparent(operands[0].getU()); break;
+				case _1op::print_obj: objPrint(operands[0].getU()); break;
+				case _1op::ret: pc = r_return(operands[0].getS()); break;
+				case _1op::jump: pc += operands[0].getS() - 2; break;
+				case _1op::print_paddr: print_zscii(m_staticStringOffset + (operands[0].getU() << m_storyShift)); break;
+				case _1op::load: ref(dest,true) = var(operands[0].getS()); break;
+				case _1op::not_: if (m_header->version < 5) ref(dest,true).set(~operands[0].getU());
 					  else pc = call(pc,-1,operands,opCount); break;
 			}
 		}
-		else {
-			switch (opcode) {
-				case 0xB0: pc = r_return(1); break;
-				case 0xB1: pc = r_return(0); break;
-				case 0xB2: pc = print_zscii(pc); break;
-				case 0xB3: pc = print_zscii(pc); pc = r_return(1); break;
-				case 0xB4: break; // nop
-				case 0xB5: { chunk c[3]; 
+		else if (opcode < 0xE0) {
+			switch ((_0op)(opcode - 0xB0)) {
+				case _0op::rtrue: pc = r_return(1); break;
+				case _0op::rfalse: pc = r_return(0); break;
+				case _0op::print: pc = print_zscii(pc); break;
+				case _0op::print_ret: pc = print_zscii(pc); pc = r_return(1); break;
+				case _0op::nop: break; // nop
+				case _0op::save: { chunk c[3]; 
 							c[0].data = m_dynamic; c[0].size = m_dynamicSize;
 							c[1].data = &m_sp; c[1].size = (kStackSize + 2) * 2;
 							c[2].data = &pc; c[2].size = 4;
@@ -786,87 +786,97 @@ void machine::run(uint32_t pc) {
 									branch(true);
 							} }
 							break;
-				case 0xB6: { chunk c[3];
+				case _0op::restore: { chunk c[3];
 							c[0].data = m_dynamic; c[0].size = m_dynamicSize;
 							c[1].data = &m_sp; c[1].size = (kStackSize + 2) * 2;
 							c[2].data = &pc; c[2].size = 4;
 							interface::readSaveData(c,3); updateExtents(); }
 							break;
-				case 0xB7: m_sp =  m_lp = 0; 
+				case _0op::restart: m_sp =  m_lp = 0; 
 							memcpy(m_dynamic, m_readOnly, m_dynamicSize); 
 							updateExtents();
 							pc = m_header->initialPCAddr.getU();
 							 break;
-				case 0xB8: if (!m_sp) fault("stack underflow in ret_popped"); pc = r_return(m_stack[--m_sp].getU()); break;
-				case 0xB9: if (!m_sp) fault("stack underflow in pop"); --m_sp; break;
-				case 0xBA: exit(0); break;
-				case 0xBB: print_char(10); break;
-				case 0xBC: showStatus(); break;
-				case 0xBD: branch(true); break; // fake verify?
-				case 0xBF: branch(true); break; // fake piracy
-				case 0xC1: if (opCount==2)
+				case _0op::ret_popped: if (!m_sp) fault("stack underflow in ret_popped"); pc = r_return(m_stack[--m_sp].getU()); break;
+				case _0op::pop: if (!m_sp) fault("stack underflow in pop"); --m_sp; break;
+				case _0op::quit: exit(0); break;
+				case _0op::new_line: print_char(10); break;
+				case _0op::show_status: showStatus(); break;
+				case _0op::verify: branch(true); break; // fake verify?
+				case _0op::piracy: branch(true); break; // fake piracy
+				case _0op::je: if (opCount==2)
 							branch(operands[0].getS() == operands[1].getS());
 							else if (opCount==3)
 							branch(operands[0].getS() == operands[1].getS() || operands[0].getS() == operands[2].getS());
 							else if (opCount==4)
 							branch(operands[0].getS() == operands[1].getS() || operands[0].getS() == operands[2].getS() || operands[0].getS() == operands[3].getS());
-							else fault("impossible jz variant");
+							else fault("impossible je variant");
 							break;
-				case 0xE0: pc = call(pc,dest,operands,opCount); break;
-				case 0xE1: write_mem16(uint16_t(operands[0].getU()+(operands[1].getU()<<1)),operands[2]); break;
-				case 0xE2: write_mem8(uint16_t(operands[0].getU()+operands[1].getU()),operands[2].lo); break;
-				case 0xE3: objSetProperty(operands[0].getU(),operands[1].getU(),operands[2]); break;
-				case 0xE4: if (opCount != 2) fault("only two operand read opcode supported");
+				default: fault("unimplemented 0OP opcode %d (0x%x)",opcode,opcode); break;
+			}
+		}
+		else if (opcode < 0x100) {
+			switch ((_var)(opcode - 0xE0)) {
+				case _var::call_vs: pc = call(pc,dest,operands,opCount); break;
+				case _var::storew: write_mem16(uint16_t(operands[0].getU()+(operands[1].getU()<<1)),operands[2]); break;
+				case _var::storeb: write_mem8(uint16_t(operands[0].getU()+operands[1].getU()),operands[2].lo); break;
+				case _var::put_prop: objSetProperty(operands[0].getU(),operands[1].getU(),operands[2]); break;
+				case _var::sread: if (opCount != 2) fault("only two operand read opcode supported");
 						   showStatus();
 						   if (m_header->version>=5)
 						   	ref(dest,true).setByte(read_input(operands[0].getU(),operands[1].getU()));
 							else read_input(operands[0].getU(),operands[1].getU());
 							break;
-				case 0xE5: print_char(operands[0].lo); break;
-				case 0xE6: print_num(operands[0].getS()); break;
-				case 0xE7: if (operands[0].getS() == 0)
+				case _var::print_char: print_char(operands[0].lo); break;
+				case _var::print_num: print_num(operands[0].getS()); break;
+				case _var::random: if (operands[0].getS() == 0)
 								random_seed = time(NULL);
 							else if (operands[0].getS() < 0)
 								random_seed = -operands[0].getS();
 							ref(dest,true).set(operands[0].getS() > 1? ((randomNumber() % (operands[0].getS() - 1)) + 1) : 0);
 							break;
-				case 0xE8: push(operands[0]); break;
-				case 0xE9: var(operands[0].getS()) = pop(); break;
-				case 0xEA: m_windowSplit = operands[0].getU(); break;
-				case 0xEB: setWindow(operands[0].getU()); break;
-				case 0xEC: pc = call(pc,dest,operands,opCount); break;
-				case 0xED: interface::eraseWindow(operands[0].getS()); break; // erase_window
-				case 0xEF: setCursor(operands[1].getU(),operands[0].getU()); break; // set_cursor line col
-				case 0xF1: interface::setTextStyle(operands[0].lo); break; // set_text_style
-				case 0xF2: if (operands[0].notZero()) m_outputEnables |= 1; else m_outputEnables &= ~1; break; // buffer_mode
-				case 0xF3: setOutput(operands[0].getS(),opCount>1?operands[1].getU():0); break; // output_stream
-				case 0xF5: break; // sound_effect
-				case 0xF6: ref(dest,true).lo = interface::readchar(); break; // read_char
-				case 0xF7: branch(scanTable(dest,operands[0],operands[1].getU(),operands[2].getU(),
+				case _var::push: push(operands[0]); break;
+				case _var::pull: var(operands[0].getS()) = pop(); break;
+				case _var::split_window: m_windowSplit = operands[0].getU(); break;
+				case _var::set_window: setWindow(operands[0].getU()); break;
+				case _var::call_vs2: pc = call(pc,dest,operands,opCount); break;
+				case _var::erase_window: interface::eraseWindow(operands[0].getS()); break; // erase_window
+				case _var::set_cursor: setCursor(operands[1].getU(),operands[0].getU()); break; // set_cursor line col
+				case _var::set_text_style: interface::setTextStyle(operands[0].lo); break; // set_text_style
+				case _var::buffer_mode: if (operands[0].notZero()) m_outputEnables |= 1; else m_outputEnables &= ~1; break; // buffer_mode
+				case _var::output_stream: setOutput(operands[0].getS(),opCount>1?operands[1].getU():0); break; // output_stream
+				case _var::sound_effect: break; // sound_effect
+				case _var::read_char: ref(dest,true).lo = interface::readchar(); break; // read_char
+				case _var::scan_table: branch(scanTable(dest,operands[0],operands[1].getU(),operands[2].getU(),
 							m_header->version>=5&&opCount==4?operands[3].lo:0x82));
 							break;
-				case 0xF8: ref(dest,true).set(~operands[0].getU()); break;
-				case 0xF9: pc = call(pc,-1,operands,opCount); break;
-				case 0xFA: pc = call(pc,-1,operands,opCount); break;
-				case 0xFB: 
+				case _var::not_: ref(dest,true).set(~operands[0].getU()); break;
+				case _var::call_vn: pc = call(pc,-1,operands,opCount); break;
+				case _var::call_vn2: pc = call(pc,-1,operands,opCount); break;
+				case _var::tokenise: 
 						if (opCount != 2) fault("only two-operand form of tokenise is supported");
 						tokenise(operands[0].getU(),operands[1].getU());
 						break;
-				case 0xFE: printTable(operands[0].getU(),operands[1].getU(),opCount>2?operands[2].getU():1,
+				case _var::print_table: printTable(operands[0].getU(),operands[1].getU(),opCount>2?operands[2].getU():1,
 						opCount>3?operands[3].getU():0);
 						break;
-				case 0xFF: branch(operands[0].getU() <= (m_stack[m_lp+2].lo & 31)); break;
-				case 0x102: ref(dest,true).set(operands[1].lo <= 15? operands[0].getU() << operands[1].lo :
+				case _var::check_arg_count: branch(operands[0].getU() <= (m_stack[m_lp+2].lo & 31)); break;
+				default: fault("unimplemented VAR opcode %d (0x%x)",opcode,opcode); break;
+			}
+		}
+		else {
+			switch ((_ext)(opcode-0x100)) {
+				case _ext::log_shift: ref(dest,true).set(operands[1].lo <= 15? operands[0].getU() << operands[1].lo :
 						operands[0].getU() >> (256 - operands[1].lo)); break;
-				case 0x103: ref(dest,true).set(operands[1].lo <= 15? operands[0].getS() << operands[1].lo :
+				case _ext::art_shift: ref(dest,true).set(operands[1].lo <= 15? operands[0].getS() << operands[1].lo :
 						operands[0].getS() >> (256 - operands[1].lo)); break;
-				case 0x109:
+				case _ext::save_undo:
 					if (m_undoTop + encodeDelta(0,nullptr) > sizeof(m_undoBuffer))
 						m_undoTop = 0;
 					m_undoTop += encodeDelta(pc | (dest<<20),m_undoBuffer + m_undoTop);
 					ref(dest,true) = byte2word(1); // save_undo
 					break;
-				case 0x10A:
+				case _ext::restore_undo:
 					if (m_undoTop) {
 						m_undoTop -= (m_undoBuffer[m_undoTop-2] << 8) | m_undoBuffer[m_undoTop-1];
 						pc = applyDelta(m_undoBuffer + m_undoTop);
@@ -876,7 +886,7 @@ void machine::run(uint32_t pc) {
 					else
 						ref(dest,true) = byte2word(0);
 					break;
-				default: fault("unimplemented 0OP/VAR/EXT opcode %d (0x%x)",opcode,opcode); break;
+				default: fault("unimplemented EXT opcode %d (0x%x)",opcode,opcode); break;
 			}
 		}
 	}
