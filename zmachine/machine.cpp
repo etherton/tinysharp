@@ -469,16 +469,15 @@ uint8_t machine::tokenise(uint16_t textAddr,uint16_t parseAddr,uint8_t offset) {
 		// printf("{{encoding %*.*s}}\n",wordLen,wordLen,m_dynamic+textAddr+offset);
 		encode_text(zword,(char*)m_dynamic + textAddr + offset,wordLen);
 		// printf("{{%04x,%04x}}\n",zword[0].getU(),zword[1].getU());
-		uint8_t byteCount = m_header->version<5? 4 : 6;
-		// we could do a binary search here but machines are orders of magnitude faster now.
-		uint16_t i;
-		for (i=0; i<numWords; i++)
-			if (!memcmp(zword,m_readOnly + dictAddr + i * entryLength,byteCount))
-				break;
-		if (i == numWords)
+		void *result = bsearch(zword,m_readOnly + dictAddr,numWords,entryLength,
+			m_header->version<5? 
+				[](const void *a,const void *b) { return memcmp(a,b,4); } : 
+				[](const void *a,const void *b) { return memcmp(a,b,6); });
+
+		if (!result)
 			write_mem16(parseAddr+2+numParsed*4,byte2word(0));
 		else
-			write_mem16(parseAddr+2+numParsed*4,word2word(dictAddr + i * entryLength));
+			write_mem16(parseAddr+2+numParsed*4,word2word((const uint8_t*)result - m_readOnly));
 		write_mem8(parseAddr+2+numParsed*4+2,wordLen);
 		write_mem8(parseAddr+2+numParsed*4+3,offset);
 		/* printf("{{%02x%02x%02x%02x}}\n",m_dynamic[parseAddr+2+numParsed*4],m_dynamic[parseAddr+2+numParsed*4+1],
