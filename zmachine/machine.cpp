@@ -565,6 +565,24 @@ uint32_t machine::applyDelta(const uint8_t *buffer) {
 	return pc;
 }
 
+bool machine::saveGame(uint32_t &pc,int &dest) {
+	chunk c[4]; 
+	c[0].data = m_dynamic; c[0].size = m_dynamicSize;
+	c[1].data = &m_sp; c[1].size = (kStackSize + 2) * 2;
+	c[2].data = &pc; c[2].size = 4;
+	c[3].data = &dest; c[3].size = 4;
+	return interface::writeSaveData(c,4);
+}
+
+bool machine::restoreGame(uint32_t &pc,int &dest) {
+	chunk c[4];
+	c[0].data = m_dynamic; c[0].size = m_dynamicSize;
+	c[1].data = &m_sp; c[1].size = (kStackSize + 2) * 2;
+	c[2].data = &pc; c[2].size = 4;
+	c[3].data = &dest; c[3].size = 4;
+	return interface::readSaveData(c,4); 
+}
+
 void machine::run(uint32_t pc) {
 	random_seed = 2;
 	for (;;) {
@@ -776,21 +794,9 @@ void machine::run(uint32_t pc) {
 				case _0op::print: pc = print_zscii(pc); break;
 				case _0op::print_ret: pc = print_zscii(pc); pc = r_return(1); break;
 				case _0op::nop: break; // nop
-				case _0op::save: { chunk c[3]; 
-							c[0].data = m_dynamic; c[0].size = m_dynamicSize;
-							c[1].data = &m_sp; c[1].size = (kStackSize + 2) * 2;
-							c[2].data = &pc; c[2].size = 4;
-							if (interface::writeSaveData(c,3)) {
-								if (m_header->version<4) 
-									branch(true);
-							} }
-							break;
-				case _0op::restore: { chunk c[3];
-							c[0].data = m_dynamic; c[0].size = m_dynamicSize;
-							c[1].data = &m_sp; c[1].size = (kStackSize + 2) * 2;
-							c[2].data = &pc; c[2].size = 4;
-							interface::readSaveData(c,3); updateExtents(); }
-							break;
+				case _0op::save: if (m_header->version<4) { if (saveGame(pc,dest)) branch(true); }
+							else ref(dest,true) = byte2word(saveGame(pc,dest)); break;
+				case _0op::restore: if (m_header->version<4) restoreGame(pc,dest); else if (restoreGame(pc,dest)) ref(dest,true) = byte2word(2); updateExtents(); break;
 				case _0op::restart: m_sp =  m_lp = 0; 
 							memcpy(m_dynamic, m_readOnly, m_dynamicSize); 
 							updateExtents();
@@ -865,6 +871,8 @@ void machine::run(uint32_t pc) {
 		}
 		else {
 			switch ((_ext)(opcode-0x100)) {
+				case _ext::save: ref(dest,true) = byte2word(saveGame(pc,dest)); break;
+				case _ext::restore: if (restoreGame(pc,dest)) ref(dest,true) = byte2word(2); updateExtents(); break;
 				case _ext::log_shift: ref(dest,true).set(operands[1].lo <= 15? operands[0].getU() << operands[1].lo :
 						operands[0].getU() >> (256 - operands[1].lo)); break;
 				case _ext::art_shift: ref(dest,true).set(operands[1].lo <= 15? operands[0].getS() << operands[1].lo :

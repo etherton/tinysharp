@@ -450,6 +450,8 @@ private:
 	void setCursor(uint8_t x,uint8_t y);
 	void setOutput(int enable,uint16_t tableAddr);
 	void flushMainWindow();
+	bool saveGame(uint32_t&,int&);
+	bool restoreGame(uint32_t&,int&);
 	union {
 		const uint8_t *m_readOnly; 	// can be in flash etc or memory mapped file
 		const storyHeader *m_header;	

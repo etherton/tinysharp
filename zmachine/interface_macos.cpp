@@ -150,8 +150,10 @@ bool interface::writeSaveData(chunk *chunks,uint32_t count) {
 	if (buf[0]==0)
 		return false;
 	FILE *f = fopen(buf,"wb");
-	if (!f)
+	if (!f) {
+		printf("{cannot create file}\n");
 		return false;
+	}
 	for (uint32_t i=0; i<count; i++)
 		fwrite(chunks[i].data,1,chunks[i].size,f);
 	fclose(f);
@@ -166,8 +168,10 @@ bool interface::readSaveData(chunk *chunks,uint32_t count) {
 	if (buf[0]==0)
 		return false;
 	FILE *f = fopen(buf,"rb");
-	if (!f)
+	if (!f) {
+		printf("{file not found}\n");
 		return false;
+	}
 	for (uint32_t i=0; i<count; i++)
 		fread(chunks[i].data,1,chunks[i].size,f);
 	fclose(f);
