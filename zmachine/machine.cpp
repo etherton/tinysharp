@@ -792,7 +792,7 @@ void machine::run(uint32_t pc) {
 				case _0op::rtrue: pc = r_return(1); break;
 				case _0op::rfalse: pc = r_return(0); break;
 				case _0op::print: pc = print_zscii(pc); break;
-				case _0op::print_ret: pc = print_zscii(pc); pc = r_return(1); break;
+				case _0op::print_ret: pc = print_zscii(pc); print_char(10); pc = r_return(1); break;
 				case _0op::nop: break; // nop
 				case _0op::save: if (m_header->version<4) { if (saveGame(pc,dest)) branch(true); }
 							else ref(dest,true) = byte2word(saveGame(pc,dest)); break;
