@@ -101,7 +101,12 @@ void machine::flushMainWindow() {
 void machine::print_char(uint8_t c) {
 	if (!c)
 		return;
-	if (m_outputEnables & (1 << 1)) {
+	if (m_outputEnables & (1 << 3)) {
+		word *cp = (word*)(m_dynamic + m_outputBuffer);
+		write_mem8(m_outputBuffer + 2 + cp->getU(),c);
+		cp->inc();
+	}	
+	else if (m_outputEnables & (1 << 1)) {
 		// are we buffering?
 		if (m_currentWindow==0 && (m_outputEnables&1)) {
 			if (c==10 || c==32) {
@@ -125,11 +130,6 @@ void machine::print_char(uint8_t c) {
 			finishChar(c);
 			m_printed++;
 		}
-	}
-	if (m_outputEnables & (1 << 3)) {
-		word *cp = (word*)(m_dynamic + m_outputBuffer);
-		write_mem8(m_outputBuffer + 2 + cp->getU(),c);
-		cp->inc();
 	}
 }
 
