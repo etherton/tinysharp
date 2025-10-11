@@ -1,5 +1,11 @@
 #include <stdio.h>
 #include <stdint.h>
+// shift groups 1-3, 26 per group. 0 is a space, 1-3 are abbrevations, 
+// 4=shift1, 5=shift2, shift2 code 6 means "next 10 bits are a zscii code"
+#define DEFAULT_ZSCII_ALPHABET \
+	"abcdefghijklmnopqrstuvwxyz" \
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZ" \
+	"\033\n0123456789.,!?_#'\"/\\-:()"
 
 static const uint8_t opTypes[16+2] = {
 	0b0101'1111, // 0x00-0x3F

@@ -39,9 +39,7 @@ void machine::init(const void *data,bool debug) {
 	memcpy(m_zscii,
 		version>=5 && m_header->alphabetTableAddress.getU()? 
 			(const char*)m_readOnly + m_header->alphabetTableAddress.getU() :
-		"abcdefghijklmnopqrstuvwxyz"
-		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-		"\033\n0123456789.,!?_#'\"/\\-:()",
+			DEFAULT_ZSCII_ALPHABET,
 		26*3);
 	m_objectSmall = (object_header_small*) (m_dynamic + m_header->objectTableAddr.getU());
 	m_objCount = m_header->version<4
