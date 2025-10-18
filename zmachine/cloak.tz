@@ -1,0 +1,407 @@
+// the file is parsed in two passes.
+// the first pass processes all the global names (attributes,
+// properties, objects, actions) and also extracts any dictionary
+// words that appear in any property, action definition, or routine.
+
+// token parsing: skip all whitespace. if quote, collect until closing quote.
+// backslash inside string escapes next character. if numeric, collect while numeric.
+// if alpha, collect while alphanumeric.  if one of "(,);:" always a single token. 
+// if any other visible character, collect while visible character. 
+// # is considered alpha at start of string
+
+// basic syntax is
+// stmt: 
+//   directive;
+//   if (branch_test) stmt else stmt
+//   while (branch_test) stmt
+//   repeat stmt while (branch_test);
+//   return expr;
+//   dest = expr;
+//   rtrue;
+//   rfalse;
+//   { stmts }
+// stmts:
+//   stmts stmt
+//   stmt
+// branch_test:
+//   unary_branch(expr)
+//   unary_branch(expr)->dest
+//   binary_branch(expr)
+//   binary_branch(expr)->dest
+// dest:
+//   global_name
+//   local_name
+// expr:
+//   dest
+//   unary_op(expr)
+//   binary_op(expr,expr)
+
+// If there are two attributes, they are opposites
+// Each resolves to an index between 0-31 (0-47 on v4+)
+// attribute zero is reserved for the system to disambiguate rooms from objects.
+// it's not always strictly necessary but reduces the chance of programming errors
+attribute is_room; // first attribute must be this
+attribute lit;
+attribute general;
+attribute supporter;
+attribute object clothing;
+attribute object worn;
+attribute object scenery;
+
+// a'name means name should be an attribute index (ao'name for object, al'name for loc)
+// p'name means name should be a property index (po'name for object, pl'name for loc)
+// o'name means name should be an object index
+// l'name means name should be a location index
+// r'name means name should be a routine address
+// s'name means name should be a string addres
+// c'name means name should be a command index
+
+// branch opcodes can only appear inside an if/while/repeat statement.
+
+// trace and trace_obj take a bit mask and either a string or object number
+// they are only kept in debug builds. they test the bit mask against a global
+// trace enable which can be set by other debug commands.
+
+// the global constant object_count is always the count
+// of objects in the game. for properties that can refer
+// to an object, string, or routine, values less than or
+// equal to object_count are an object. otherwise it's
+// a routine. a string constant where a routine is allowed
+// generates a dummy routine that calls print_ret and the string.
+// (this costs two bytes, one for the local count and one
+// for the print_ret opcode)
+
+// words can refer to up to four dictionary words. a word is
+// a nonzero index into a sorted list of vocabulary words
+// if more than four words are needed, the property is
+// stored as three bytes; the first byte is the number of
+// words and the next two bytes contain the address of
+// that many word indices.
+
+// plain properties can be attached to rooms or objects
+// object properties can only be attached to objects
+// room properties can only be attached to rooms
+// object and room properties cannot be given nonzero default values
+// because they actually overlap
+property description { routine };
+property before { routine };
+property after { routine };
+property object adjective { words };
+property object noun { words };
+property location n_to { routine object };
+property location s_to { routine object };
+property location e_to { routine object };
+property location w_to { routine object };
+
+global location;
+global score;
+global turns;
+global deadflag;
+
+// player is always first at object 1. this also guarantees that
+// a room a player can be in is always greater than 1, meaning routines
+// that return a location can also rtrue or rfalse as well.
+object player "Player" (foyer) {
+};
+
+// If a string constant crosses multiple lines, any number of spaces and tabs
+// followed by a line break is consumed. Next, N line breaks is turned into
+// N-1 line breaks (usually zero) and then finally, one or more spaces and/or
+// tabs (if present) becomes a single space. This is a very complicated way
+// of saying you can break up a long string and it will end up looking reasonable.
+location foyer "Foyer of the Opera House" { 
+	description: 
+		"You are standing in a spacious hall, splendidly decorated in red
+		and gold, with glittering chandeliers overhead. The entrance from
+		the street is to the north, and there are doorways south and west.";
+	s_to: bar;
+	n_to: "You've only just arrived, and besides, the weather outside seems
+	    to be getting worse.";
+	w_to: cloakroom;
+	lit;
+}
+
+location cloakroom "Cloakroom" {
+	description: "The walls of this small room were clearly once lined with hooks,
+	 	though now only one remains. The exit is a door to the east.";
+	e_to: foyer;
+	lit;
+}
+
+object hook "small brass hook" (cloakroom) {
+	adjective: 'small' 'brass';
+	noun: 'hook' 'peg';
+	description: [;c] {
+		print "It's just a small brass hook, ";
+		if (get_child(self)->c) {
+			print "with a ";
+			print_obj c;
+			print_ret " hanging on it.";
+		}
+		else
+			print_ret "screwed to the wall.";
+	}
+	scenery; supporter;
+}
+
+object hat "a nondescript hat" (foyer) {
+	noun: 'hat';
+	description: "It's a really boring hat just meant to test the cloakroom";
+	clothing;
+}
+
+location bar "Foyer Bar" {
+	description: "The bar, much rougher than you'd have guessed after the opulence
+			of the foyer to the north, is completely empty. There seems to
+			be some sort of message scrawled in the sawdust on the floor.";
+	n_to: foyer;
+	before: [action; temp] {
+		if (eq2(action,#look,#inv))
+			rtrue;
+		else if (action==#leave and self hasnt lit and noun!=n_to) {
+			get_prop(message,number)->temp
+			set_prop(message,number,temp+2);
+			print_ret "Blundering around in the dark isn't a good idea!";
+		}
+		else if (self hasnt lit) {
+			get_prop(message,number)->temp;
+			set_prop(message,number,temp+1);
+			print_ret "In the dark? You could easily disturb something!";
+		}
+	}
+}
+
+object cloak "velvet cloak" (player) {
+	adjective: 'handsome' 'velvet' 'black' 'satin';
+	noun: 'cloak';
+	description: "A handsome cloak, of velvet trimmed with satin, and slightly
+			spattered with raindrops. Its blackness is so deep that it
+			almost seems to suck light from the room.";
+	before: [action] {
+		if (eq2(action,#drop,#puton) and (location!=cloakroom))
+			print_ret "This isn't the best place to leave
+				a smart cloak lying around.";
+		rfalse; // not handled, allow action to continue
+	}
+	after: [action] {
+		if (action==#take)
+			clear_attr(bar,lit);
+		else if ((eq2(action,#puton,#drop) and location==cloakroom) {
+			set_attr(bar,lit);
+			if (action==#puton and self has general) {
+				clear_attr(self,general);
+				++score;
+			}
+		}
+	}
+	clothing; general; worn;
+}
+
+object message "scrawled message" (bar) {
+	adjective: 'scrawled';
+	noun: 'message' 'sawdust' 'floor';
+	description: []{
+		if (get_prop(self,number) < 2) {
+			++score;
+			print "The message, neatly marked in the sawdust, reads...";
+			deadflag = 2;
+		}
+		else {
+			print "The message has been carelessly trampled, making it
+			  difficult to read. You can just distinguish the words...";
+			deadflag = 3;
+		}
+	}
+}
+
+// there are several ways to declare dictionary words. the syntax always
+// uses single quotes. the context determines which bits are set on the word
+// to identify default parts of speech
+// dir_bit, adj_bit, noun_bit, verb_bit
+// directions are also adjectives in most cases
+
+routine perform [act obj iobj] {
+}
+
+// articles are skipped entirely except they do force the
+// parser to expect a direct or indirect object.
+article: 'a' 'an' 'the';
+
+// words in action syntax get encoded into nonzero indices
+// we support up to 8191 unique words (plenty since each
+// takes at least four bytes and must be below 64k mark)
+// the upper three bits indicate the type of entry:
+// 1--: this is the last entry in the table. routines follow.
+// -00: this is an object placeholder; lower bits indciate which kind
+// -01: this is a single word
+// -10: this is the second word of a two-word phrase
+
+// when a 'word' appears in a routine, it evaluates to the 1-based index
+// of the word in the master dictionary
+placeholder held;
+placeholder here;
+placeholder anyobj;
+placeholder direction;
+
+routine Inventory [;i] {
+	if (get_child(player)->i) {
+		print "You are carrying:";
+		crlf;
+		repeat {
+			print "  ";
+			print_obj i;
+			crlf;
+		} while (get_sibling(i)->i);
+	}
+	else
+		print_ret "You are empty-handed.";
+}
+
+routine BlockBefore [action obj;r] {
+	if (obj==0)
+		rfalse;
+	else if (get_prop(obj,before)->r)
+		return call r(action,obj);
+	else
+		rfalse;
+}
+
+routine CheckAllBefore [action loc do ido] {
+	if (CheckBefore(action,loc) and 
+		CheckBefore(action,do) and 
+		CheckBefore(action,ido))
+		rtrue;
+	else
+		rfalse;
+}
+
+routine CheckAfter [action obj;r] {
+	if (not(zero(obj)) and get_prop(obj,after)->r)
+		call r(action,obj);
+}
+
+routine Travel [dir;r] {
+	if (CheckBefore(#leave,location,dir)) {
+		if (not(get_prop(location,dir)->r))
+			print_ret "You can't go in that direction";
+		else if (gt(r,object_count))
+			r = call r();
+		// player is the first object, and cannot be a room.
+		// this leave rfalse and rtrue as valid responses.
+		if (gt(r,1)) {
+			insert_obj(player,r);
+			location = r;
+			CallAfter(#enter,r);
+		}
+	}
+}
+
+routine test_object_attr [obj attr] 
+	if (get_attr(obj,is_room))
+		rfalse;
+	if (get_attr(obj,attr))
+		rtrue;
+	rfalse;
+}
+
+routine Take [o'obj] {
+	if (obj hasnt scenery) {
+		if (BlockBefore(#take,location) or BlockBefore(#take,obj))
+			rtrue;
+		insert_obj(obj,player);
+		CallAfter(#take,obj);
+		rfalse;
+	}
+	else
+		print_ret "You can't take that, it's just scenery.";
+}
+
+routine Drop [obj] {
+	if (player holds obj and CheckBefore(#drop,location) and
+		CheckBefore(#drop,obj) {
+		insert_obj(obj,get_parent(player))
+	}
+}
+
+// the direction directive takes a property value followed by one or more words.
+direction n_to 'north' 'n';
+direction s_to 'south' 's';
+direction e_to 'east' 'e';
+direction w_to 'west' 'w';
+
+// each dictionary word has an extra byte associated with it
+// vanpdddd
+// v: word can be a verb (appears first in an action statement)
+// a: word can be an adjective (appears in an adjective list of at least one object)
+// n: word can be a noun (appears in the noun list of at least one object)
+// p: word can be a preposition (appears between direct and indirect object)
+// dddd: if nonzero, word refers to a direction property index
+// if dddd is 15, word is an article (and is therefore ignored except that
+// it starts the beginning of a placeholder)
+
+// actions are scanned in-order
+// so specific cases need to be before more general cases
+action #travel { direction: Travel }
+action #inv { 'i'/'inventory'/'take inventory': Inventory }
+action #take { 'get'/'take'/'pick up' here: Take }
+action #drop { 'drop'/'put down' held: Drop }
+action #lookat { 'look at'/'examine'/'x' here/held: Examine }
+action #puton { 'hang'/'place'/'put' held 'on'/'upon' here: [do ido] {
+	if (test_object_attr(ido,supporter)) {
+		if (get_child(ido) != 0)
+			print_ret "There's no room.";
+		else if (CheckAllBefore(#puton,location,do,ido)) {
+			insert_obj(do,ido);
+			CallAllAfter(#puton,ido,do,location);
+			rfalse;
+		}
+		else
+			rtrue;
+	}
+	else
+		print_ret "You can't put it on that.";
+}}
+action #go { 'go'/'walk'/'travel' direction: Travel }
+
+byte_array(64) text_buffer = { 63 };
+byte_array(64) parse_buffer = { 15 };
+
+routine DoTurn[;wc wp wt] {
+	// text_buffer[0] is the size of the input buffer
+	// parse_buffer[0] is the max number of words
+	// parse_buffer[1] is the actual number of words parsed
+	// each word consists of four bytes:
+	// first two bytes is address of the word, or zero if unknown
+	// next byte is the length of the word, then the position in text_buffer.
+	repeat {
+		read(text_buffer, parse_buffer);
+		wc = loadb(parse_buffer,1);
+	} while (!wc);
+	wp = parse_buffer + 2;
+	wt = loadb(loadw(wp,0),4);
+	if ((wt & 15) != 0)
+		return Travel(wt & 15);
+}
+
+routine Startup[] {
+   print "^^\n\nHurrying through the rainswept November night, you're glad to see the
+	bright lights of the Opera House. It's surprising that there aren't more
+	people about but, hey, what do you expect in a cheap demo game...?\n\n";
+
+}
+
+routine main [] {
+	Startup();
+	while (true) {
+		DoTurn();
+		if (deadflag==3)
+			print "*** You have lost! ***";
+		else if (deadflag==2)
+			print "*** You have won! ***";
+		if (deadflag != 0) {
+			crlf;
+			print "Restart or quit?"
+			restart;
+		}
+	}
+}

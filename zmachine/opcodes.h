@@ -62,9 +62,30 @@ static const uint8_t decode[256+32] = {
 	St,St,St,St,St,0,Br,0, 0,St,St,0,St,0,0,0, 0,0,0,St,0,0,0,0, Br,0,0,Br,0,0,0,0
 };
 
+/* From the standard:
+  $00 -- $1f  long      2OP     small constant, small constant
+  $20 -- $3f  long      2OP     small constant, variable
+  $40 -- $5f  long      2OP     variable, small constant
+  $60 -- $7f  long      2OP     variable, variable
+  $80 -- $8f  short     1OP     large constant
+  $90 -- $9f  short     1OP     small constant
+  $a0 -- $af  short     1OP     variable
+  $b0 -- $bf  short     0OP
+  except $be  extended opcode given in next byte
+  $c0 -- $df  variable  2OP     (operand types in next byte)
+  $e0 -- $ff  variable  VAR     (operand types in next byte(s))
+  */
+ 
+enum class optype: uint8_t {
+	large_constant,		// 2 bytes
+	small_constant,		// 1 byte
+	variable,			// 1 byte
+	omitted
+};
+
 enum class _2op: uint8_t { // 0x00 - 0x7F, 0xC0-0xDF
-	je=1, jl, jg, dec_chk, inc_chk, jin, test, or_, 
-	and_, test_attr, set_attr, clear_attr, store, insert_obj, loadw,
+	je=1, jl, jg, dec_chk, inc_chk, jin, test, 
+	or_, and_, test_attr, set_attr, clear_attr, store, insert_obj, loadw,
 	loadb, get_prop, get_prop_addr, get_next_prop, add, sub, mul, div,
 	mod, call_2s, call_2n, set_colour, throw_,
 };
