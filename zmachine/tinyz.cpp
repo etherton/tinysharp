@@ -32,6 +32,8 @@ inline uint32_t hash(const char *key,uint32_t length) {
     return seed;
 }
 
+void error(const char *fmt,...);
+
 // these are reserved words inside routines
 const uint32_t k_if = cthash("if");
 const uint32_t k_else = cthash("else");
@@ -58,20 +60,35 @@ const uint32_t k_v3 = cthash("#v3");
 const uint32_t k_v5 = cthash("#v5");
 const uint32_t k_v8 = cthash("#v8");
 
+// reserved symbol sequences; these are returned as tokens regardless of what's adjacent
+const uint32_t k_lp = cthash("(");
+const uint32_t k_rp = cthash(")");
+const uint32_t k_comma = cthash(",");
+const uint32_t k_assign = cthash("=");
+const uint32_t k_store = cthash("->");
+const uint32_t k_lb = cthash("{");
+const uint32_t k_rb = cthash("}");
+const uint32_t k_semi = cthash(";");
+
+// ',' is an impossible character at the start of a literal in parsing
+const uint32_t k_integer = cthash(",integer");
+const uint32_t k_variable = cthash(",variable");
+const uint32_t k_string = cthash(",string");
+
+
 
 
 // Expression pointers are 4-byte aligned, so two LSB's are zero
 // LSB's of 01 are for variables, 10 for small constants, 11, for large constants.
 // The actual Z machine encodings are xor 3; large is 0, small is 1, variables is 2
-#define SP              (0x1)
-#define LOCAL(N)        (0x1 | (((N)+1)<<2))
-#define GLOBAL(N)       (0x1 | (((N)+16)<<2))
-#define SMALLCONST(N)   (0x2 | ((N)<<2))
-#define BIGCONST(N)     (0x3 | ((N)<<2))
+#define DEST(N)         size_t(0x1 | ((N)<<2))
+#define SP              DEST(0)
+#define LOCAL(N)        DEST((N)+1)
+#define GLOBAL(N)       DEST((N)+16)
+#define SMALLCONST(N)   size_t(0x2 | ((N)<<2))
+#define BIGCONST(N)     size_t(0x3 | ((N)<<2))
 
-void fatal(const char*,...);
-
-struct label {
+struct forwardRef {
     uint16_t offset; // offset of the branch value itself within the instruction.
     uint16_t size; // 6,8,14,16 the number of bits encoding the address
 };
@@ -81,7 +98,7 @@ namespace codegen {
     uint16_t pc;
     void emitByte(uint8_t b) {
         if (pc == sizeof(buffer))
-            fatal("routine too long");
+            error("routine too long");
         buffer[pc++] = b;
     }
     size_t convertOp(size_t op) {
@@ -102,19 +119,23 @@ namespace codegen {
             emitByte(operand >> 3);
         emitByte(operand >> 2);
     }
-    void emitBranchPart(int16_t delta,bool negated) {
-        if (delta >= 0 && delta <= 63)
+    forwardRef emitBranchPart(int16_t delta,bool negated) {
+        uint16_t result = pc;
+        if (delta >= 0 && delta <= 63) {
             emitByte((negated << 7) | 0x40 | delta);
+            return forwardRef { result, 6 };
+        }
         else {
             assert(delta <= 8191 && delta >= -8192);
-            emitByte((negated << 7) | ((delta >> 8) & 63));
+            emitByte((negated << 7) | ((delta >> 8) & 0x3F));
             emitByte(delta);
+            return forwardRef { result, 14 };
         }
     }
     void emitOpcode0(_0op opcode) {
         emitByte(0xB0 + (uint8_t)opcode);
     }
-    void emitOpcode1(_1op opcode,size_t unary,uint8_t dest = 255,int16_t delta = -32768,bool negated = false) {
+    forwardRef emitOpcode1(_1op opcode,size_t unary,uint8_t dest = 255,int16_t delta = -32768,bool negated = false) {
         emitByte(0x80 + (((unary ^ 3) & 3) << 4) + (uint8_t)opcode);
         emitOperand(unary);
         if ((1 << (uint8_t)opcode) & 0b1000'0000'0000'0110)
@@ -122,11 +143,13 @@ namespace codegen {
         else
             assert(dest==255);
         if ((1 << (uint8_t)opcode) & 0b0000'0000'0000'0111)
-            emitBranchPart(delta,negated);
-        else
+            return emitBranchPart(delta,negated);
+        else {
             assert(delta == -32768);
+            return forwardRef { 0xFFFF, 0xFFFF };
+        }
     }
-    void emitOpcode2(_2op opcode,size_t left,size_t right,uint8_t dest,int16_t delta,bool negated) {
+    forwardRef emitOpcode2(_2op opcode,size_t left,size_t right,uint8_t dest = 255,int16_t delta = -32768,bool negated = false) {
         if ((left & 3)==2 && (right & 3)==2)
             emitByte(0x00 + (uint8_t)opcode);
         else if ((left & 3)==2 && (right & 3)==1)
@@ -148,37 +171,40 @@ namespace codegen {
         else
             assert(dest==255);
         if ((1U << (uint8_t)opcode) & 0b0000'0000'0000'0000'0000'0100'1111'1110)
-            emitBranchPart(delta,negated);
-        else
+            return emitBranchPart(delta,negated);
+        else {
             assert(delta == -32768);
+            return forwardRef { 0xFFFF, 0xFFFF };
+        }
     }
 
-    static label emitForwardJump(size_t distance) {
+    static forwardRef emitForwardJump(size_t distance) {
         if (distance > 255) {
             emitByte(0x8C);
-            auto result = label { codegen::pc, 16 };
+            auto result = forwardRef { codegen::pc, 16 };
             codegen::pc+=2;
             return result;
         }
         else {
             codegen::emitByte(0x9C);
-            return label { codegen::pc++, 8 };
+            return forwardRef { codegen::pc++, 8 };
         }
     }
-    static void emitBackwardJump(expr *c,bool negate,uint16_t dest);
-    static void emitJump(expr *c,bool negate,unsigned dest);
-    static void placeLabel(label l) {
-        int delta = pc - l.offset + 2;
-        switch (l.size) {
-            case 6: codegen::buffer[l.offset] = (buffer[l.offset] & 0xC0) | (delta & 0x3F); break;
-            case 8: buffer[l.offset] = delta; break;
-            case 14: buffer[l.offset] = (buffer[l.offset] & 0xC0) | ((delta>>8) & 0x3F);
-                    buffer[l.offset+1] = delta; break;
-            case 16: buffer[l.offset] = delta >> 8; buffer[l.offset+1] = delta; break;
+    //static void emitBackwardJump(expr *c,bool negate,uint16_t dest);
+    //static void emitJump(expr *c,bool negate,unsigned dest);
+    static void placeLabel(forwardRef f) {
+        int delta = pc - f.offset + 2;
+        switch (f.size) {
+            case 6: assert(delta>=0&&delta<=63); codegen::buffer[f.offset] = (buffer[f.offset] & 0xC0) | (delta & 0x3F); break;
+            case 8: assert(delta>=0&&delta<=255); buffer[f.offset] = delta; break;
+            case 14: assert(delta>=-8192&&delta<=8191); 
+                    buffer[f.offset] = (buffer[f.offset] & 0xC0) | ((delta>>8) & 0x3F); buffer[f.offset+1] = delta; break;
+            case 16: buffer[f.offset] = delta >> 8; buffer[f.offset+1] = delta; break;
         }
     }
-    static uint16_t placeLabelHere()
-
+    static uint16_t placeLabelHere() {
+        return pc;
+    }
 }
 
 struct expr {
@@ -187,19 +213,21 @@ struct expr {
         switch ((size_t)e & 3) {
             case 0: return e->isConstant(value);
             case 1: return false;
-            case 2: case 3: value = ((ptrdiff_t)e >> 2);
+            case 2: case 3: value = ((ptrdiff_t)e >> 2); return true;
+            default: assert(false); return false;
         }
     }
-    virtual void emit(uint8_t dest,int16_t delta = -32768,bool negated = false) const = 0;
+    virtual forwardRef emit(uint8_t dest,int16_t delta = -32768,bool negated = false) const = 0;
     virtual bool isBranch() const { return false; }
     virtual bool isNegated() const { return false; }
     virtual bool isLeaf() const { return false; }
     virtual size_t computeSize() const = 0;
-    static size_t computeSize(expr *e) const {
+    static size_t computeSize(expr *e) {
         switch ((size_t)e & 3) {
             case 0: return e->computeSize();
             case 1: case 2: return 1;
             case 3: return 2;
+            default: assert(false); return false;
         }
     }
 };
@@ -225,11 +253,15 @@ struct expr {
 struct expr_unary: public expr {
     expr_unary(expr *e) : m_unary(e) { }
     expr *m_unary;
-    void emit(uint8_t dest,int16_t delta,bool negated) const {
+    forwardRef emit(uint8_t dest,int16_t delta,bool negated) const {
         if (!((size_t)m_unary & 3))
             m_unary->emit(0);
-        codegen::emitOpcode1(unaryOpcode(),
+        return codegen::emitOpcode1(unaryOpcode(),
             codegen::convertOp(m_unary),dest,delta,negated);
+    }
+    size_t computeSize() const {
+        // 1op's never have a type byte
+        return expr::computeSize(m_unary) + (isBranch()? 3 : 1);
     }
     virtual _1op unaryOpcode() const = 0;
 };
@@ -237,14 +269,18 @@ struct expr_unary: public expr {
 struct expr_binary: public expr {
     expr_binary(expr *l,expr *r) : m_left(l), m_right(r) { }
     expr *m_left, *m_right;
-    void emit(uint8_t dest,int16_t delta,bool negated) const {
+    forwardRef emit(uint8_t dest,int16_t delta,bool negated) const {
         if (!((size_t)m_left & 3))
             m_left->emit(0);
         if (!((size_t)m_right & 3))
             m_right->emit(0);
-        codegen::emitOpcode2(binaryOpcode(),
+        return codegen::emitOpcode2(binaryOpcode(),
             codegen::convertOp(m_left),
             codegen::convertOp(m_right),dest,delta,negated);
+    }
+    size_t computeSize() const {
+        // worst case for 2op is 4 bytes - opcode, type, branch
+        return expr::computeSize(m_left) + expr::computeSize(m_right) + (isBranch()? 4 : 2);
     }
     virtual _2op binaryOpcode() const = 0;
 };
@@ -363,6 +399,8 @@ struct expr_logical_and: public expr_binary_branch {
             if (value) {
                 if (expr::isConstant(m_right,value))
                     return true;
+                else
+                    return false;
             }
             else // if first is false, expr is constant (and zero)
                 return true;
@@ -384,9 +422,7 @@ struct expr_logical_or: public expr_binary_branch {
         else
             return false;
     }
-    void emit(uint8_t dest,int16_t delta,bool negated) const {
-
-    }
+    forwardRef emit(uint8_t dest,int16_t delta,bool negated) const;
     _2op binaryOpcode() const { exit(1); }
 };
 
@@ -396,6 +432,26 @@ struct stmt {
     virtual bool isConstantReturn(int &) const { return false; }
     // This is an upper bound on size, for determining size of forward jumps.
     virtual size_t computeSize() const = 0;
+
+    static size_t computeSize(stmt *s) {
+        return s? s->computeSize() : 0;
+    }
+    static size_t computeSizeWithConditionalJumpPast(stmt *s) {
+        if (s) {
+            size_t cs = s->computeSize();
+            return cs + 2 + cs>63;
+        }
+        else
+            return 0;
+    }
+    static size_t computeSizeWithJumpPast(stmt *s) {
+        if (s) {
+            size_t cs = s->computeSize();
+            return cs + 2 + cs>255;
+        }
+        else
+            return 0;
+    }
 };
 
 struct stmt_list: public stmt {
@@ -411,7 +467,8 @@ struct stmt_list: public stmt {
         return !m_car && m_cdr && m_cdr->isConstantReturn(value);
     }
     size_t computeSize() const {
-        return (m_car? m_car->computeSize() : 0) + (m_cdr? m_cdr->computeSize() : 0);
+        return stmt::computeSize(m_car) + stmt::computeSize(m_cdr);
+    }
 };
 
 
@@ -419,45 +476,16 @@ struct stmt_flow: public stmt {
     stmt_flow(expr *c) {
         int value;
         if (expr::isConstant(c,value))
-            m_cond = (expr*)(value>=0&&value<=255? SMALLCONST(value) : BIGCONST(value));
+            m_cond = (expr*)(size_t)(value>=0&&value<=255? SMALLCONST(value) : BIGCONST(value));
         else
             m_cond = c;
     }
     expr *m_cond;
-    // emit a conditional jump on the negated branch expression
-    static label emitForwardJump(expr *c,bool negate,size_t distance) {
-        c->emit(0,int16_t(distance),negate);
-        //return label { codegen::currentOffset, distance };
-    }
-    static label emitForwardJump(size_t distance) {
-        if (distance > 255) {
-            codegen::emitByte(0x8C);
-            codegen::emitByte(0);
-            codegen::emitByte(0);
-            return label { uint16_t(codegen::pc-2), 16 };
-        }
-        else {
-            codegen::emitByte(0x9C);
-            return label { codegen::pc++, 8 };
-        }
-    }
     static void emitBackwardJump(expr *c,bool negate,uint16_t dest) {
         int delta = codegen::pc - dest + 2;
         c->emit(0,delta,negate);
     }
     static void emitJump(expr *c,bool negate,unsigned dest);
-    static void placeLabel(label l) {
-        int delta = codegen::pc - l.offset + 2;
-        switch (l.size) {
-            case 6: codegen::buffer[l.offset] = (buffer[l.offset] & 0xC0) | (pc - l.offset - 2); break;
-            case 8: buffer[l.offset] = (pc - l.offset - 2); break;
-            case 14: buffer[l.offset] = (buffer[l.offset] & 0xC0) | (((pc - l.offset - 2) >> 8) & 63);
-                    buffer[l.offset+1] = ((pc
-
-    }
-    static uint16_t placeLabelHere() {
-        return pc;
-    }
 };
 
 struct stmt_if: public stmt_flow {
@@ -481,12 +509,12 @@ struct stmt_if: public stmt_flow {
                 m_ifTrue->emit();
             }
             else {
-                auto failed = emitForwardJump(m_cond,true,m_ifTrue->computeSize());
+                forwardRef failed = m_cond->emit(0,m_ifTrue->computeSize(),m_cond->isNegated());
                 m_ifTrue->emit();
-                auto bottom = emitForwardJump(m_ifFalse->computeSize());
-                placeLabel(failed);
+                auto bottom = codegen::emitForwardJump(m_ifFalse->computeSize());
+                codegen::placeLabel(failed);
                 m_ifFalse->emit();
-                placeLabel(bottom);
+                codegen::placeLabel(bottom);
             }
         }
         else {
@@ -495,12 +523,12 @@ struct stmt_if: public stmt_flow {
             else {
                 auto bottom = emitForwardJump(m_cond,true,m_ifTrue->computeSize());
                 m_ifTrue->emit();
-                placeLabel(bottom);
+                codegen::placeLabel(bottom);
             }
         }
     }
     size_t computeSize() const {
-        return expr::computeSize(m_cond) + m_ifTrue->computeSize() + (m_ifFalse? 3 + m_ifFalse->computeSize() : 0);
+        return expr::computeSize(m_cond) + stmt::computeSizeWithConditionalJumpPast(m_ifTrue) + stmt::computeSizeWithJumpPast(m_ifFalse);
     }
 };
 
@@ -569,6 +597,13 @@ struct stmt_return: public stmt {
             codegen::emitOpcode1(_1op::ret,codegen::convertOp(m_value));
         }
     }
+    size_t computeSize() const {
+        int value;
+        if (expr::isConstant(m_value,value) && (value==0||value==1))
+            return 1;
+        else
+            return 1 + expr::computeSize(m_value);
+    }
 };
 
 struct stmt_store: public stmt {
@@ -582,12 +617,17 @@ struct stmt_store: public stmt {
         else
             m_value->emit(m_dest);
     }
+    size_t computeSize() const { 
+        return expr::computeSize(m_value); 
+    }
 };
+
+struct compiler;
 
 struct operator_def {
     int8_t arity, precedence;
-    expr* (*generator)();
-    void init(int8_t a,int8_t p,expr* (*g)()) {
+    expr* (*generator)(compiler*);
+    void init(int8_t a,int8_t p,expr* (*g)(compiler*)) {
         arity = a;
         precedence = p;
         generator = g;
@@ -598,22 +638,56 @@ struct compiler {
     compiler();
     stmt *parse_stmt();
     expr *parse_expr();
+    uint8_t parse_dest();
     expr *parse_branch_expr();
     void next_token();
-    void match_token(uint32_t);
-    void match_and_consume(uint32_t);
-    static expr* pop_output_stack();
-    uint32_t m_current_token;
+    void match_token(uint32_t t) {
+        if (m_current_token != t) {
+            error("expected %s here but got %s",m_tokenStrings[t],m_tokenStrings[m_current_token]);
+        }
+    }
+    void match_and_consume_token(uint32_t t) {
+        match_token(t);
+        next_token();
+    }
+    void push_output_stack(expr *e);
+    expr* pop_output_stack() {
+        if (!m_outputCount)
+            error("error in expression, not enough operands");
+        return m_outputStack[--m_outputCount];
+    }
+    void push_operator_stack(operator_def *o) {
+        if (m_operatorCount == maxOperators)
+            error("expression too complex");
+        m_operatorStack[m_operatorCount++] = o;
+    }
+    operator_def* pop_operator_stack() {
+        if (!m_operatorCount)
+            error("error in expression, not enough operators");
+        return m_operatorStack[--m_operatorCount];
+    }
+    uint32_t m_current_token=0;
+    union {
+        int ivalue;         // k_integer
+        uint8_t dvalue;     // k_variable
+    } m_current_value;
+    int m_nextch = 32;
     std::map<uint32_t,operator_def> m_operators;
+    std::map<uint32_t,const char *> m_tokenStrings;
+    static const uint32_t maxOperators = 32, maxOutputs = 32;
+    operator_def *m_operatorStack[maxOperators];
+    expr *m_outputStack[maxOutputs];
+    uint8_t m_operatorCount=0, m_outputCount=0;
 };
 
-#define UNARY_OPERATOR(SYM,PREC,TYPE) m_operators[cthash(SYM)].init(1,PREC,[] ->expr* { \
-    return new TYPE(compiler::pop_output_stack()); })
+#define UNARY_OPERATOR(SYM,PREC,TYPE) m_operators[cthash(SYM)].init(1,PREC,\
+    [] (compiler *c) ->expr* { return new TYPE(c->pop_output_stack()); }); \
+    m_tokenStrings[cthash(SYM)] = "'" SYM "'"
 
-#define BINARY_OPERATOR(SYM,PREC,TYPE) m_operators[cthash(SYM)].init(2,PREC,[] ->expr* { \
-    auto r = compiler::pop_output_stack(), \
-        l = compiler::pop_output_stack(); \
-        return new TYPE(l,r); })
+
+#define BINARY_OPERATOR(SYM,PREC,TYPE) m_operators[cthash(SYM)].init(2,PREC,\
+    [] (compiler *c) ->expr* { auto r = c->pop_output_stack(), l = c->pop_output_stack(); return new TYPE(l,r); }); \
+    m_tokenStrings[cthash(SYM)] = "'" SYM "'"
 
 compiler::compiler() {
     m_operators[cthash("(")].init(-1,0,nullptr);
@@ -637,16 +711,88 @@ compiler::compiler() {
     BINARY_OPERATOR("!=",10,expr_not_equal);
     BINARY_OPERATOR("&",11,expr_and_);
     BINARY_OPERATOR("|",12,expr_or_);
-    BINARY_OPERATOR("and",14,expr_logical_and);
-    BINARY_OPERATOR("or",15,expr_logical_or);
+
+    m_tokenStrings[k_if] = "'if'";
+    m_tokenStrings[k_else] = "'else'";
+    m_tokenStrings[k_while] = "'while'";
+    m_tokenStrings[k_repeat] = "'repeat'";
+
+    m_tokenStrings[k_semi] = "';''";
+    m_tokenStrings[k_integer] = "integer literal";
+    m_tokenStrings[k_variable] = "local or global variable name";
+    m_tokenStrings[k_string] = "quoted string literal";
+    m_tokenStrings[k_lp] = "'('";
+    m_tokenStrings[k_rp] = "')'";
+    m_tokenStrings[k_lb] = "'{'";
+    m_tokenStrings[k_rb] = "'}'";
+    m_tokenStrings[k_store] = "'->'";
+
+    // BINARY_OPERATOR("and",14,expr_logical_and);
+    // BINARY_OPERATOR("or",15,expr_logical_or);
 
 	//operators["get_sibling"] = new operator_def(0,1,"get_sibling");
 	//operators["get_child"] = new operator_def(0,1,"get_child");
 }
 
-expr* compiler::parse_branch_expr() {
-    match_and_consume('(');
+void compiler::next_token() {
 
+}
+
+expr* compiler::parse_expr() {
+    // https://www.chris-j.co.uk/parsing.php
+    for (;;) {
+        auto o1 = m_operators.find(m_current_token);
+        if (o1 != m_operators.end()) {
+			// ( or functions or unary prefix operators
+			if (o1->second.arity <= 1)
+                push_operator_stack(&o1->second);
+			else {
+				if (m_operatorCount) {
+					auto o2 = m_operatorStack[m_operatorCount-1];
+					int p1 = o1->second.precedence;
+					// <= becomes < if o1 is right-associative
+					while (o2->arity != -1 && o2->precedence <= p1) {
+                        o2->generator(this);
+                        if (!--m_operatorCount)
+                            break;
+                        else
+                            o2 = m_operatorStack[m_operatorCount-1];
+					}
+				}
+                push_operator_stack(&o1->second);
+			}
+		}
+		else if (m_current_token==k_comma) {
+			while (m_operatorCount && m_operatorStack[m_operatorCount-1]->arity!=-1)
+                pop_operator_stack()->generator(this);
+		}
+		else if (m_current_token==k_lp) {
+			while (m_operatorStack[m_operatorCount-1]->arity != -1)
+                pop_operator_stack()->generator(this);
+            pop_operator_stack();
+            // function call?
+			if (m_operatorCount && m_operatorStack[m_operatorCount-1]->arity == 0)
+                pop_operator_stack()->generator(this);
+		}
+		else if (m_current_token == k_integer)
+            push_output_stack((expr*)BIGCONST(m_current_value.ivalue));
+        else if (m_current_token == k_variable)
+            push_output_stack((expr*)DEST(m_current_value.dvalue));
+	}
+	while (m_operatorCount)
+        m_operatorStack[--m_operatorCount]->generator(this);
+}
+
+expr* compiler::parse_branch_expr() {
+    match_and_consume_token(k_lp);
+    expr *result = parse_expr();
+    if (m_current_token == k_store) {
+        next_token();
+        match_token(k_variable);
+        uint8_t d = m_current_value.dvalue;
+        next_token();
+    }
+    match_and_consume_token(k_rp);
 }
 
 stmt* compiler::parse_stmt() {
@@ -667,36 +813,41 @@ stmt* compiler::parse_stmt() {
     else if (m_current_token == k_repeat) {
         next_token();
         auto body = parse_stmt();
-        match_token(k_while);
-        next_token();
+        match_and_consume_token(k_while);
         return new stmt_repeat(parse_branch_expr(),body);
     }
     else if (m_current_token == k_rtrue) {
         next_token();
-        match_and_consume(';');
+        match_and_consume_token(k_semi);
         return new stmt_return((expr*)SMALLCONST(0));
     }
     else if (m_current_token == k_rfalse) {
         next_token();
-        match_and_consume(';');
+        match_and_consume_token(k_semi);
         return new stmt_return((expr*)SMALLCONST(1));
     }
     else if (m_current_token == k_return) {
         next_token();
         auto r = new stmt_return(parse_expr());
-        match_and_consume(';');
+        match_and_consume_token(k_semi);
         return r;
     }
-    else if (m_current_token == k_local || current_token == k_global) {
-        next_token();
-        match_and_consume('=');
-        return new stmt_store(LOCAL(0),parse_expr);
+    else if (m_current_token == k_variable) {
+        uint8_t d = m_current_value.dvalue;
+        match_and_consume_token(k_assign);
+        return new stmt_store(DEST(d),parse_expr());
     }
-    else if (m_current_token == '{');
+    else if (m_current_token == k_lb) {
         next_token();
         stmt *list = nullptr;
-        while (m_current_token != '}')
+        int level = 0;
+        while (m_current_token != k_rb)
             list = new stmt_list(list,parse_stmt());
         next_token();
+        return list;
+    }
+    else {
+        error("syntax error, expected statement here");
+        return nullptr;
     }
 }
