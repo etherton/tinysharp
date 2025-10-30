@@ -84,30 +84,34 @@ int main(int,char**) {
 	operators["++>"] = new operator_def(2,3,"inc_chk");
 	operators["--<"] = new operator_def(2,3,"dec_chk");
 	operators["has"] = new operator_def(2,4,"test_attr");
+	operators["hasnt"] = new operator_def(2,4,"~test_attr");
 	operators["*"] = new operator_def(2,5,"mul");
 	operators["/"] = new operator_def(2,5,"div");
 	operators["%"] = new operator_def(2,5,"mod");
 	operators["+"] = new operator_def(2,6,"add");
 	operators["-"] = new operator_def(2,6,"sub");
 	operators["<"] = new operator_def(2,9,"lt");
-	operators["<="] = new operator_def(2,9,"le");
+	operators["<="] = new operator_def(2,9,"~gt");
 	operators[">"] = new operator_def(2,9,"gt");
-	operators[">="] = new operator_def(2,9,"ge");
+	operators[">="] = new operator_def(2,9,"~lt");
 	operators["=="] = new operator_def(2,10,"eq");
-	operators["!="] = new operator_def(2,10,"ne");
+	operators["!="] = new operator_def(2,10,"~ne");
 	operators["&"] = new operator_def(2,11,"bitand");
-	operators["|"] = new operator_def(2,11,"bitor");
+	operators["|"] = new operator_def(2,12,"bitor");
 	operators["and"] = new operator_def(2,14,"logand");
 	operators["or"] = new operator_def(2,15,"logor");
 
-	operators["test_attr"] = new operator_def(0,1,"test_attr");
 	operators["get_sibling"] = new operator_def(0,1,"get_sibling");
 	operators["get_child"] = new operator_def(0,1,"get_child");
+	operators["eq2"] = new operator_def(0,1,"eq2");
+	operators["eq3"] = new operator_def(0,1,"eq3");
+	operators["ne2"] = new operator_def(0,1,"~eq2");
+	operators["ne3"] = new operator_def(0,1,"~eq3");
 
-	commands["set_attr"] = make_tuple(2,false);
+	/* commands["set_attr"] = make_tuple(2,false);
 	commands["insert_obj"] = make_tuple(2,false);
 	commands["++"] = make_tuple(2,true);
-	commands["--"] = make_tuple(2,true);
+	commands["--"] = make_tuple(2,true); */
 
 	shunting_yard();
 }

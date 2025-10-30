@@ -32,7 +32,15 @@ inline uint32_t hash(const char *key,uint32_t length) {
     return seed;
 }
 
-void error(const char *fmt,...);
+void error(const char *fmt,...) {
+    va_list args;
+    va_start(args,fmt);
+    char buf[256];
+    vsnprintf(buf,sizeof(buf),fmt,args);
+    fprintf(stderr,"%s\n",buf);
+    exit(1);
+    va_end(args);
+}
 
 // these are reserved words inside routines
 const uint32_t k_if = cthash("if");
@@ -55,10 +63,13 @@ const uint32_t k_article = cthash("article");
 const uint32_t k_action = cthash("action");
 const uint32_t k_placeholder = cthash("placeholder");
 const uint32_t k_direction = cthash("direction");
+const uint32_t byte_array = cthash("byte_array");
+const uint32_t word_array = cthash("word_array");
 const uint32_t k_version = cthash("version");
 const uint32_t k_v3 = cthash("#v3");
 const uint32_t k_v5 = cthash("#v5");
 const uint32_t k_v8 = cthash("#v8");
+
 
 // reserved symbol sequences; these are returned as tokens regardless of what's adjacent
 const uint32_t k_lp = cthash("(");
@@ -66,15 +77,20 @@ const uint32_t k_rp = cthash(")");
 const uint32_t k_comma = cthash(",");
 const uint32_t k_assign = cthash("=");
 const uint32_t k_store = cthash("->");
-const uint32_t k_lb = cthash("{");
-const uint32_t k_rb = cthash("}");
+const uint32_t k_lbrace = cthash("{");
+const uint32_t k_rbrace = cthash("}");
+const uint32_t k_lbracket = cthash("[");
+const uint32_t k_rbracket = cthash("]");
 const uint32_t k_semi = cthash(";");
+const uint32_t k_colon = cthash(":");
+
 
 // ',' is an impossible character at the start of a literal in parsing
 const uint32_t k_integer = cthash(",integer");
 const uint32_t k_variable = cthash(",variable");
 const uint32_t k_string = cthash(",string");
-
+const uint32_t k_newsym = cthash(",newsym");
+const uint32_t k_constant_value = cthash(",constant");
 
 
 
@@ -248,6 +264,10 @@ struct expr {
 // @mul l_var,9 -> @sp
 // @add @sp,@sp -> @sp
 // @add 12,@sp -> g_var
+
+// if (a <= 7) { ... }
+// expr_less_equal(LOCAL(0),SMALLCONST(7))
+// @jg l_var_0, 7 else_clause
 
 
 struct expr_unary: public expr {
@@ -484,7 +504,9 @@ struct stmt_flow: public stmt {
     static void emitBackwardJump(expr *c,bool negate,uint16_t dest) {
         int delta = codegen::pc - dest + 2;
         c->emit(0,delta,negate);
-    }
+    } 
+    static forwardRef emitForwardJump(expr *c,bool negate,size_t upperBound);
+    static forwardRef emitForwardJump(size_t upperBound);
     static void emitJump(expr *c,bool negate,unsigned dest);
 };
 
@@ -539,20 +561,20 @@ struct stmt_while: public stmt_flow {
         int value;
         if (expr::isConstant(m_cond,value)) {
             if (value) {
-                auto top = placeLabelHere();
+                auto top = codegen::placeLabelHere();
                 m_body->emit();
                 emitBackwardJump(nullptr,false,top);
             }
         }
         else {
-            auto top = placeLabelHere();
-            auto bottom = emitForwardJump(m_cond,false);
+            auto top = codegen::placeLabelHere();
+            auto bottom = emitForwardJump(m_cond,false,stmt::computeSizeWithJumpPast(m_body));
             m_body->emit();
             // TODO - if the condition is simple enough, just emit it again
             // But it won't save any space because all backward conditional jumps take
             // at least three bytes. Would just be a minor performance improvement.
             emitBackwardJump(nullptr,false,top);
-            placeLabel(bottom);
+            codegen::placeLabel(bottom);
         }
     }
     size_t computeSize() const {
@@ -571,7 +593,7 @@ struct stmt_repeat: public stmt_flow {
         if (expr::isConstant(m_cond,value) && value==0)
             m_body->emit();
         else {
-            auto top = placeLabelHere();
+            auto top = codegen::placeLabelHere();
             m_body->emit();
             emitBackwardJump(value? m_cond : nullptr,true,top);
         }
@@ -634,8 +656,34 @@ struct operator_def {
     }
 };
 
+struct char_range {
+    char_range() { bits[0]=bits[1]=bits[2]=0; }
+    char_range& set(char s) {
+        assert(s>=32 && s<127);
+        bits[(s-32)>>5] |= 1U << (s & 31);
+        return *this;
+    }
+    char_range& set(char start,char end) {
+        while (start<=end)
+            set(start++);
+        return *this;
+    }
+    char_range& set(const char *s) {
+        while (*s)
+            set(*s++);
+        return *this;
+    }
+    bool contains(char s) {
+        if (s < 32 || s > 127)
+            return false;
+        return (bits[(s-32)>>5] & (1U << (s & 31))) != 0;
+    }
+    uint32_t bits[3];
+};
+
 struct compiler {
     compiler();
+    void parse_program();
     stmt *parse_stmt();
     expr *parse_expr();
     uint8_t parse_dest();
@@ -650,7 +698,20 @@ struct compiler {
         match_token(t);
         next_token();
     }
-    void push_output_stack(expr *e);
+    uint32_t new_symbol() {
+        m_newSym = true;
+        next_token();
+        match_token(k_newsym);
+        uint32_t result = m_current_value.hash;
+        next_token();
+        return result; 
+    }
+    void push_output_stack(expr *e) {
+        if (m_outputCount == maxOutputs)
+            error("expression too complex, output stack is full");
+        else
+            m_outputStack[m_outputCount++] = e;
+    }
     expr* pop_output_stack() {
         if (!m_outputCount)
             error("error in expression, not enough operands");
@@ -666,18 +727,37 @@ struct compiler {
             error("error in expression, not enough operators");
         return m_operatorStack[--m_operatorCount];
     }
+    void parse_object_or_location(uint32_t);
+    uint32_t parse_subtype();
     uint32_t m_current_token=0;
     union {
         int ivalue;         // k_integer
         uint8_t dvalue;     // k_variable
+        uint32_t hash;      // k_newsym
     } m_current_value;
-    int m_nextch = 32;
+    int nextch();
+    char m_nextch = 32;
+    static const char endOfFile = (char)-1;
+    bool m_topLevel = false;
+    bool m_newSym = false;
+    uint8_t m_pass;
+    uint8_t m_nextGlobal;
+    char m_tokenBuf[32];
+    uint32_t m_tokenLen = 0;
+    const char *m_sourceCode;
+    uint32_t m_sourceCodeLen, m_sourceCodeOffset;
+    uint32_t m_sourceCodeLine, m_sourceCodeColumn;
     std::map<uint32_t,operator_def> m_operators;
     std::map<uint32_t,const char *> m_tokenStrings;
+    std::map<uint32_t,uint8_t> m_locals, m_globals;
+    std::map<uint32_t,int> m_objects, m_routines;
+    std::vector<uint32_t> m_attributes[3]; // 32 for v3, 48 for v4+ ([0] + max([1],[2]))
+    std::vector<std::pair<uint32_t,uint32_t>> m_properties[3]; // 31 for v3, 63 for v4+
     static const uint32_t maxOperators = 32, maxOutputs = 32;
     operator_def *m_operatorStack[maxOperators];
     expr *m_outputStack[maxOutputs];
     uint8_t m_operatorCount=0, m_outputCount=0;
+    char_range m_digitChars, m_symbolStartChars, m_symbolContinueChars, m_specialChars, m_operatorChars;
 };
 
 #define UNARY_OPERATOR(SYM,PREC,TYPE) m_operators[cthash(SYM)].init(1,PREC,\
@@ -718,15 +798,24 @@ compiler::compiler() {
     m_tokenStrings[k_repeat] = "'repeat'";
 
     m_tokenStrings[k_semi] = "';''";
+    m_tokenStrings[k_colon] = "':'";
+    m_tokenStrings[k_comma] = "','";
     m_tokenStrings[k_integer] = "integer literal";
     m_tokenStrings[k_variable] = "local or global variable name";
     m_tokenStrings[k_string] = "quoted string literal";
     m_tokenStrings[k_lp] = "'('";
     m_tokenStrings[k_rp] = "')'";
-    m_tokenStrings[k_lb] = "'{'";
-    m_tokenStrings[k_rb] = "'}'";
+    m_tokenStrings[k_lbrace] = "'{'";
+    m_tokenStrings[k_rbrace] = "'}'";
+    m_tokenStrings[k_lbracket] = "'['";
+    m_tokenStrings[k_rbracket] = "']'";    
     m_tokenStrings[k_store] = "'->'";
 
+    m_digitChars.set('0','9');
+    m_symbolStartChars.set('#').set('_').set('a','z').set('A','Z');
+    m_symbolContinueChars.set('_').set('a','z').set('A','Z').set('0','9');
+    m_specialChars.set("()[]{},;:");
+    m_operatorChars.set("~!@$%^&*-+=<>?/.");
     // BINARY_OPERATOR("and",14,expr_logical_and);
     // BINARY_OPERATOR("or",15,expr_logical_or);
 
@@ -734,9 +823,112 @@ compiler::compiler() {
 	//operators["get_child"] = new operator_def(0,1,"get_child");
 }
 
-void compiler::next_token() {
-
+int compiler::nextch() {
+    if (m_sourceCodeLen == m_sourceCodeOffset)
+        return endOfFile;
+    m_nextch = m_sourceCode[m_sourceCodeOffset++];
+    if (m_nextch == 10) {
+        ++m_sourceCodeLine;
+        m_sourceCodeColumn = 0;
+    }
+    else if (m_nextch==9)
+        m_sourceCodeColumn = (m_sourceCodeColumn + 8) & ~7;
+    else if (m_nextch >= 32)
+        ++m_sourceCodeColumn;
+    return m_nextch;
 }
+
+
+
+void compiler::next_token() {
+    while (m_nextch <= 32 && m_nextch != endOfFile)
+        nextch();
+    m_tokenLen = 0;
+    if (m_digitChars.contains(m_nextch)) {
+        m_current_value.ivalue = m_nextch - '0';
+        while (m_digitChars.contains(nextch()))
+            m_current_value.ivalue = m_current_value.ivalue * 10 + m_nextch - '0';
+        m_current_token = k_integer;
+    }
+    else if (m_nextch=='"') {   // string literal, converted to zscii
+    }
+    else if (m_nextch=='\'') {   // dictionary reference
+        // if there's a space here, close off this dictionary reference
+        // and set a flag to parse the second reference
+    }
+    else if (m_symbolStartChars.contains(m_nextch)) {
+        do {
+            if (m_tokenLen==sizeof(m_tokenBuf)-1)
+                error("symbol name too long");
+            else
+                m_tokenBuf[m_tokenLen++] = m_nextch;
+        } while (m_symbolContinueChars.contains(nextch()));
+        m_tokenBuf[m_tokenLen] = 0;
+        m_current_token = hash(m_tokenBuf,m_tokenLen);
+        if (m_topLevel) {
+            m_topLevel = false;
+            return;
+        }
+        // keyword?
+        if (m_tokenStrings.find(m_current_token) != m_tokenStrings.end())
+            return;
+        auto local = m_locals.find(m_current_token);
+        if (local != m_locals.end()) {
+            if (m_newSym)
+                error("expected a new symbol here, not a local");
+            else
+                m_current_value.dvalue = local->second;
+            m_current_token = k_variable;
+            return;
+        }
+        auto global = m_globals.find(m_current_token);
+        if (global != m_globals.end()) {
+            if (m_newSym)
+                error("expected a new symbol here, not a global");
+            else
+                m_current_value.dvalue = global->second;
+            m_current_token = k_variable;
+            return;
+        }
+        auto object = m_objects.find(m_current_token);
+        if (object != m_objects.end()) {
+            if (m_newSym)
+                error("expected a new symbol here, not an object");
+            else
+                m_current_value.ivalue = object->second;
+            m_current_token = k_constant_value;
+        }
+        auto routine = m_routines.find(m_current_token);
+        if (routine != m_routines.end()) {
+            if (m_newSym)
+                error("expected a new symbol here, not a routine");
+            else
+                m_current_value.ivalue = routine->second;
+            m_current_token = k_constant_value;
+        }
+    }
+    else if (m_specialChars.contains(m_nextch)) { // special single character token?
+        m_current_token = hash(&m_nextch,1);
+        nextch();
+        return;
+    }
+    else if (m_operatorChars.contains(m_nextch)) {
+        do {
+            if (m_tokenLen==sizeof(m_tokenBuf)-1) 
+                error("operator sequence too long"); 
+            else 
+                m_tokenBuf[m_tokenLen++] = m_nextch;
+        } while (m_operatorChars.contains(nextch()));
+        m_tokenBuf[m_tokenLen] = 0;
+        m_current_token = hash(m_tokenBuf,m_tokenLen);
+        if (m_tokenStrings.find(m_current_token) == m_tokenStrings.end())
+            error("unrecognized operator character sequence '%s' in input",m_tokenBuf);
+        return;
+    }
+    else
+        error("unsupported character '%c' in input",m_nextch);
+}
+
 
 expr* compiler::parse_expr() {
     // https://www.chris-j.co.uk/parsing.php
@@ -793,6 +985,7 @@ expr* compiler::parse_branch_expr() {
         next_token();
     }
     match_and_consume_token(k_rp);
+    return result;
 }
 
 stmt* compiler::parse_stmt() {
@@ -837,11 +1030,11 @@ stmt* compiler::parse_stmt() {
         match_and_consume_token(k_assign);
         return new stmt_store(DEST(d),parse_expr());
     }
-    else if (m_current_token == k_lb) {
+    else if (m_current_token == k_lbrace) {
         next_token();
         stmt *list = nullptr;
         int level = 0;
-        while (m_current_token != k_rb)
+        while (m_current_token != k_rbrace)
             list = new stmt_list(list,parse_stmt());
         next_token();
         return list;
@@ -849,5 +1042,82 @@ stmt* compiler::parse_stmt() {
     else {
         error("syntax error, expected statement here");
         return nullptr;
+    }
+}
+
+uint32_t compiler::parse_subtype() {
+    m_topLevel = true;
+    next_token();
+    uint32_t result;
+    if (m_current_token == k_global)
+        result = 0;
+    else if (m_current_token == k_object)
+        result = 1;
+    else if (m_current_token == k_location)
+        result = 2;
+    else
+        error("expected 'global', 'object', or 'location' after attribute or property");
+    if (result && m_attributes[0].size()==0)
+        error("must define at least one global attribute (as disambiguator) before any object or location attribute or property");
+    m_newSym = true;
+    next_token();
+    match_token(k_newsym);
+    return result;
+}
+
+void compiler::parse_object_or_location(uint32_t index) {
+    // k_newsym "short descr" (parent) { ... }
+    m_newSym = true;
+
+    next_token();
+    match_token(k_newsym);
+}
+
+void compiler::parse_program() {
+    for (m_pass=1; m_pass<=2; m_pass++) {
+        m_nextch = 32;
+        m_sourceCodeColumn = m_sourceCodeLine = m_sourceCodeOffset = 0;
+        m_nextGlobal = 15;
+        m_globals.clear();
+        while (m_nextch != endOfFile) {
+            m_topLevel = true;
+            next_token();
+            uint32_t temp;
+            switch (m_current_token) {
+                case k_attribute:
+                    m_attributes[parse_subtype()].push_back(m_current_value.hash);
+                    next_token();
+                    break;                 
+                case k_property:
+                    temp = parse_subtype();
+                    break;
+                case k_direction:
+                    break;
+                case k_global:
+                    m_newSym = true;
+                    next_token();
+                    match_token(k_newsym);
+                    if (m_nextGlobal==255)
+                        error("too many globals");
+                    m_globals[m_current_value.hash] = m_nextGlobal++;
+                    next_token();
+                    break;
+                case k_object:
+                    parse_object_or_location(1);
+                    break;
+                case k_location:
+                    parse_object_or_location(2);
+                    break;
+                case k_routine:
+                    m_newSym = true;
+                    next_token();
+                    match_token(k_newsym);
+
+                case k_article:
+                case k_action:
+                    break;
+            }
+            match_and_consume_token(k_semi);
+        }
     }
 }

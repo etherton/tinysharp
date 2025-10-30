@@ -33,17 +33,17 @@
 //   local_name
 // expr:
 //   dest
-//   unary_op(expr)
-//   binary_op(expr,expr)
+//   unary_op expr
+//   expr binary_op expr
 
 // If there are two attributes, they are opposites
 // Each resolves to an index between 0-31 (0-47 on v4+)
 // attribute zero is reserved for the system to disambiguate rooms from objects.
 // it's not always strictly necessary but reduces the chance of programming errors
-attribute is_room; // first attribute must be this
-attribute lit;
-attribute general;
-attribute supporter;
+attribute global is_location; // first attribute must be this. if you never use location or object attributes or properties you can ignore this.
+attribute global lit;
+attribute global general;
+attribute global supporter;
 attribute object clothing;
 attribute object worn;
 attribute object scenery;
@@ -83,15 +83,21 @@ attribute object scenery;
 // room properties can only be attached to rooms
 // object and room properties cannot be given nonzero default values
 // because they actually overlap
-property description { routine };
-property before { routine };
-property after { routine };
+property global description { routine };
+property global before { routine };
+property global after { routine };
 property object adjective { words };
 property object noun { words };
 property location n_to { routine object };
 property location s_to { routine object };
 property location e_to { routine object };
 property location w_to { routine object };
+
+// the direction directive takes a property value followed by one or more words.
+direction n_to 'north' 'n';
+direction s_to 'south' 's';
+direction e_to 'east' 'e';
+direction w_to 'west' 'w';
 
 global location;
 global score;
@@ -150,22 +156,23 @@ object hat "a nondescript hat" (foyer) {
 	clothing;
 }
 
+global message_damage;
+
 location bar "Foyer Bar" {
 	description: "The bar, much rougher than you'd have guessed after the opulence
 			of the foyer to the north, is completely empty. There seems to
 			be some sort of message scrawled in the sawdust on the floor.";
 	n_to: foyer;
 	before: [action; temp] {
-		if (eq2(action,#look,#inv))
+		if (action==#look,#inv)
 			rtrue;
 		else if (action==#leave and self hasnt lit and noun!=n_to) {
-			get_prop(message,number)->temp
-			set_prop(message,number,temp+2);
+			++message_damage;
+			++message_damage;
 			print_ret "Blundering around in the dark isn't a good idea!";
 		}
 		else if (self hasnt lit) {
-			get_prop(message,number)->temp;
-			set_prop(message,number,temp+1);
+			++message_damage;
 			print_ret "In the dark? You could easily disturb something!";
 		}
 	}
@@ -178,7 +185,7 @@ object cloak "velvet cloak" (player) {
 			spattered with raindrops. Its blackness is so deep that it
 			almost seems to suck light from the room.";
 	before: [action] {
-		if (eq2(action,#drop,#puton) and (location!=cloakroom))
+		if (action==#drop,#puton and (location!=cloakroom))
 			print_ret "This isn't the best place to leave
 				a smart cloak lying around.";
 		rfalse; // not handled, allow action to continue
@@ -186,7 +193,7 @@ object cloak "velvet cloak" (player) {
 	after: [action] {
 		if (action==#take)
 			clear_attr(bar,lit);
-		else if ((eq2(action,#puton,#drop) and location==cloakroom) {
+		else if ((action==#puton,#drop) and location==cloakroom) {
 			set_attr(bar,lit);
 			if (action==#puton and self has general) {
 				clear_attr(self,general);
@@ -201,7 +208,7 @@ object message "scrawled message" (bar) {
 	adjective: 'scrawled';
 	noun: 'message' 'sawdust' 'floor';
 	description: []{
-		if (get_prop(self,number) < 2) {
+		if (message_damage < 2) {
 			++score;
 			print "The message, neatly marked in the sawdust, reads...";
 			deadflag = 2;
@@ -284,11 +291,11 @@ routine Travel [dir;r] {
 	if (CheckBefore(#leave,location,dir)) {
 		if (not(get_prop(location,dir)->r))
 			print_ret "You can't go in that direction";
-		else if (gt(r,object_count))
+		else if (r > object_count)
 			r = call r();
 		// player is the first object, and cannot be a room.
 		// this leave rfalse and rtrue as valid responses.
-		if (gt(r,1)) {
+		if (r > 1) {
 			insert_obj(player,r);
 			location = r;
 			CallAfter(#enter,r);
@@ -297,7 +304,7 @@ routine Travel [dir;r] {
 }
 
 routine test_object_attr [obj attr] 
-	if (get_attr(obj,is_room))
+	if (get_attr(obj,is_location))
 		rfalse;
 	if (get_attr(obj,attr))
 		rtrue;
@@ -318,16 +325,10 @@ routine Take [o'obj] {
 
 routine Drop [obj] {
 	if (player holds obj and CheckBefore(#drop,location) and
-		CheckBefore(#drop,obj) {
+		CheckBefore(#drop,obj)) {
 		insert_obj(obj,get_parent(player))
 	}
 }
-
-// the direction directive takes a property value followed by one or more words.
-direction n_to 'north' 'n';
-direction s_to 'south' 's';
-direction e_to 'east' 'e';
-direction w_to 'west' 'w';
 
 // each dictionary word has an extra byte associated with it
 // vanpdddd
@@ -347,7 +348,7 @@ action #take { 'get'/'take'/'pick up' here: Take }
 action #drop { 'drop'/'put down' held: Drop }
 action #lookat { 'look at'/'examine'/'x' here/held: Examine }
 action #puton { 'hang'/'place'/'put' held 'on'/'upon' here: [do ido] {
-	if (test_object_attr(ido,supporter)) {
+	if (ido has supporter) {
 		if (get_child(ido) != 0)
 			print_ret "There's no room.";
 		else if (CheckAllBefore(#puton,location,do,ido)) {
