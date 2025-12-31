@@ -31,10 +31,17 @@
 // dest:
 //   global_name
 //   local_name
+// integer_literal:
+//   digit+
+//   'dictionary_word'
+//   #attribute
+//   routine_name
 // expr:
 //   dest
+//   integer_literal
 //   unary_op expr
 //   expr binary_op expr
+//   expr == integer_literal,integer_literal[,integer_literal][,integer_literal]
 
 // If there are two attributes, they are opposites
 // Each resolves to an index between 0-31 (0-47 on v4+)
@@ -99,6 +106,7 @@ direction s_to 'south' 's';
 direction e_to 'east' 'e';
 direction w_to 'west' 'w';
 
+// the first three must be in this order for status line (v3) games.
 global location;
 global score;
 global turns;
@@ -115,6 +123,8 @@ object player "Player" (foyer) {
 // N-1 line breaks (usually zero) and then finally, one or more spaces and/or
 // tabs (if present) becomes a single space. This is a very complicated way
 // of saying you can break up a long string and it will end up looking reasonable.
+// if you need to break up a line in the middle of a word, just start the remainder
+// of the word at the leftmost column of the next line.
 location foyer "Foyer of the Opera House" { 
 	description: 
 		"You are standing in a spacious hall, splendidly decorated in red
@@ -127,6 +137,16 @@ location foyer "Foyer of the Opera House" {
 	lit;
 }
 
+// location_or_object new_name "short description" ['(' parent ')'] '{'
+// [property_or_attribute...] '}'
+// property: property_name ':' value ';'
+// attribute:
+//	attribute_name ';'
+// value: 
+//   global_symbol
+//   [dictionary_word]+
+//   routine_defintion
+// routine_definition: '[' [params..] [';' locals..] ']' '{' stmts '}'
 location cloakroom "Cloakroom" {
 	description: "The walls of this small room were clearly once lined with hooks,
 	 	though now only one remains. The exit is a door to the east.";
@@ -401,7 +421,7 @@ routine main [] {
 			print "*** You have won! ***";
 		if (deadflag != 0) {
 			crlf;
-			print "Restart or quit?"
+			print "Restart or quit?";
 			restart;
 		}
 	}

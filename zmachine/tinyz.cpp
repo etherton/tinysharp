@@ -32,16 +32,6 @@ inline uint32_t hash(const char *key,uint32_t length) {
     return seed;
 }
 
-void error(const char *fmt,...) {
-    va_list args;
-    va_start(args,fmt);
-    char buf[256];
-    vsnprintf(buf,sizeof(buf),fmt,args);
-    fprintf(stderr,"%s\n",buf);
-    exit(1);
-    va_end(args);
-}
-
 // these are reserved words inside routines
 const uint32_t k_if = cthash("if");
 const uint32_t k_else = cthash("else");
@@ -83,6 +73,7 @@ const uint32_t k_lbracket = cthash("[");
 const uint32_t k_rbracket = cthash("]");
 const uint32_t k_semi = cthash(";");
 const uint32_t k_colon = cthash(":");
+const uint32_t k_comment = cthash("//");
 
 
 // ',' is an impossible character at the start of a literal in parsing
@@ -113,8 +104,8 @@ namespace codegen {
     static uint8_t buffer[4096];
     uint16_t pc;
     void emitByte(uint8_t b) {
-        if (pc == sizeof(buffer))
-            error("routine too long");
+        /* if (pc == sizeof(buffer))
+            error("routine too long"); */
         buffer[pc++] = b;
     }
     size_t convertOp(size_t op) {
@@ -246,6 +237,7 @@ struct expr {
             default: assert(false); return false;
         }
     }
+    virtual uint8_t opcode() const = 0;
 };
 
 // g_var = 12 + l_var * 17
@@ -276,14 +268,13 @@ struct expr_unary: public expr {
     forwardRef emit(uint8_t dest,int16_t delta,bool negated) const {
         if (!((size_t)m_unary & 3))
             m_unary->emit(0);
-        return codegen::emitOpcode1(unaryOpcode(),
+        return codegen::emitOpcode1((_1op)opcode(),
             codegen::convertOp(m_unary),dest,delta,negated);
     }
     size_t computeSize() const {
         // 1op's never have a type byte
         return expr::computeSize(m_unary) + (isBranch()? 3 : 1);
     }
-    virtual _1op unaryOpcode() const = 0;
 };
 
 struct expr_binary: public expr {
@@ -294,7 +285,7 @@ struct expr_binary: public expr {
             m_left->emit(0);
         if (!((size_t)m_right & 3))
             m_right->emit(0);
-        return codegen::emitOpcode2(binaryOpcode(),
+        return codegen::emitOpcode2((_2op)opcode(),
             codegen::convertOp(m_left),
             codegen::convertOp(m_right),dest,delta,negated);
     }
@@ -302,7 +293,6 @@ struct expr_binary: public expr {
         // worst case for 2op is 4 bytes - opcode, type, branch
         return expr::computeSize(m_left) + expr::computeSize(m_right) + (isBranch()? 4 : 2);
     }
-    virtual _2op binaryOpcode() const = 0;
 };
 
 struct expr_unary_branch: public expr_unary {
@@ -324,7 +314,7 @@ struct expr_binary_branch: public expr_binary {
         else \
             return false; \
     } \
-    _1op unaryOpcode() const { return _1op::Z_OP; }
+    uint8_t opcode() const { return 0x80 | (uint8_t) _1op::Z_OP; }
 
 #define BINARY_IS_CONSTANT(C_OP,Z_OP) \
     virtual bool isConstant(int &value) const { \
@@ -336,7 +326,7 @@ struct expr_binary_branch: public expr_binary {
         else \
             return false; \
     } \
-    _2op binaryOpcode() const { return _2op::Z_OP; }
+    uint8_t opcode() const { return (uint8_t)_2op::Z_OP; }
 
 
 // NAME should match the z machine opcode, OP is the C binary operator
@@ -369,7 +359,7 @@ struct expr_##NAME: public expr_binary_branch { \
 #define IMPL_BINARY_BRANCH_NC(NAME,Z_OP,NEGATED) \
 struct expr_##NAME: public expr_binary_branch { \
     expr_##NAME(expr *l,expr *r) : expr_binary_branch(l,r) { } \
-    _2op binaryOpcode() const { return _2op::Z_OP; } \
+    uint8_t opcode() const { return (uint8_t)_2op::Z_OP; } \
     bool isConstant(int&) const { return false; } \
     bool isNegated() const { return NEGATED; } \
 };
@@ -409,7 +399,7 @@ struct expr_not: public expr_unary_branch {
         else
             return false;
     }
-    _1op unaryOpcode() const;
+    uint8_t opcode() const { return m_unary->opcode(); }
 };
 
 struct expr_logical_and: public expr_binary_branch {
@@ -505,9 +495,14 @@ struct stmt_flow: public stmt {
         int delta = codegen::pc - dest + 2;
         c->emit(0,delta,negate);
     } 
-    static forwardRef emitForwardJump(expr *c,bool negate,size_t upperBound);
-    static forwardRef emitForwardJump(size_t upperBound);
-    static void emitJump(expr *c,bool negate,unsigned dest);
+    static forwardRef emitForwardJump(expr *c,bool negate,size_t upperBound) {
+        c->emit(0,upperBound,negate);
+        return codegen::emitForwardJump(upperBound);
+    }
+    //static forwardRef emitForwardJump(size_t upperBound);
+    static void emitJump(expr *c,bool negate,unsigned dest) {
+        c->emit(0,codegen::pc - dest + 2,negate);
+    }
 };
 
 struct stmt_if: public stmt_flow {
@@ -684,6 +679,7 @@ struct char_range {
 struct compiler {
     compiler();
     void parse_program();
+    void error(const char*,...);
     stmt *parse_stmt();
     expr *parse_expr();
     uint8_t parse_dest();
@@ -691,7 +687,7 @@ struct compiler {
     void next_token();
     void match_token(uint32_t t) {
         if (m_current_token != t) {
-            error("expected %s here but got %s",m_tokenStrings[t],m_tokenStrings[m_current_token]);
+            error("expected %s(%u) here but got %s(%u)",m_tokenStrings[t],t,m_tokenStrings[m_current_token],m_current_token);
         }
     }
     void match_and_consume_token(uint32_t t) {
@@ -719,7 +715,7 @@ struct compiler {
     }
     void push_operator_stack(operator_def *o) {
         if (m_operatorCount == maxOperators)
-            error("expression too complex");
+            error("expression too complex, operator stack is full");
         m_operatorStack[m_operatorCount++] = o;
     }
     operator_def* pop_operator_stack() {
@@ -797,7 +793,7 @@ compiler::compiler() {
     m_tokenStrings[k_while] = "'while'";
     m_tokenStrings[k_repeat] = "'repeat'";
 
-    m_tokenStrings[k_semi] = "';''";
+    m_tokenStrings[k_semi] = "';'";
     m_tokenStrings[k_colon] = "':'";
     m_tokenStrings[k_comma] = "','";
     m_tokenStrings[k_integer] = "integer literal";
@@ -810,6 +806,8 @@ compiler::compiler() {
     m_tokenStrings[k_lbracket] = "'['";
     m_tokenStrings[k_rbracket] = "']'";    
     m_tokenStrings[k_store] = "'->'";
+    m_tokenStrings[k_comment] = "'//'";
+    m_tokenStrings[k_newsym] = "new symbol";
 
     m_digitChars.set('0','9');
     m_symbolStartChars.set('#').set('_').set('a','z').set('A','Z');
@@ -821,6 +819,16 @@ compiler::compiler() {
 
 	//operators["get_sibling"] = new operator_def(0,1,"get_sibling");
 	//operators["get_child"] = new operator_def(0,1,"get_child");
+}
+
+void compiler::error(const char *fmt,...) {
+    va_list args;
+    va_start(args,fmt);
+    char buf[256];
+    vsnprintf(buf,sizeof(buf),fmt,args);
+    fprintf(stderr,"line %u, column %u: %s\n",m_sourceCodeLine+1,m_sourceCodeColumn+1,buf);
+    exit(1);
+    va_end(args);
 }
 
 int compiler::nextch() {
@@ -841,6 +849,7 @@ int compiler::nextch() {
 
 
 void compiler::next_token() {
+RESTART:
     while (m_nextch <= 32 && m_nextch != endOfFile)
         nextch();
     m_tokenLen = 0;
@@ -865,6 +874,7 @@ void compiler::next_token() {
         } while (m_symbolContinueChars.contains(nextch()));
         m_tokenBuf[m_tokenLen] = 0;
         m_current_token = hash(m_tokenBuf,m_tokenLen);
+        printf("{%s=%u}",m_tokenBuf,m_current_token);
         if (m_topLevel) {
             m_topLevel = false;
             return;
@@ -897,6 +907,7 @@ void compiler::next_token() {
             else
                 m_current_value.ivalue = object->second;
             m_current_token = k_constant_value;
+            return;
         }
         auto routine = m_routines.find(m_current_token);
         if (routine != m_routines.end()) {
@@ -905,7 +916,15 @@ void compiler::next_token() {
             else
                 m_current_value.ivalue = routine->second;
             m_current_token = k_constant_value;
+            return;
         }
+        if (m_newSym) {
+            m_current_value.hash = m_current_token;
+            m_current_token = k_newsym;
+            return;
+        }
+        else
+            error("expected a known symbol here");
     }
     else if (m_specialChars.contains(m_nextch)) { // special single character token?
         m_current_token = hash(&m_nextch,1);
@@ -923,6 +942,11 @@ void compiler::next_token() {
         m_current_token = hash(m_tokenBuf,m_tokenLen);
         if (m_tokenStrings.find(m_current_token) == m_tokenStrings.end())
             error("unrecognized operator character sequence '%s' in input",m_tokenBuf);
+        if (m_current_token == k_comment) {
+            while (m_nextch != 10 && m_nextch != endOfFile)
+                nextch();
+            goto RESTART;
+        }
         return;
     }
     else
@@ -1120,4 +1144,20 @@ void compiler::parse_program() {
             match_and_consume_token(k_semi);
         }
     }
+}
+
+
+int main(int argc,char **argv) {
+    FILE *f = fopen(argv[1],"r");
+    fseek(f,0,SEEK_END);
+    uint32_t s = ftell(f);
+    char *sc = new char[s];
+    fseek(f,0,SEEK_SET);
+    fread(sc,1,s,f);
+    fclose(f);
+
+    compiler c;
+    c.m_sourceCode = sc;
+    c.m_sourceCodeLen = s;
+    c.parse_program();
 }
