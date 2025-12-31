@@ -45,9 +45,7 @@
 
 // If there are two attributes, they are opposites
 // Each resolves to an index between 0-31 (0-47 on v4+)
-// attribute zero is reserved for the system to disambiguate rooms from objects.
 // it's not always strictly necessary but reduces the chance of programming errors
-attribute global is_location; // first attribute must be this. if you never use location or object attributes or properties you can ignore this.
 attribute global lit;
 attribute global general;
 attribute global supporter;
