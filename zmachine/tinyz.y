@@ -9,6 +9,7 @@
 	int yylex();
 	void yyerror(const char*);
 	int encode_string(const char*);
+	uint8_t next_global, next_local;
 
 	template <typename T> struct list_node {
 		list_node<T>(T a,list_node<T> *b) : car(a), cdr(b) { }
@@ -263,7 +264,13 @@ dict_list
 
 
 global_def
-	: GLOBAL NEWSYM ';'
+	: GLOBAL NEWSYM ';'		
+		{ 
+			if (next_global==240)
+				yyerror("too many globals");
+			$2->token = GNAME; 
+			$2->ival = next_global++;
+		}
 	| BYTE_ARRAY '(' INTLIT ')' NEWSYM opt_array_def ';'
 	| WORD_ARRAY '(' INTLIT ')' NEWSYM opt_array_def ';'
 	;
@@ -391,12 +398,18 @@ opt_params_list
 	;
 
 params_list
-	: params_list param
+	: param params_list
 	| param
 	;
 
 param
-	:  NEWSYM
+	:  NEWSYM 
+		{ 
+			if (next_local==3) 
+				yyerror("too many params (limit is 3 for v3)"); 
+			$1->token = LNAME; 
+			$1->ival = next_local++; 
+		}
 	;
 
 opt_locals_list
@@ -405,12 +418,18 @@ opt_locals_list
 	;
 
 locals_list
-	: locals_list local
+	: local locals_list
 	| local
 	;
 
 local
 	: NEWSYM
+		{ 
+			if (next_local==15) 
+				yyerror("too many params + locals"); 
+			$1->token = LNAME; 
+			$1->ival = next_local++; 
+		}
 	;
 
 stmts
