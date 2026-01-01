@@ -58,7 +58,8 @@
 		expr_unary(_1op op,expr *e);
 	};
 	struct expr_branch: public expr {
-		expr_branch(bool negated);
+		expr_branch(bool n) : negated(n) { }
+		bool negated;
 	};
 	struct expr_binary_branch: public expr_branch {
 		expr_binary_branch(expr *left,_2op op,bool negated,expr *right);
@@ -85,6 +86,12 @@
 	struct expr_call: public expr { // first arg is func address
 		expr_call(list_node<expr*> *a) : args(a) { }
 		list_node<expr*> *args;
+	};
+	struct expr_save: public expr_branch {
+		expr_save() : expr_branch(false) { }
+	};
+	struct expr_restore: public expr_branch {
+		expr_restore(): expr_branch(false) { }
 	};
 	enum scope_enum: uint8_t { SCOPE_GLOBAL, SCOPE_OBJECT, SCOPE_LOCATION };
 	uint8_t expected_scope;
@@ -181,11 +188,13 @@
 %token <sval> STRLIT
 %token <sym> FWDREF // Can be NEWSYM or existing sym
 %token <sym> NEWSYM
-%token WHILE "while" REPEAT "repeat" IF "if" ELSE "else"
+%token WHILE REPEAT IF ELSE
 %token LE "<=" GE ">=" EQ "==" NE "!="
+%token DEC_CHK "--<" INC_CHK "++>"
+%token GET_SIBLING GET_CHILD SAVE RESTORE
 // %token LSH "<<" RSH ">>"
-%token RFALSE "rfalse" RTRUE "rtrue" RETURN "return"
-%token OR "or" AND "and" NOT "not"
+%token RFALSE RTRUE RETURN
+%token OR AND NOT
 %right '~' NOT
 %left '*' '/' '%'
 %left '+' '-'
@@ -197,7 +206,7 @@
 
 %type <eval> expr primary exprs aname arg
 %type <ebval> rel_expr cond_expr
-%type <ival> init routine_body
+%type <ival> init routine_body vname
 %type <scopeval> scope
 %type <dlist> dict_list;
 %type <ilist> init_list;
@@ -438,12 +447,11 @@ stmts
 	;
 
 stmt
-	: "if" cond_expr stmt opt_else ';'		{ $$ = new stmt_if($2,$3,$4); }
-	| "repeat" stmt "while" cond_expr ';'	{ $$ = new stmt_repeat($2,$4); }
-	| "while" cond_expr stmt ';'			{ $$ = new stmt_while($2,$3); }
+	: IF cond_expr stmt opt_else ';'		{ $$ = new stmt_if($2,$3,$4); }
+	| REPEAT stmt WHILE cond_expr ';'	{ $$ = new stmt_repeat($2,$4); }
+	| WHILE cond_expr stmt ';'			{ $$ = new stmt_while($2,$3); }
 	| '{' stmts '}'			{ $$ = new stmts($2); }
-	| LNAME '=' expr ';'	{ $$ = new stmt_assign($1+1,$3); }
-	| GNAME '=' expr ';'	{ $$ = new stmt_assign($1+16,$3); }
+	| vname '=' expr ';'	{ $$ = new stmt_assign($1,$3); }
 	| RETURN expr ';'		{ $$ = new stmt_1op(_1op::ret,$2); }
 	| RFALSE ';'			{ $$ = new stmt_0op(_0op::rfalse); }
 	| RTRUE ';'				{ $$ = new stmt_0op(_0op::rtrue); }
@@ -453,7 +461,7 @@ stmt
 	
 opt_else
 	:				{ $$ = nullptr; }
-	| "else" stmt	{ $$ = $2; }
+	| ELSE stmt	{ $$ = $2; }
 	;
 
 cond_expr
@@ -496,8 +504,12 @@ primary
 
 aname
 	: ANAME			{ $$ = new expr_literal($1); }
-	| LNAME			{ $$ = new expr_literal($1 + 1); }
-	| GNAME			{ $$ = new expr_literal($1 + 16); }
+	| vname			{ $$ = new expr_literal($1); }
+	;
+
+vname
+	: LNAME			{ $$ = $1 + 1; }
+	| GNAME			{ $$ = $1 + 16; }
 	;
 
 rel_expr
@@ -507,12 +519,14 @@ rel_expr
 	| expr ">=" expr			{ $$ = new expr_binary_branch($1,_2op::jl,true,$3); }
 	| expr "==" exprs			{ $$ = new expr_binary_branch($1,_2op::je,false,$3); }
 	| expr "!=" exprs			{ $$ = new expr_binary_branch($1,_2op::je,true,$3); }
-	| NOT rel_expr				{ $$ = $2; /* FIXME */ }
+	| NOT rel_expr				{ $2->negated = !$2->negated; $$ = $2; }
 	| rel_expr AND rel_expr		{ $$ = new expr_logical_and($1,$3); }
 	| rel_expr OR rel_expr		{ $$ = new expr_logical_or($1,$3); }
 	| primary HAS aname			{ $$ = new expr_binary_branch($1,_2op::test_attr,false,$3); }
 	| primary HASNT aname		{ $$ = new expr_binary_branch($1,_2op::test_attr,true,$3); }
 	| expr /* same as expr != 0 */ { $$ = new expr_unary_branch(_1op::jz,true,$1); }
+	| SAVE						{ $$ = new expr_save(); }
+	| RESTORE					{ $$ = new expr_restore(); }
 	;
 
 exprs
@@ -522,6 +536,54 @@ exprs
 	;
 
 %%
+
+std::map<const char*,int16_t> rw;
+std::map<const char*,_0op> f_0op;
+std::map<const char*,_1op> f_1op;
+
+
+void init() {
+	rw["attribute"] = ATTRIBUTE;
+	rw["property"] = PROPERTY;
+	rw["direction"] = DIRECTION;
+	rw["global"] = GLOBAL;
+	rw["object"] = OBJECT;
+	rw["location"] = LOCATION;
+	rw["routine"] = ROUTINE;
+	rw["article"] = ARTICLE;
+	rw["placeholder"] = PLACEHOLDER;
+	rw["action"] = ACTION;
+	rw["has"] = HAS;
+	rw["hasnt"] = HASNT;
+	rw["byte_array"] = BYTE_ARRAY;
+	rw["word_array"] = WORD_ARRAY;
+	rw["call"] = CALL;
+	rw["while"] = WHILE;
+	rw["repeat"] = REPEAT;
+	rw["if"] = IF;
+	rw["else"] = ELSE;
+	rw["return"] = RETURN;
+	rw["or"] = OR;
+	rw["and"] = AND;
+	rw["not"] = NOT;
+	rw["save"] = SAVE;
+	rw["restore"] = RESTORE;
+	rw["get_sibling"] = GET_SIBLING;
+	rw["get_child"] = GET_CHILD;
+
+	f_0op["rfalse"] = _0op::rfalse;
+	f_0op["rtrue"] = _0op::rtrue;
+	f_0op["restart"] = _0op::restart;
+	f_0op["quit"] = _0op::quit;
+	f_0op["crlf"] = _0op::new_line;
+	f_0op["show_status"] = _0op::show_status;
+
+	f_1op["get_parent"] = _1op::get_parent;
+	f_1op["print_addr"] = _1op::print_addr;
+	f_1op["print_paddr"] = _1op::print_paddr;
+	f_1op["remove_obj"] = _1op::remove_obj;
+	f_1op["print_obj"] = _1op::print_obj;
+}
 
 int yylex() {
 	return INTLIT;
