@@ -23,8 +23,8 @@
 		emitByte(o.value);
 	}
 	void emitBranch(uint16_t target);
-	void emit2op(operand l,_2op op,operand r,int dest = -1,int branch = -32768);
-	void emit1op(_1op op,operand un,int dest = -1,int branch = -32768);
+	void emit2op(operand l,_2op op,operand r,int dest = -1);
+	void emit1op(_1op op,operand un,int dest = -1);
 	const uint8_t TOS = 0, SCRATCH = 4;
 
 	template <typename T> struct list_node {
@@ -662,7 +662,7 @@ void set_version(int version) {
 	the_header.version = version;
 }
 
-void emit1op(_1op opcode,operand uval,int dest,int branchDest) {
+void emit1op(_1op opcode,operand uval,int dest) {
 	if (uval.type==optype::large_constant)
 		emitByte(0x80 + (uint8_t)opcode);
 	else if (uval.type==optype::small_constant)
@@ -672,11 +672,9 @@ void emit1op(_1op opcode,operand uval,int dest,int branchDest) {
 	emitOperand(uval);
 	if (dest != -1)
 		emitByte(dest);
-	if (branchDest != -1)
-		emitBranch(branchDest);
 }
 
-void emit2op(operand lval,_2op opcode,operand rval,int dest,int branchDest) {
+void emit2op(operand lval,_2op opcode,operand rval,int dest) {
 	if (lval.type==optype::small_constant && rval.type==optype::small_constant)
 		emitByte((uint8_t)opcode + 0x00);
 	else if (lval.type==optype::small_constant && rval.type==optype::variable)
@@ -687,20 +685,12 @@ void emit2op(operand lval,_2op opcode,operand rval,int dest,int branchDest) {
 		emitByte((uint8_t)opcode + 0x60);
 	else {
 		emitByte((uint8_t)opcode + 0xC0);
-		emitByte(((uint8_t)lval.type << 6) | ((uint8_t)rval.type << 6) | 0xF);
+		emitByte(((uint8_t)lval.type << 6) | ((uint8_t)rval.type << 4) | 0xF);
 	}
 	emitOperand(lval);
 	emitOperand(rval);
-	if (lval.type==optype::large_constant)
-		emitByte(lval.value >> 8);
-	emitByte(lval.value);
-	if (rval.type==optype::large_constant)
-		emitByte(rval.value >> 8);
-	emitByte(rval.value);
 	if (dest != -1)
 		emitByte(dest);
-	if (branchDest != -32768)
-		emitBranch(branchDest);
 }
 
 int yylex() {
