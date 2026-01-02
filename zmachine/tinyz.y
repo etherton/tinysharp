@@ -16,6 +16,8 @@
 		int value:30;
 		optype type:2;
 	};
+	static_assert(sizeof(operand)==4);
+	static const uint8_t opsizes[3] = { 2,1,1 };
 	void emitByte(uint8_t b);
 	void emitOperand(operand o) {
 		if (o.type==optype::large_constant)
@@ -71,7 +73,9 @@
 			o.type = optype::variable;
 			emit(TOS);
 		}
-		virtual bool isLogical() { return false; }
+		virtual bool isLogical() const { return false; }
+		virtual bool isConstant(int &c) const { return false; }
+		virtual unsigned size() const;
 	};
 
 	struct expr_binary: public expr {
@@ -79,6 +83,7 @@
 		expr *left, *right;
 		_2op opcode;
 		void emit(uint8_t dest) {
+			// we defer eval call because there may be unsigned forward references
 			operand lval, rval;
 			right->eval(rval);
 			left->eval(lval);
@@ -90,7 +95,28 @@
 			o.type = optype::variable;
 			emit(TOS);
 		}
+		unsigned size() const {
+			operand lval, rval;
+			right->eval(rval);
+			left->eval(lval);
+			// if either is large_constant then it uses VAR form and needs a type byte
+			if (rval.type==optype::large_constant||lval.type==optype::large_constant)
+				return 2 + opsizes[(uint8_t)rval.type] + opsizes[(uint8_t)lval.type];
+			else	// if neither is large_constant then size must be 3
+				return 3;
+		}
 	};
+	#define IMPL_EXPR_BINARY(zop,cop) struct expr_binary_##zop: public expr_binary { \
+		expr_binary_##zop(expr *l,expr *r) : expr_binary(l,_2op::zop,r) { } \
+		bool isConstant(int &v) const { int l,r; \
+		if (left->isConstant(l)&&right->isConstant(r)) { v = l cop r; return true; } else return false; } }
+	IMPL_EXPR_BINARY(add,+);
+	IMPL_EXPR_BINARY(sub,-);
+	IMPL_EXPR_BINARY(mul,*);
+	IMPL_EXPR_BINARY(div,/);
+	IMPL_EXPR_BINARY(mod,%);
+	IMPL_EXPR_BINARY(and_,&);
+	IMPL_EXPR_BINARY(or_,|);
 	struct expr_unary: public expr {
 		expr_unary(_1op op,expr *e);
 		expr *unary;
@@ -101,7 +127,11 @@
 			emit1op(opcode,uval);
 			emitByte(dest);
 		}
-
+		unsigned size() const {
+			operand uval;
+			unary->eval(uval);
+			return 1 + opsizes[(uint8_t)uval.type];
+		}
 	};
 	struct expr_branch: public expr {
 		expr_branch(bool n) : negated(n) { }
@@ -135,6 +165,7 @@
 			op.type =  value >= 0 && value <= 255? optype::small_constant : optype::large_constant;
 			op.value = value;
 		}
+		bool isConstant(int &v) const { v = op.value; return true; }
 	};
 	struct expr_variable: public expr_operand {
 		expr_variable(uint8_t v) {
@@ -181,21 +212,37 @@
 	}
 	struct stmt {
 		virtual void emit();
+		virtual unsigned size() const;
 	};
 	struct stmts: public stmt {
-		stmts(list_node<stmt*> *s): slist(s) { }
+		stmts(list_node<stmt*> *s): slist(s) { 
+			tsize = 0;
+			for (auto i=slist; i; i=i->cdr)
+				tsize += i->car->size();
+		}
 		list_node<stmt*> *slist;
+		unsigned tsize;
 		void emit() {
 			for (auto i=slist; i; i=i->cdr)
 				i->car->emit();
 		}
+		unsigned size() const { return tsize; }
 	};
 	struct stmt_flow: public stmt {
 	};
 	struct stmt_if: public stmt_flow {
-		stmt_if(expr *e,stmt *t,stmt *f): cond(e), ifTrue(t), ifFalse(f) { }
-		expr *cond;
+		stmt_if(expr *e,stmt *t,stmt *f): cond(expr_binary_branch::to_branch(e)), ifTrue(t), ifFalse(f) { }
+		expr_branch *cond;
 		stmt *ifTrue, *ifFalse;
+		// TODO: if ifTrue is rfalse/rtrue, we just need the non-negated branch to 0/1
+		// TODO: else if ifFalse is rfalse/rtrue, we just need the negated branch to 0/1
+		void emit() {
+			bool shortBranch = (ifTrue->size() < (ifFalse? 60 : 63));
+		}
+		unsigned size() const {
+			bool shortBranch = (ifTrue->size() < (ifFalse? 60 : 63));
+			return cond->size() + (shortBranch? 1 : 2) + ifTrue->size() + (ifFalse? 3 + ifFalse->size() : 0);
+		}
 	};
 	struct stmt_while: public stmt_flow {
 		stmt_while(expr *e,stmt *b): cond(e), body(b) { }
@@ -211,10 +258,16 @@
 		stmt_1op(_1op op,expr *e) : opcode(op), operand(e) { }
 		_1op opcode;
 		expr *operand;
+		unsigned size() const {
+			return operand->size() + 1;
+		}
 	};	
 	struct stmt_0op: public stmt {
 		stmt_0op(_0op op) : opcode(op) { }
 		_0op opcode;
+		unsigned size() const {
+			return 1;
+		}
 	};
 	struct stmt_assign: public stmt {
 		stmt_assign(uint8_t d,expr *e) : dest(d), value(e) { }
@@ -222,6 +275,9 @@
 		expr* value;
 		void emit() {
 			value->emit(dest);
+		}
+		unsigned size() const {
+			return value->size() + 1;
 		}
 	};
 	struct stmt_call: public stmt {
@@ -530,7 +586,14 @@ stmt
 	| WHILE cond_expr stmt ';'			{ $$ = new stmt_while($2,$3); }
 	| '{' stmts '}'			{ $$ = new stmts($2); }
 	| vname '=' expr ';'	{ $$ = new stmt_assign($1,$3); }
-	| RETURN expr ';'		{ $$ = new stmt_1op(_1op::ret,$2); }
+	| RETURN expr ';'		
+		{
+			int v;
+			if ($2->isConstant(v) && (v==0||v==1))
+				$$ = new stmt_0op(v==0? _0op::rfalse : _0op::rtrue);
+			else
+				$$ = new stmt_1op(_1op::ret,$2); 
+		}
 	| RFALSE ';'			{ $$ = new stmt_0op(_0op::rfalse); }
 	| RTRUE ';'				{ $$ = new stmt_0op(_0op::rtrue); }
 	| CALL expr opt_call_args ';'	{ $$ = new stmt_call(new list_node<expr*>($2,$3));  }
@@ -562,14 +625,14 @@ arg
 	;
 
 expr
-	: expr '+' expr 	{ $$ = new expr_binary($1,_2op::add,$3); }
-	| expr '-' expr 	{ $$ = new expr_binary($1,_2op::sub,$3); }
-	| expr '*' expr 	{ $$ = new expr_binary($1,_2op::mul,$3); }
-	| expr '/' expr 	{ $$ = new expr_binary($1,_2op::div,$3); }
-	| expr '%' expr 	{ $$ = new expr_binary($1,_2op::mod,$3); }
+	: expr '+' expr 	{ $$ = new expr_binary_add($1,$3); }
+	| expr '-' expr 	{ $$ = new expr_binary_sub($1,$3); }
+	| expr '*' expr 	{ $$ = new expr_binary_mul($1,$3); }
+	| expr '/' expr 	{ $$ = new expr_binary_div($1,$3); }
+	| expr '%' expr 	{ $$ = new expr_binary_mod($1,$3); }
 	| '~' expr      	{ $$ = new expr_unary(_1op::not_,$2); }
-	| expr '&' expr 	{ $$ = new expr_binary($1,_2op::and_,$3); }
-	| expr '|' expr 	{ $$ = new expr_binary($1,_2op::or_,$3); }
+	| expr '&' expr 	{ $$ = new expr_binary_and_($1,$3); }
+	| expr '|' expr 	{ $$ = new expr_binary_or_($1,$3); }
 	| '(' expr ')'  	{ $$ = $2; }
 	| primary       	{ $$ = $1; }
 	| INTLIT        	{ $$ = new expr_literal($1); }
