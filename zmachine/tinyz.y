@@ -64,11 +64,13 @@
 		list_node<dict_entry*> *wval;
 	};
 
-
 	struct expr {
 		virtual void emit(uint8_t dest) { }
-		virtual void eval(operand &o);
-		virtual bool isConstant(int &v) { return false; }
+		virtual void eval(operand &o) {
+			o.value = TOS;
+			o.type = optype::variable;
+			emit(TOS);
+		}
 	};
 
 	struct expr_binary: public expr {
@@ -96,49 +98,55 @@
 			unary->eval(uval);
 			emit1op(opcode,uval,dest);
 		}
-		void eval(operand &o) {
-			o.value = TOS;
-			o.type = optype::variable;
-			emit(TOS);
-		}
+
 	};
 	struct expr_branch: public expr {
 		expr_branch(bool n) : negated(n) { }
 		bool negated;
 	};
 	struct expr_binary_branch: public expr_branch {
-		expr_binary_branch(expr *left,_2op op,bool negated,expr *right);
+		expr_binary_branch(expr *l,_2op op,bool negated,expr *r) : left(l), opcode(op), right(r), expr_branch(negated) { }
+		_2op opcode;
+		expr *left, *right;
 	};
 	struct expr_unary_branch: public expr_branch {
 		expr_unary_branch(_1op op,bool negated,expr *e);
 	};
-	struct expr_literal: public expr {
-		expr_literal(int v) : value(v) { }
-		int value;
+	struct expr_operand: public expr {
+		operand op;
 		void eval(operand &o) {
-			o.type = value >= 0 && value <= 255? optype::small_constant : optype::large_constant;
-			o.value = value;
+			op = o;
 		}
 	};
-	struct expr_variable: public expr {
-		expr_variable(uint8_t v) : variable(v) { }
-		uint8_t variable; // 0=tos, 1-15=local, 16=global0...
-		void eval(operand &o) {
-			o.type = optype::variable;
-			o.value = variable;
+	struct expr_literal: public expr_operand {
+		expr_literal(int value) {
+			op.type =  value >= 0 && value <= 255? optype::small_constant : optype::large_constant;
+			op.value = value;
 		}
+	};
+	struct expr_variable: public expr_operand {
+		expr_variable(uint8_t v) {
+			op.type = optype::variable;
+			op.value = v;
+		}
+	};
+	struct expr_logical_not: public expr_branch {
+		expr_logical_not(expr *e);
 	};
 	struct expr_logical_and: public expr_branch {
-		expr_logical_and(expr_branch *left,expr_branch *right);
+		expr_logical_and(expr *left,expr *right);
 	};
 	struct expr_logical_or: public expr_branch {
-		expr_logical_or(expr_branch *left,expr_branch *right);
+		expr_logical_or(expr *left,expr *right);
 	};
 	struct expr_literals: public expr {
 		expr_literals(int a) : count(1) { literals[0] = a; }
 		expr_literals(int a,int b) : count(2) { literals[0] = a; literals[1] = b; }
 		expr_literals(int a,int b,int c) : count(3) { literals[0] = a; literals[1] = b; literals[2] = c; }
 		int16_t count, literals[3];
+	};
+	struct expr_grouped: public expr {
+		expr_grouped(expr*a,expr *b,expr *c = nullptr);
 	};
 	struct expr_call: public expr { // first arg is func address
 		expr_call(list_node<expr*> *a) : args(a) { }
@@ -176,19 +184,19 @@
 	struct stmt_flow: public stmt {
 	};
 	struct stmt_if: public stmt_flow {
-		stmt_if(expr_branch *e,stmt *t,stmt *f): cond(e), ifTrue(t), ifFalse(f) { }
-		expr_branch *cond;
+		stmt_if(expr *e,stmt *t,stmt *f): cond(e), ifTrue(t), ifFalse(f) { }
+		expr *cond;
 		stmt *ifTrue, *ifFalse;
 	};
 	struct stmt_while: public stmt_flow {
-		stmt_while(expr_branch *e,stmt *b): cond(e), body(b) { }
-		expr_branch *cond;
+		stmt_while(expr *e,stmt *b): cond(e), body(b) { }
+		expr *cond;
 		stmt *body;
 	};
 	struct stmt_repeat: public stmt_flow {
-		stmt_repeat(stmt *b,expr_branch *e): body(b), cond(e) { }
+		stmt_repeat(stmt *b,expr *e): body(b), cond(e) { }
 		stmt *body;
-		expr_branch *cond;
+		expr *cond;
 	};
 	struct stmt_1op: public stmt {
 		stmt_1op(_1op op,expr *e) : opcode(op), operand(e) { }
@@ -203,12 +211,14 @@
 		stmt_assign(uint8_t d,expr *e) : dest(d), value(e) { }
 		uint8_t dest;
 		expr* value;
+		void emit() {
+			value->emit(dest);
+		}
 	};
 	struct stmt_call: public stmt {
 		stmt_call(list_node<expr*> *a) : call(a) { }
 		void emit() {
 			call.emit(SCRATCH);
-			// emitOpcode(_op0::pop); // throw out result
 		}
 		expr_call call;
 	};
@@ -226,7 +236,6 @@
 	int ival;
 	const char *sval;
 	expr *eval;
-	expr_branch *ebval;
 	symbol *sym;
 	scope_enum scopeval;
 	dict_entry *dict;
@@ -252,17 +261,20 @@
 // %token LSH "<<" RSH ">>"
 %token RFALSE RTRUE RETURN
 %token OR AND NOT
+
 %right '~' NOT
 %left '*' '/' '%'
 %left '+' '-'
+%nonassoc HAS HASNT
+%left '<' LE '>' GE
+%left EQ NE
 // %left LSH RSH
 %left '&'
 %left '|'
 %left AND
 %left OR
 
-%type <eval> expr primary exprs aname arg
-%type <ebval> rel_expr cond_expr
+%type <eval> expr primary aname arg cond_expr
 %type <ival> init routine_body vname
 %type <scopeval> scope
 %type <dlist> dict_list;
@@ -504,7 +516,7 @@ stmts
 	;
 
 stmt
-	: IF cond_expr stmt opt_else ';'		{ $$ = new stmt_if($2,$3,$4); }
+	: IF cond_expr stmt opt_else ';'	{ $$ = new stmt_if($2,$3,$4); }
 	| REPEAT stmt WHILE cond_expr ';'	{ $$ = new stmt_repeat($2,$4); }
 	| WHILE cond_expr stmt ';'			{ $$ = new stmt_while($2,$3); }
 	| '{' stmts '}'			{ $$ = new stmts($2); }
@@ -522,7 +534,7 @@ opt_else
 	;
 
 cond_expr
-	: '(' rel_expr ')' { $$ = $2; }
+	: '(' expr ')' { $$ = $2; }
 	;
 
 opt_call_args
@@ -541,17 +553,32 @@ arg
 	;
 
 expr
-	: expr '+' expr { $$ = new expr_binary($1,_2op::add,$3); }
-	| expr '-' expr { $$ = new expr_binary($1,_2op::sub,$3); }
-	| expr '*' expr { $$ = new expr_binary($1,_2op::mul,$3); }
-	| expr '/' expr { $$ = new expr_binary($1,_2op::div,$3); }
-	| expr '%' expr { $$ = new expr_binary($1,_2op::mod,$3); }
-	| '~' expr      { $$ = new expr_unary(_1op::not_,$2); }
-	| expr '&' expr { $$ = new expr_binary($1,_2op::and_,$3); }
-	| expr '|' expr { $$ = new expr_binary($1,_2op::or_,$3); }
-	| '(' expr ')'  { $$ = $2; }
-	| primary       { $$ = $1; }
-	| INTLIT        { $$ = new expr_literal($1); }
+	: expr '+' expr 	{ $$ = new expr_binary($1,_2op::add,$3); }
+	| expr '-' expr 	{ $$ = new expr_binary($1,_2op::sub,$3); }
+	| expr '*' expr 	{ $$ = new expr_binary($1,_2op::mul,$3); }
+	| expr '/' expr 	{ $$ = new expr_binary($1,_2op::div,$3); }
+	| expr '%' expr 	{ $$ = new expr_binary($1,_2op::mod,$3); }
+	| '~' expr      	{ $$ = new expr_unary(_1op::not_,$2); }
+	| expr '&' expr 	{ $$ = new expr_binary($1,_2op::and_,$3); }
+	| expr '|' expr 	{ $$ = new expr_binary($1,_2op::or_,$3); }
+	| '(' expr ')'  	{ $$ = $2; }
+	| primary       	{ $$ = $1; }
+	| INTLIT        	{ $$ = new expr_literal($1); }
+	| expr '<' expr		{ $$ = new expr_binary_branch($1,_2op::jl,false,$3); }
+	| expr LE expr		{ $$ = new expr_binary_branch($1,_2op::jg,true,$3); }
+	| expr '>' expr		{ $$ = new expr_binary_branch($1,_2op::jg,false,$3); }
+	| expr GE expr		{ $$ = new expr_binary_branch($1,_2op::jl,true,$3); }
+	| expr EQ expr		{ $$ = new expr_binary_branch($1,_2op::je,false,$3); }
+	| expr NE expr		{ $$ = new expr_binary_branch($1,_2op::je,true,$3); }
+	| NOT expr			{ $$ = new expr_logical_not($2); }
+	| expr AND expr		{ $$ = new expr_logical_and($1,$3); }
+	| expr OR expr		{ $$ = new expr_logical_or($1,$3); }
+	| expr HAS aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,false,$3); }
+	| expr HASNT aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,true,$3); }
+	| SAVE				{ $$ = new expr_save(); }
+	| RESTORE			{ $$ = new expr_restore(); }
+	| '{' expr ',' expr '}'				{ $$ = new expr_grouped($2,$4); }
+	| '{' expr ',' expr ',' expr '}'	{ $$ = new expr_grouped($2,$4,$6); }
 	;
 
 primary
@@ -567,29 +594,6 @@ aname
 vname
 	: LNAME			{ $$ = $1 + 1; }
 	| GNAME			{ $$ = $1 + 16; }
-	;
-
-rel_expr
-	: expr '<' expr             { $$ = new expr_binary_branch($1,_2op::jl,false,$3); }
-	| expr "<=" expr			{ $$ = new expr_binary_branch($1,_2op::jg,true,$3); }
-	| expr '>' expr				{ $$ = new expr_binary_branch($1,_2op::jg,false,$3); }
-	| expr ">=" expr			{ $$ = new expr_binary_branch($1,_2op::jl,true,$3); }
-	| expr "==" exprs			{ $$ = new expr_binary_branch($1,_2op::je,false,$3); }
-	| expr "!=" exprs			{ $$ = new expr_binary_branch($1,_2op::je,true,$3); }
-	| NOT rel_expr				{ $2->negated = !$2->negated; $$ = $2; }
-	| rel_expr AND rel_expr		{ $$ = new expr_logical_and($1,$3); }
-	| rel_expr OR rel_expr		{ $$ = new expr_logical_or($1,$3); }
-	| primary HAS aname			{ $$ = new expr_binary_branch($1,_2op::test_attr,false,$3); }
-	| primary HASNT aname		{ $$ = new expr_binary_branch($1,_2op::test_attr,true,$3); }
-	| expr /* same as expr != 0 */ { $$ = new expr_unary_branch(_1op::jz,true,$1); }
-	| SAVE						{ $$ = new expr_save(); }
-	| RESTORE					{ $$ = new expr_restore(); }
-	;
-
-exprs
-	: expr								{ $$ = $1; }
-	| INTLIT ',' INTLIT					{ $$ = new expr_literals($1,$3); }
-	| INTLIT ',' INTLIT ',' INTLIT		{ $$ = new expr_literals($1,$3,$5); }
 	;
 
 %%
