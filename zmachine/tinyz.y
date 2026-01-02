@@ -1,15 +1,31 @@
 /* tinyz.y */
 %{
 	#include "opcodes.h"
+	#include "header.h"
 	#include <set>
 	#include <map>
 
 	void open_scope();
 	void close_scope();
 	int yylex();
-	void yyerror(const char*);
+	void yyerror(const char*,...);
 	int encode_string(const char*);
-	uint8_t next_global, next_local;
+	uint8_t next_global, next_local, story_shift = 1;
+	storyHeader the_header;
+	struct operand { // 0=long, 1=small, variable=2, omitted=3
+		int value:30;
+		optype type:2;
+	};
+	void emitByte(uint8_t b);
+	void emitOperand(operand o) {
+		if (o.type==optype::large_constant)
+			emitByte(o.value >> 8);
+		emitByte(o.value);
+	}
+	void emitBranch(uint16_t target);
+	void emit2op(operand l,_2op op,operand r,int dest = -1,int branch = -32768);
+	void emit1op(_1op op,operand un,int dest = -1,int branch = -32768);
+	const uint8_t TOS = 0, SCRATCH = 4;
 
 	template <typename T> struct list_node {
 		list_node<T>(T a,list_node<T> *b) : car(a), cdr(b) { }
@@ -27,16 +43,17 @@
 	struct property {
 		uint8_t index;
 		uint8_t size;
-		uint8_t payload[8];	// can be up to 8 for v3
+		uint8_t payload[64];	// can be up to 8 for v3, 64 for v4+
 	};
 	struct object {
 		symbol *child, *sibling, *parent;
-		uint32_t attributes;
+		uint64_t attributes;
 		const char *descr;
 		list_node<property> *properties;
 	} *cdef;
+
 	struct dict_entry {
-		uint16_t encoded[2];		// 6 letters for V3
+		uint16_t encoded[3];		// 6 letters for V3, 9 letters for V4+
 		uint8_t payload;
 	};
 	std::set<dict_entry> dictionary;
@@ -47,15 +64,43 @@
 		list_node<dict_entry*> *wval;
 	};
 
+
 	struct expr {
-		virtual void emit();
-		virtual bool isConstand(int &v) { return false; }
+		virtual void emit(uint8_t dest) { }
+		virtual void eval(operand &o);
+		virtual bool isConstant(int &v) { return false; }
 	};
+
 	struct expr_binary: public expr {
-		expr_binary(expr *left,_2op op,expr *right);
+		expr_binary(expr *l,_2op op,expr *r);
+		expr *left, *right;
+		_2op opcode;
+		void emit(uint8_t dest) {
+			operand lval, rval;
+			right->eval(rval);
+			left->eval(lval);
+			emit2op(lval,opcode,rval,dest);
+		}
+		void eval(operand &o) {
+			o.value = TOS;
+			o.type = optype::variable;
+			emit(TOS);
+		}
 	};
 	struct expr_unary: public expr {
 		expr_unary(_1op op,expr *e);
+		expr *unary;
+		_1op opcode;
+		void emit(uint8_t dest) {
+			operand uval;
+			unary->eval(uval);
+			emit1op(opcode,uval,dest);
+		}
+		void eval(operand &o) {
+			o.value = TOS;
+			o.type = optype::variable;
+			emit(TOS);
+		}
 	};
 	struct expr_branch: public expr {
 		expr_branch(bool n) : negated(n) { }
@@ -70,6 +115,18 @@
 	struct expr_literal: public expr {
 		expr_literal(int v) : value(v) { }
 		int value;
+		void eval(operand &o) {
+			o.type = value >= 0 && value <= 255? optype::small_constant : optype::large_constant;
+			o.value = value;
+		}
+	};
+	struct expr_variable: public expr {
+		expr_variable(uint8_t v) : variable(v) { }
+		uint8_t variable; // 0=tos, 1-15=local, 16=global0...
+		void eval(operand &o) {
+			o.type = optype::variable;
+			o.value = variable;
+		}
 	};
 	struct expr_logical_and: public expr_branch {
 		expr_logical_and(expr_branch *left,expr_branch *right);
@@ -150,7 +207,7 @@
 	struct stmt_call: public stmt {
 		stmt_call(list_node<expr*> *a) : call(a) { }
 		void emit() {
-			call.emit();
+			call.emit(SCRATCH);
 			// emitOpcode(_op0::pop); // throw out result
 		}
 		expr_call call;
@@ -355,7 +412,7 @@ property_or_attribute
 			{ 
 				if (!($1 & expected_scope)) 
 					yyerror("wrong type of attribute"); 
-				uint32_t mask = 1 << ($1 & 31); // V4+ needs better here
+				uint64_t mask = 1ULL << ($1 & 63);
 				if (cdef->attributes & mask)
 					yyerror("already have this attribute set");
 				cdef->attributes |= mask;
@@ -498,13 +555,13 @@ expr
 	;
 
 primary
-	: aname
+	: aname			{ $$ = $1; }
 	| PNAME			{ $$ = new expr_literal($1); }
 	;
 
 aname
 	: ANAME			{ $$ = new expr_literal($1); }
-	| vname			{ $$ = new expr_literal($1); }
+	| vname			{ $$ = new expr_variable($1); }
 	;
 
 vname
@@ -585,11 +642,65 @@ void init() {
 	f_1op["print_obj"] = _1op::print_obj;
 }
 
+void set_version(int version) {
+	if (version != 8 && (version < 3 || version > 5))
+		yyerror("only versions 3,4,5,8 supported");
+	attribute_next[0] = version>3? 47 : 31;
+	property_next[0] = version>3? 63 : 31;
+	story_shift = version==8? 3 : version==3? 1 : 2;
+	the_header.version = version;
+}
+
+void emit1op(_1op opcode,operand uval,int dest,int branchDest) {
+	if (uval.type==optype::large_constant)
+		emitByte(0x80 + (uint8_t)opcode);
+	else if (uval.type==optype::small_constant)
+		emitByte(0x90 + (uint8_t)opcode);
+	else
+		emitByte(0xA0 + (uint8_t)opcode);
+	emitOperand(uval);
+	if (dest != -1)
+		emitByte(dest);
+	if (branchDest != -1)
+		emitBranch(branchDest);
+}
+
+void emit2op(operand lval,_2op opcode,operand rval,int dest,int branchDest) {
+	if (lval.type==optype::small_constant && rval.type==optype::small_constant)
+		emitByte((uint8_t)opcode + 0x00);
+	else if (lval.type==optype::small_constant && rval.type==optype::variable)
+		emitByte((uint8_t)opcode + 0x20);
+	else if (lval.type==optype::variable && rval.type==optype::small_constant)
+		emitByte((uint8_t)opcode + 0x40);
+	else if (lval.type==optype::variable && rval.type==optype::variable)
+		emitByte((uint8_t)opcode + 0x60);
+	else {
+		emitByte((uint8_t)opcode + 0xC0);
+		emitByte(((uint8_t)lval.type << 6) | ((uint8_t)rval.type << 6) | 0xF);
+	}
+	emitOperand(lval);
+	emitOperand(rval);
+	if (lval.type==optype::large_constant)
+		emitByte(lval.value >> 8);
+	emitByte(lval.value);
+	if (rval.type==optype::large_constant)
+		emitByte(rval.value >> 8);
+	emitByte(rval.value);
+	if (dest != -1)
+		emitByte(dest);
+	if (branchDest != -32768)
+		emitBranch(branchDest);
+}
+
 int yylex() {
 	return INTLIT;
 }
 
-void yyerror(const char *msg) {
-	fprintf(stderr,"%s\n",msg);
+void yyerror(const char *fmt,...) {
+	va_list args;
+	va_start(args,fmt);
+	vfprintf(stderr,fmt,args);
+	putc('\n',stderr);
+	va_end(args);
 	exit(1);
 }
