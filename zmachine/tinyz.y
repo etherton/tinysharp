@@ -71,6 +71,7 @@
 			o.type = optype::variable;
 			emit(TOS);
 		}
+		virtual bool isLogical() { return false; }
 	};
 
 	struct expr_binary: public expr {
@@ -102,7 +103,16 @@
 	};
 	struct expr_branch: public expr {
 		expr_branch(bool n) : negated(n) { }
+		static expr_branch * to_branch(expr *e) {
+			if (e->isLogical())
+				return static_cast<expr_branch*>(e);
+			else {
+				yyerror("semantic error, must be boolean expression");
+				return nullptr;
+			}
+		}
 		bool negated;
+		bool isLogical() { return true; }
 	};
 	struct expr_binary_branch: public expr_branch {
 		expr_binary_branch(expr *l,_2op op,bool negated,expr *r) : left(l), opcode(op), right(r), expr_branch(negated) { }
@@ -131,19 +141,16 @@
 		}
 	};
 	struct expr_logical_not: public expr_branch {
-		expr_logical_not(expr *e);
+		expr_logical_not(expr *e) : unary(to_branch(e)), expr_branch(!to_branch(e)->negated) { }
+		expr_branch *unary;
 	};
 	struct expr_logical_and: public expr_branch {
-		expr_logical_and(expr *left,expr *right);
+		expr_logical_and(expr *l,expr *r) : left(to_branch(l)), right(to_branch(r)), expr_branch(false) { }
+		expr_branch *left, *right;
 	};
 	struct expr_logical_or: public expr_branch {
-		expr_logical_or(expr *left,expr *right);
-	};
-	struct expr_literals: public expr {
-		expr_literals(int a) : count(1) { literals[0] = a; }
-		expr_literals(int a,int b) : count(2) { literals[0] = a; literals[1] = b; }
-		expr_literals(int a,int b,int c) : count(3) { literals[0] = a; literals[1] = b; literals[2] = c; }
-		int16_t count, literals[3];
+		expr_logical_or(expr *l,expr *r) : left(to_branch(l)), right(to_branch(r)), expr_branch(false) { }
+		expr_branch *left, *right;
 	};
 	struct expr_grouped: public expr {
 		expr_grouped(expr*a,expr *b,expr *c = nullptr);
