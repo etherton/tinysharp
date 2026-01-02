@@ -23,8 +23,8 @@
 		emitByte(o.value);
 	}
 	void emitBranch(uint16_t target);
-	void emit2op(operand l,_2op op,operand r,int dest = -1);
-	void emit1op(_1op op,operand un,int dest = -1);
+	void emit2op(operand l,_2op op,operand r);
+	void emit1op(_1op op,operand un);
 	const uint8_t TOS = 0, SCRATCH = 4;
 
 	template <typename T> struct list_node {
@@ -82,7 +82,8 @@
 			operand lval, rval;
 			right->eval(rval);
 			left->eval(lval);
-			emit2op(lval,opcode,rval,dest);
+			emit2op(lval,opcode,rval);
+			emitByte(dest);
 		}
 		void eval(operand &o) {
 			o.value = TOS;
@@ -97,7 +98,8 @@
 		void emit(uint8_t dest) {
 			operand uval;
 			unary->eval(uval);
-			emit1op(opcode,uval,dest);
+			emit1op(opcode,uval);
+			emitByte(dest);
 		}
 
 	};
@@ -662,7 +664,7 @@ void set_version(int version) {
 	the_header.version = version;
 }
 
-void emit1op(_1op opcode,operand uval,int dest) {
+void emit1op(_1op opcode,operand uval) {
 	if (uval.type==optype::large_constant)
 		emitByte(0x80 + (uint8_t)opcode);
 	else if (uval.type==optype::small_constant)
@@ -670,11 +672,9 @@ void emit1op(_1op opcode,operand uval,int dest) {
 	else
 		emitByte(0xA0 + (uint8_t)opcode);
 	emitOperand(uval);
-	if (dest != -1)
-		emitByte(dest);
 }
 
-void emit2op(operand lval,_2op opcode,operand rval,int dest) {
+void emit2op(operand lval,_2op opcode,operand rval) {
 	if (lval.type==optype::small_constant && rval.type==optype::small_constant)
 		emitByte((uint8_t)opcode + 0x00);
 	else if (lval.type==optype::small_constant && rval.type==optype::variable)
@@ -689,8 +689,6 @@ void emit2op(operand lval,_2op opcode,operand rval,int dest) {
 	}
 	emitOperand(lval);
 	emitOperand(rval);
-	if (dest != -1)
-		emitByte(dest);
 }
 
 int yylex() {
