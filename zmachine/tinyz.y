@@ -16,6 +16,16 @@
 		int value:30;
 		optype type:2;
 	};
+	uint16_t pc;
+	typedef uint16_t* label;
+	label createLabel();
+	void placeLabel(label);
+	void emitJump(label);
+	label createLabelHere() {
+		auto l = createLabel();
+		placeLabel(l);
+		return l;
+	}
 	static_assert(sizeof(operand)==4);
 	static const uint8_t opsizes[3] = { 2,1,1 };
 	void emitByte(uint8_t b);
@@ -76,6 +86,7 @@
 		virtual bool isLogical() const { return false; }
 		virtual bool isConstant(int &c) const { return false; }
 		virtual unsigned size() const;
+		static expr *fold_constant(expr* e);
 	};
 
 	struct expr_binary: public expr {
@@ -143,8 +154,10 @@
 				return nullptr;
 			}
 		}
+		virtual void emitBranch(label target,bool negated);
 		bool negated;
 		bool isLogical() { return true; }
+		virtual void emit();
 	};
 	struct expr_binary_branch: public expr_branch {
 		expr_binary_branch(expr *l,_2op op,bool negated,expr *r) : left(l), opcode(op), right(r), expr_branch(negated) { }
@@ -167,6 +180,15 @@
 		}
 		bool isConstant(int &v) const { v = op.value; return true; }
 	};
+	expr* expr::fold_constant(expr *e) {
+			int c;
+			if (e->isConstant(c)) {
+				delete e;
+				return new expr_literal(c);
+			}
+			else
+				return e;
+	}
 	struct expr_variable: public expr_operand {
 		expr_variable(uint8_t v) {
 			op.type = optype::variable;
@@ -177,13 +199,51 @@
 		expr_logical_not(expr *e) : unary(to_branch(e)), expr_branch(!to_branch(e)->negated) { }
 		expr_branch *unary;
 	};
+	// (a and b) or (c and d) { trueStuff; } else { falseStuff; }
+	// jz a,label1
+	// jnz b,ifTrue
+	// label1: jz c,ifFalse
+	// jz d,ifFalse
+	// ifTrue: trueStuff
+	// jump after
+	// ifFalse: falseStuff
+	// after:
+	// not (a and b) -> (not a) OR (not b)
 	struct expr_logical_and: public expr_branch {
 		expr_logical_and(expr *l,expr *r) : left(to_branch(l)), right(to_branch(r)), expr_branch(false) { }
 		expr_branch *left, *right;
+		void emitBranch(label target,bool negated) {
+			// (negated=true) if (a and b) means jz a,target; jz b,target
+			// (negated=true) while (a and b) means jz a,target; jz b,target
+			// (negated=false) repeat ... while (a and b) means jz skip; jnz b,target; skip:
+			if (negated) {	// not (a and b) -> (not a) or (not b)
+				label trueBranch = createLabel();
+				left->emitBranch(trueBranch,true);
+				right->emitBranch(target,false);
+				placeLabel(trueBranch);
+			}
+			else {
+				left->emitBranch(target,false);
+				right->emitBranch(target,false);
+			}
+		}
 	};
 	struct expr_logical_or: public expr_branch {
 		expr_logical_or(expr *l,expr *r) : left(to_branch(l)), right(to_branch(r)), expr_branch(false) { }
 		expr_branch *left, *right;
+		void emitBranch(label target,bool negated) {
+			// if (a or b) means jnz a,skip; jz b,target; skip:
+			if (negated) { // not (a or b) -> (not a) and (not b)
+				left->emitBranch(target,true);
+				right->emitBranch(target,true);
+			}
+			else {
+				label trueBranch = createLabel();
+				left->emitBranch(trueBranch,false);
+				right->emitBranch(target,false);
+				placeLabel(trueBranch);
+			}
+		}
 	};
 	struct expr_grouped: public expr {
 		expr_grouped(expr*a,expr *b,expr *c = nullptr);
@@ -213,6 +273,7 @@
 	struct stmt {
 		virtual void emit();
 		virtual unsigned size() const;
+		virtual bool isReturn() const { return false; }
 	};
 	struct stmts: public stmt {
 		stmts(list_node<stmt*> *s): slist(s) { 
@@ -227,6 +288,12 @@
 				i->car->emit();
 		}
 		unsigned size() const { return tsize; }
+		bool isReturn() const {
+			for (auto i=slist; i; i=i->cdr)
+				if (i->car->isReturn())
+					return true;
+			return false;
+		}
 	};
 	struct stmt_flow: public stmt {
 	};
@@ -236,23 +303,66 @@
 		stmt *ifTrue, *ifFalse;
 		// TODO: if ifTrue is rfalse/rtrue, we just need the non-negated branch to 0/1
 		// TODO: else if ifFalse is rfalse/rtrue, we just need the negated branch to 0/1
+		// TODO: If ifTrue ends in a return, we don't need the jump past false block
 		void emit() {
-			bool shortBranch = (ifTrue->size() < (ifFalse? 60 : 63));
+			label falseBranch = createLabel();
+			cond->emitBranch(falseBranch,true);
+			ifTrue->emit();
+			if (ifFalse) {
+				label skipFalse = createLabel();
+				emitJump(skipFalse);
+				placeLabel(falseBranch);
+				ifFalse->emit();
+				placeLabel(skipFalse);
+			}
+			else
+				placeLabel(falseBranch);
 		}
 		unsigned size() const {
-			bool shortBranch = (ifTrue->size() < (ifFalse? 60 : 63));
+			bool shortBranch = (ifTrue->size() < (ifFalse || ifTrue->isReturn()? 58 : 61));
 			return cond->size() + (shortBranch? 1 : 2) + ifTrue->size() + (ifFalse? 3 + ifFalse->size() : 0);
 		}
 	};
 	struct stmt_while: public stmt_flow {
-		stmt_while(expr *e,stmt *b): cond(e), body(b) { }
-		expr *cond;
+		stmt_while(expr *e,stmt *b): cond(new expr_logical_not(expr_branch::to_branch(e))), body(b) { }
+		expr_branch *cond;
 		stmt *body;
+		void emit() {
+			label falseBranch = createLabel(), top = createLabelHere();
+			cond->emitBranch(falseBranch,true);
+			// TODO: continue and break via a stack
+			body->emit();
+			emitJump(top);
+			placeLabel(falseBranch);
+		}
 	};
 	struct stmt_repeat: public stmt_flow {
-		stmt_repeat(stmt *b,expr *e): body(b), cond(e) { }
+		stmt_repeat(stmt *b,expr *e): body(b), cond(expr_branch::to_branch(e)) { }
 		stmt *body;
-		expr *cond;
+		expr_branch *cond;
+		void emit() {
+			auto trueBranch = createLabelHere();
+			body->emit();
+			cond->emitBranch(trueBranch,false);
+		}
+	};
+	struct stmt_return: public stmt {
+		stmt_return(expr *e) : value(e) { }
+		expr *value;
+		bool isReturn() const { return true; }
+		void emit() {
+			int c;
+			if (value->isConstant(c) && (c==0||c==1))
+				emitByte((uint8_t)(c==0? _0op::rfalse : _0op::rtrue));
+			else {
+				operand o;
+				value->eval(o);
+				if (o.type == optype::variable && o.value == TOS)
+					emitByte((uint8_t)_0op::ret_popped);
+				else
+					emit1op(_1op::ret,o);
+			}
+		}
 	};
 	struct stmt_1op: public stmt {
 		stmt_1op(_1op op,expr *e) : opcode(op), operand(e) { }
@@ -576,7 +686,7 @@ local
 	;
 
 stmts
-	: stmt stmts	{ $$ = new list_node<stmt*>($1,$2); }
+	: stmt stmts	{ if ($1->isReturn() && $2) yyerror("unreachable code"); $$ = new list_node<stmt*>($1,$2); }
 	| stmt			{ $$ = new list_node<stmt*>($1,nullptr); }
 	;
 
@@ -585,23 +695,16 @@ stmt
 	| REPEAT stmt WHILE cond_expr ';'	{ $$ = new stmt_repeat($2,$4); }
 	| WHILE cond_expr stmt ';'			{ $$ = new stmt_while($2,$3); }
 	| '{' stmts '}'			{ $$ = new stmts($2); }
-	| vname '=' expr ';'	{ $$ = new stmt_assign($1,$3); }
-	| RETURN expr ';'		
-		{
-			int v;
-			if ($2->isConstant(v) && (v==0||v==1))
-				$$ = new stmt_0op(v==0? _0op::rfalse : _0op::rtrue);
-			else
-				$$ = new stmt_1op(_1op::ret,$2); 
-		}
-	| RFALSE ';'			{ $$ = new stmt_0op(_0op::rfalse); }
-	| RTRUE ';'				{ $$ = new stmt_0op(_0op::rtrue); }
+	| vname '=' expr ';'	{ $$ = new stmt_assign($1,expr::fold_constant($3)); }
+	| RETURN expr ';'		{ $$ = new stmt_return(expr::fold_constant($2)); }
+	| RFALSE ';'			{ $$ = new stmt_return(new expr_literal(0)); }
+	| RTRUE ';'				{ $$ = new stmt_return(new expr_literal(1)); }
 	| CALL expr opt_call_args ';'	{ $$ = new stmt_call(new list_node<expr*>($2,$3));  }
 	| RNAME opt_call_args ';'		{ $$ = new stmt_call(new list_node<expr*>(new expr_literal($1),$2)); }
 	; 
 	
 opt_else
-	:				{ $$ = nullptr; }
+	:			{ $$ = nullptr; }
 	| ELSE stmt	{ $$ = $2; }
 	;
 
@@ -704,8 +807,6 @@ void init() {
 	rw["get_sibling"] = GET_SIBLING;
 	rw["get_child"] = GET_CHILD;
 
-	f_0op["rfalse"] = _0op::rfalse;
-	f_0op["rtrue"] = _0op::rtrue;
 	f_0op["restart"] = _0op::restart;
 	f_0op["quit"] = _0op::quit;
 	f_0op["crlf"] = _0op::new_line;
