@@ -5,8 +5,8 @@
 	#include <set>
 	#include <map>
 
-	void open_scope();
-	void close_scope();
+	void open_scope() { }
+	void close_scope() { }
 	int yylex();
 	void yyerror(const char*,...);
 	int encode_string(const char*);
@@ -16,19 +16,16 @@
 		int value:30;
 		optype type:2;
 	};
-	uint16_t pc;
-	typedef uint16_t* label;
-	label createLabel();
-	void placeLabel(label);
-	void emitJump(label);
-	label createLabelHere() {
-		auto l = createLabel();
-		placeLabel(l);
-		return l;
-	}
+
 	static_assert(sizeof(operand)==4);
 	static const uint8_t opsizes[3] = { 2,1,1 };
-	void emitByte(uint8_t b);
+
+	uint8_t *currentRoutine;
+	uint16_t pc;
+	void emitByte(uint8_t b) {
+		currentRoutine[pc++] = b;
+	}
+
 	void emitOperand(operand o) {
 		if (o.type==optype::large_constant)
 			emitByte(o.value >> 8);
@@ -44,6 +41,48 @@
 		T car;
 		list_node<T> *cdr;
 	};
+
+
+	typedef struct label_info {
+		uint16_t offset;
+		list_node<uint16_t> *references;
+	} *label;
+	label createLabel() {
+		label result = new label_info;
+		result->offset = 0xFFFF;
+		result->references = nullptr;
+		return result;
+	}
+	void placeLabel(label l) {
+		l->offset = pc;
+		for (auto i=l->references; i; i=i->cdr) {
+			int16_t delta = (i->car - pc + 2);
+			if (currentRoutine[i->car])
+				currentRoutine[i->car] |= (delta >> 8) & 63;
+			else
+				currentRoutine[i->car] = (delta >> 8);
+			currentRoutine[i->car + 1] = delta;
+		}
+	}
+	void emitJump(label l) {
+		emitByte((uint8_t)_1op::jump + 0x80);
+		if (l->offset != 0xFFFF) {
+			int16_t delta = l->offset - pc + 2;
+			emitByte(delta >> 8);
+			emitByte(delta);
+		}
+		else {
+			l->references = new list_node<uint16_t>(pc,l->references);
+			emitByte(0);
+			emitByte(0);
+		}
+	}
+	label createLabelHere() {
+		auto l = createLabel();
+		placeLabel(l);
+		return l;
+	}
+
 	struct symbol {
 		const char *name;
 		int16_t token;	// if zero, it's a NEWSYM
@@ -85,12 +124,12 @@
 		}
 		virtual bool isLogical() const { return false; }
 		virtual bool isConstant(int &c) const { return false; }
-		virtual unsigned size() const;
+		// virtual unsigned size() const;
 		static expr *fold_constant(expr* e);
 	};
 
 	struct expr_binary: public expr {
-		expr_binary(expr *l,_2op op,expr *r);
+		expr_binary(expr *l,_2op op,expr *r) : left(l), opcode(op), right(r) { }
 		expr *left, *right;
 		_2op opcode;
 		void emit(uint8_t dest) {
@@ -106,7 +145,7 @@
 			o.type = optype::variable;
 			emit(TOS);
 		}
-		unsigned size() const {
+		/* unsigned size() const {
 			operand lval, rval;
 			right->eval(rval);
 			left->eval(lval);
@@ -115,7 +154,7 @@
 				return 2 + opsizes[(uint8_t)rval.type] + opsizes[(uint8_t)lval.type];
 			else	// if neither is large_constant then size must be 3
 				return 3;
-		}
+		} */
 	};
 	#define IMPL_EXPR_BINARY(zop,cop) struct expr_binary_##zop: public expr_binary { \
 		expr_binary_##zop(expr *l,expr *r) : expr_binary(l,_2op::zop,r) { } \
@@ -129,7 +168,7 @@
 	IMPL_EXPR_BINARY(and_,&);
 	IMPL_EXPR_BINARY(or_,|);
 	struct expr_unary: public expr {
-		expr_unary(_1op op,expr *e);
+		expr_unary(_1op op,expr *e) : opcode(op), unary(e) { } 
 		expr *unary;
 		_1op opcode;
 		void emit(uint8_t dest) {
@@ -138,11 +177,11 @@
 			emit1op(opcode,uval);
 			emitByte(dest);
 		}
-		unsigned size() const {
+		/* unsigned size() const {
 			operand uval;
 			unary->eval(uval);
 			return 1 + opsizes[(uint8_t)uval.type];
-		}
+		} */
 	};
 	struct expr_branch: public expr {
 		expr_branch(bool n) : negated(n) { }
@@ -154,18 +193,48 @@
 				return nullptr;
 			}
 		}
-		virtual void emitBranch(label target,bool negated);
+		void emit() {
+			// shouldn't be called.
+		}
+		virtual void emitBranch(label target,bool n) {
+			if (negated)
+				n = !n;
+			if (target->offset != 0xFFFF) {
+				int16_t delta = target->offset - pc + 2;
+				emitByte((n? 0xC0 : 0x040) | ((delta >> 8) & 63));
+				emitByte(delta);
+			}
+			else {
+				emitByte(n? 0xC0 : 0x40);
+				emitByte(0);
+				target->references = new list_node<uint16_t>(pc,target->references);
+			}
+		}
 		bool negated;
 		bool isLogical() { return true; }
-		virtual void emit();
 	};
 	struct expr_binary_branch: public expr_branch {
 		expr_binary_branch(expr *l,_2op op,bool negated,expr *r) : left(l), opcode(op), right(r), expr_branch(negated) { }
 		_2op opcode;
 		expr *left, *right;
+		void emitBranch(label target,bool negated) {
+			operand lval, rval;
+			right->eval(rval);
+			left->eval(lval);
+			emit2op(lval,opcode,rval);
+			expr_branch::emitBranch(target,negated);
+		}
 	};
 	struct expr_unary_branch: public expr_branch {
-		expr_unary_branch(_1op op,bool negated,expr *e);
+		expr_unary_branch(_1op op,bool negated,expr *e) : opcode(op), unary(e), expr_branch(negated) { }
+		_1op opcode;
+		expr *unary;
+		void emitBranch(label target,bool negated) {
+			operand un;
+			unary->eval(un);
+			emit1op(opcode,un);
+			expr_branch::emitBranch(target,negated);
+		}
 	};
 	struct expr_operand: public expr {
 		operand op;
@@ -198,6 +267,9 @@
 	struct expr_logical_not: public expr_branch {
 		expr_logical_not(expr *e) : unary(to_branch(e)), expr_branch(!to_branch(e)->negated) { }
 		expr_branch *unary;
+		void emitBranch(label target,bool negated) {
+			unary->emitBranch(target,negated);
+		}
 	};
 	// (a and b) or (c and d) { trueStuff; } else { falseStuff; }
 	// jz a,label1
@@ -246,7 +318,8 @@
 		}
 	};
 	struct expr_grouped: public expr {
-		expr_grouped(expr*a,expr *b,expr *c = nullptr);
+		expr_grouped(expr*a,expr *b,expr *c = nullptr) { exprs[0] = a; exprs[1] = b; exprs[2] = c; }
+		expr *exprs[3];
 	};
 	struct expr_call: public expr { // first arg is func address
 		expr_call(list_node<expr*> *a) : args(a) { }
@@ -271,23 +344,23 @@
 		return result;
 	}
 	struct stmt {
-		virtual void emit();
-		virtual unsigned size() const;
+		virtual void emit() = 0;
+		// virtual unsigned size() const;
 		virtual bool isReturn() const { return false; }
 	};
 	struct stmts: public stmt {
 		stmts(list_node<stmt*> *s): slist(s) { 
-			tsize = 0;
+			/* tsize = 0;
 			for (auto i=slist; i; i=i->cdr)
-				tsize += i->car->size();
+				tsize += i->car->size(); */
 		}
 		list_node<stmt*> *slist;
-		unsigned tsize;
+		// unsigned tsize;
 		void emit() {
 			for (auto i=slist; i; i=i->cdr)
 				i->car->emit();
 		}
-		unsigned size() const { return tsize; }
+		// unsigned size() const { return tsize; }
 		bool isReturn() const {
 			for (auto i=slist; i; i=i->cdr)
 				if (i->car->isReturn())
@@ -318,10 +391,10 @@
 			else
 				placeLabel(falseBranch);
 		}
-		unsigned size() const {
+		/* unsigned size() const {
 			bool shortBranch = (ifTrue->size() < (ifFalse || ifTrue->isReturn()? 58 : 61));
 			return cond->size() + (shortBranch? 1 : 2) + ifTrue->size() + (ifFalse? 3 + ifFalse->size() : 0);
-		}
+		} */
 	};
 	struct stmt_while: public stmt_flow {
 		stmt_while(expr *e,stmt *b): cond(new expr_logical_not(expr_branch::to_branch(e))), body(b) { }
@@ -368,16 +441,16 @@
 		stmt_1op(_1op op,expr *e) : opcode(op), operand(e) { }
 		_1op opcode;
 		expr *operand;
-		unsigned size() const {
+		/* unsigned size() const {
 			return operand->size() + 1;
-		}
+		} */
 	};	
 	struct stmt_0op: public stmt {
 		stmt_0op(_0op op) : opcode(op) { }
 		_0op opcode;
-		unsigned size() const {
+		/* unsigned size() const {
 			return 1;
-		}
+		} */
 	};
 	struct stmt_assign: public stmt {
 		stmt_assign(uint8_t d,expr *e) : dest(d), value(e) { }
@@ -386,9 +459,9 @@
 		void emit() {
 			value->emit(dest);
 		}
-		unsigned size() const {
+		/* unsigned size() const {
 			return value->size() + 1;
-		}
+		} */
 	};
 	struct stmt_call: public stmt {
 		stmt_call(list_node<expr*> *a) : call(a) { }
@@ -404,7 +477,19 @@
 			// emitOpcode(_op0::print_ret);
 		}
 	};
-	int16_t emit_routine(int numLocals,stmt *body);
+	int16_t emit_routine(int numLocals,stmt *body) {
+		currentRoutine = new uint8_t[1024];
+		pc = 0;
+		currentRoutine[0] = numLocals;
+		if (the_header.version < 5) {
+			while (numLocals--) { 
+				emitByte(0); 
+				emitByte(0); 
+			}
+		}
+		body->emit();
+		return 0;
+	}
 %}
 
 %union {
