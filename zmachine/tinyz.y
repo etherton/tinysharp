@@ -4,6 +4,7 @@
 	#include "header.h"
 	#include <set>
 	#include <map>
+	#include <cassert>
 
 	void open_scope() { }
 	void close_scope() { }
@@ -862,6 +863,55 @@ std::map<const char*,int16_t> rw;
 std::map<const char*,_0op> f_0op;
 std::map<const char*,_1op> f_1op;
 
+static uint8_t s_EncodedCharacters[256];
+
+uint16_t encode_string(uint8_t *dest,const char *src,size_t length) {
+	uint16_t offset = 0, step = 0;
+	auto storeCode = [&](uint8_t code) {
+		assert(code<32);
+		if (step==0) {
+			step = 1;
+			if (dest)
+				 dest[offset] = code << 2;
+		}
+		else if (step==1) {
+			step = 2;
+			if (dest) {
+				dest[offset] |= code >> 3;
+				dest[offset+1] = code << 5;
+			}
+		}
+		else {	/* step==2 */
+			step = 0;
+			if (dest)
+				dest[offset+1] |= code;
+			offset += 2;
+		}
+	};
+	while (length--) {
+		uint8_t code = s_EncodedCharacters[*src++];
+		if (code == 255) {
+			storeCode(5);
+			storeCode(6);
+			storeCode(src[-1]>>5);
+			storeCode(src[-1]&31);
+		}
+		else {
+			if (code > 31)
+				storeCode(code >> 5);
+			storeCode(code & 31);
+		}
+	}
+	// pad with shift characters
+	if (step) {
+		storeCode(5);
+		if (step)
+			storeCode(5);
+	}
+	if (dest)
+		dest[offset-2] |= 0x80; // mark end of string
+	return offset;
+}
 
 void init() {
 	rw["attribute"] = ATTRIBUTE;
@@ -902,6 +952,27 @@ void init() {
 	f_1op["print_paddr"] = _1op::print_paddr;
 	f_1op["remove_obj"] = _1op::remove_obj;
 	f_1op["print_obj"] = _1op::print_obj;
+
+	// build the forward mapping
+	const char *alphabet = DEFAULT_ZSCII_ALPHABET;
+	memset(s_EncodedCharacters,0xFF,sizeof(s_EncodedCharacters));
+	for (uint32_t i=0; i<26; i++) {
+		s_EncodedCharacters[alphabet[i]] = (i + 6);
+		s_EncodedCharacters[alphabet[i+26]] = (4<<5) | (i + 6);
+	}
+	for (uint32_t i=2; i<26; i++)
+		s_EncodedCharacters[alphabet[i+52]] = (5<<5) | (i + 6);
+	s_EncodedCharacters[32] = 0;
+	s_EncodedCharacters[10] = (5 << 5) | 7;
+	// 1,2,3=abbreviations, 4=shift1, 5=shift2
+}
+
+int encode_string(const char *src) {
+	size_t srcLen = strlen(src);
+	uint16_t bytes = encode_string(nullptr,src,srcLen);
+	uint8_t *dest = new uint8_t[bytes];
+	encode_string(dest,src,srcLen);
+	return 0; // TODO
 }
 
 void set_version(int version) {
@@ -951,4 +1022,9 @@ void yyerror(const char *fmt,...) {
 	putc('\n',stderr);
 	va_end(args);
 	exit(1);
+}
+
+int main(int argc,char **argv) {
+	init();
+	yyparse();
 }
