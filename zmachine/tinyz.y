@@ -10,6 +10,7 @@
 	void close_scope() { }
 	int yylex();
 	void yyerror(const char*,...);
+	uint16_t encode_string(uint8_t *dest,const char *src,size_t length);
 	int encode_string(const char*);
 	uint8_t next_global, next_local, story_shift = 1;
 	storyHeader the_header;
@@ -20,6 +21,8 @@
 
 	static_assert(sizeof(operand)==4);
 	static const uint8_t opsizes[3] = { 2,1,1 };
+	const uint8_t LONG_JUMP = 0x8C;			// +/-32767
+	const uint8_t SHORT_JUMP = 0x9C;		// 0-255
 
 	uint8_t *currentRoutine;
 	uint16_t pc;
@@ -32,7 +35,7 @@
 			emitByte(o.value >> 8);
 		emitByte(o.value);
 	}
-	void emitBranch(uint16_t target);
+	// void emitBranch(uint16_t target);
 	void emit2op(operand l,_2op op,operand r);
 	void emit1op(_1op op,operand un);
 	const uint8_t TOS = 0, SCRATCH = 4;
@@ -66,7 +69,7 @@
 		}
 	}
 	void emitJump(label l) {
-		emitByte((uint8_t)_1op::jump + 0x80);
+		emitByte(LONG_JUMP);
 		if (l->offset != 0xFFFF) {
 			int16_t delta = l->offset - pc + 2;
 			emitByte(delta >> 8);
@@ -105,7 +108,7 @@
 	} *cdef;
 
 	struct dict_entry {
-		uint16_t encoded[3];		// 6 letters for V3, 9 letters for V4+
+		uint8_t encoded[6];		// 6 letters for V3, 9 letters for V4+
 		uint8_t payload;
 	};
 	std::set<dict_entry> dictionary;
@@ -125,7 +128,7 @@
 		}
 		virtual bool isLogical() const { return false; }
 		virtual bool isConstant(int &c) const { return false; }
-		// virtual unsigned size() const;
+		virtual unsigned size() const { return 0; } // TODO = 0
 		static expr *fold_constant(expr* e);
 	};
 
@@ -146,7 +149,8 @@
 			o.type = optype::variable;
 			emit(TOS);
 		}
-		/* unsigned size() const {
+		unsigned size() const {
+			// TODO: need to rewind pc after eval
 			operand lval, rval;
 			right->eval(rval);
 			left->eval(lval);
@@ -155,7 +159,7 @@
 				return 2 + opsizes[(uint8_t)rval.type] + opsizes[(uint8_t)lval.type];
 			else	// if neither is large_constant then size must be 3
 				return 3;
-		} */
+		}
 	};
 	#define IMPL_EXPR_BINARY(zop,cop) struct expr_binary_##zop: public expr_binary { \
 		expr_binary_##zop(expr *l,expr *r) : expr_binary(l,_2op::zop,r) { } \
@@ -178,11 +182,11 @@
 			emit1op(opcode,uval);
 			emitByte(dest);
 		}
-		/* unsigned size() const {
+		unsigned size() const {
 			operand uval;
 			unary->eval(uval);
 			return 1 + opsizes[(uint8_t)uval.type];
-		} */
+		}
 	};
 	struct expr_branch: public expr {
 		expr_branch(bool n) : negated(n) { }
@@ -325,6 +329,8 @@
 	struct expr_call: public expr { // first arg is func address
 		expr_call(list_node<expr*> *a) : args(a) { }
 		list_node<expr*> *args;
+		// TODO: v3 only supports VAR call (3 params). v4 supports 1/2 operand with result and 7 params.
+		// v5 supports implicit pop versions of all calls
 	};
 	struct expr_save: public expr_branch {
 		expr_save() : expr_branch(false) { }
@@ -346,22 +352,22 @@
 	}
 	struct stmt {
 		virtual void emit() = 0;
-		// virtual unsigned size() const;
+		virtual unsigned size() const = 0;
 		virtual bool isReturn() const { return false; }
 	};
 	struct stmts: public stmt {
 		stmts(list_node<stmt*> *s): slist(s) { 
-			/* tsize = 0;
+			tsize = 0;
 			for (auto i=slist; i; i=i->cdr)
-				tsize += i->car->size(); */
+				tsize += i->car->size();
 		}
 		list_node<stmt*> *slist;
-		// unsigned tsize;
+		unsigned tsize;
 		void emit() {
 			for (auto i=slist; i; i=i->cdr)
 				i->car->emit();
 		}
-		// unsigned size() const { return tsize; }
+		unsigned size() const { return tsize; }
 		bool isReturn() const {
 			for (auto i=slist; i; i=i->cdr)
 				if (i->car->isReturn())
@@ -392,10 +398,10 @@
 			else
 				placeLabel(falseBranch);
 		}
-		/* unsigned size() const {
+		unsigned size() const {
 			bool shortBranch = (ifTrue->size() < (ifFalse || ifTrue->isReturn()? 58 : 61));
 			return cond->size() + (shortBranch? 1 : 2) + ifTrue->size() + (ifFalse? 3 + ifFalse->size() : 0);
-		} */
+		}
 	};
 	struct stmt_while: public stmt_flow {
 		stmt_while(expr *e,stmt *b): cond(new expr_logical_not(expr_branch::to_branch(e))), body(b) { }
@@ -409,6 +415,9 @@
 			emitJump(top);
 			placeLabel(falseBranch);
 		}
+		unsigned size() const { 
+			return cond->size() + body->size() + 3; 
+		}
 	};
 	struct stmt_repeat: public stmt_flow {
 		stmt_repeat(stmt *b,expr *e): body(b), cond(expr_branch::to_branch(e)) { }
@@ -418,6 +427,9 @@
 			auto trueBranch = createLabelHere();
 			body->emit();
 			cond->emitBranch(trueBranch,false);
+		}
+		unsigned size() const { 
+			return cond->size() + body->size(); 
 		}
 	};
 	struct stmt_return: public stmt {
@@ -437,21 +449,39 @@
 					emit1op(_1op::ret,o);
 			}
 		}
+		unsigned size() const { 
+			int c;
+			if (value->isConstant(c)) {
+				if (c==0||c==1)
+					return 1;
+				else if (c > 1 && c <= 255)
+					return 2;
+			}
+			return 3;
+		}
 	};
 	struct stmt_1op: public stmt {
-		stmt_1op(_1op op,expr *e) : opcode(op), operand(e) { }
+		stmt_1op(_1op op,expr *e) : opcode(op), value(e) { }
 		_1op opcode;
-		expr *operand;
-		/* unsigned size() const {
-			return operand->size() + 1;
-		} */
+		expr *value;
+		void emit() {
+			operand o;
+			value->eval(o);
+			emit1op(opcode,o);
+		}
+		unsigned size() const {
+			return value->size() + 1;
+		}
 	};	
 	struct stmt_0op: public stmt {
 		stmt_0op(_0op op) : opcode(op) { }
 		_0op opcode;
-		/* unsigned size() const {
+		void emit() {
+			emitByte((uint8_t)opcode);
+		}
+		unsigned size() const {
 			return 1;
-		} */
+		}
 	};
 	struct stmt_assign: public stmt {
 		stmt_assign(uint8_t d,expr *e) : dest(d), value(e) { }
@@ -460,14 +490,19 @@
 		void emit() {
 			value->emit(dest);
 		}
-		/* unsigned size() const {
+		unsigned size() const {
 			return value->size() + 1;
-		} */
+		}
 	};
 	struct stmt_call: public stmt {
 		stmt_call(list_node<expr*> *a) : call(a) { }
 		void emit() {
+			// Call as a statement dumps result to a global
+			// (alternative is dump to TOS and emit a pop, but this is shorter)
 			call.emit(SCRATCH);
+		}
+		unsigned size() const {
+			return call.size();
 		}
 		expr_call call;
 	};
@@ -475,7 +510,11 @@
 		stmt_print_ret(const char *s) : string(s) { }
 		const char *string;
 		void emit() {
-			// emitOpcode(_op0::print_ret);
+			emitByte((uint8_t)_0op::print_ret);
+			pc += encode_string(currentRoutine + pc,string,strlen(string));
+		}
+		unsigned size() const {
+			return 1 + encode_string(nullptr,string,strlen(string));
 		}
 	};
 	int16_t emit_routine(int numLocals,stmt *body) {
@@ -506,6 +545,8 @@
 	pvalue pval;
 	list_node<stmt*> *stlist;
 	stmt *stval;
+	_0op zeroOp;
+	_1op oneOp;
 }
 
 %token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT
@@ -518,10 +559,12 @@
 %token WHILE REPEAT IF ELSE
 %token LE "<=" GE ">=" EQ "==" NE "!="
 %token DEC_CHK "--<" INC_CHK "++>"
-%token GET_SIBLING GET_CHILD SAVE RESTORE
+%token GET_SIBLING GET_CHILD GET_PARENT SAVE RESTORE
 // %token LSH "<<" RSH ">>"
 %token RFALSE RTRUE RETURN
 %token OR AND NOT
+%token <zeroOp> STMT_0OP
+%token <oneOp> STMT_1OP
 
 %right '~' NOT
 %left '*' '/' '%'
@@ -787,6 +830,8 @@ stmt
 	| RTRUE ';'				{ $$ = new stmt_return(new expr_literal(1)); }
 	| CALL expr opt_call_args ';'	{ $$ = new stmt_call(new list_node<expr*>($2,$3));  }
 	| RNAME opt_call_args ';'		{ $$ = new stmt_call(new list_node<expr*>(new expr_literal($1),$2)); }
+	| STMT_0OP ';'					{ $$ = new stmt_0op($1); }
+	| STMT_1OP '(' expr ')' ';'		{ $$ = new stmt_1op($1,$3); }
 	; 
 	
 opt_else
@@ -941,13 +986,14 @@ void init() {
 	rw["restore"] = RESTORE;
 	rw["get_sibling"] = GET_SIBLING;
 	rw["get_child"] = GET_CHILD;
+	rw["get_parent"] = GET_PARENT;
 
 	f_0op["restart"] = _0op::restart;
 	f_0op["quit"] = _0op::quit;
 	f_0op["crlf"] = _0op::new_line;
 	f_0op["show_status"] = _0op::show_status;
 
-	f_1op["get_parent"] = _1op::get_parent;
+	// f_1op["get_parent"] = _1op::get_parent;
 	f_1op["print_addr"] = _1op::print_addr;
 	f_1op["print_paddr"] = _1op::print_paddr;
 	f_1op["remove_obj"] = _1op::remove_obj;
