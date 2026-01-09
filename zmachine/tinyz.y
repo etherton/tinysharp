@@ -1,4 +1,6 @@
 /* tinyz.y */
+/* bison tinyz.y -o tinyz.tab.cpp && clang++ -std=c++17 tinyz.tab.cpp */
+
 %{
 	#include "opcodes.h"
 	#include "header.h"
@@ -10,7 +12,7 @@
 	void close_scope() { }
 	int yylex();
 	void yyerror(const char*,...);
-	uint16_t encode_string(uint8_t *dest,const char *src,size_t length);
+	uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize);
 	int encode_string(const char*);
 	uint8_t next_global, next_local, story_shift = 1;
 	storyHeader the_header;
@@ -511,10 +513,10 @@
 		const char *string;
 		void emit() {
 			emitByte((uint8_t)_0op::print_ret);
-			pc += encode_string(currentRoutine + pc,string,strlen(string));
+			pc += encode_string(currentRoutine + pc,1024-pc,string,strlen(string));
 		}
 		unsigned size() const {
-			return 1 + encode_string(nullptr,string,strlen(string));
+			return 1 + encode_string(nullptr,1024-pc,string,strlen(string));
 		}
 	};
 	int16_t emit_routine(int numLocals,stmt *body) {
@@ -560,7 +562,8 @@
 %token LE "<=" GE ">=" EQ "==" NE "!="
 %token DEC_CHK "--<" INC_CHK "++>"
 %token GET_SIBLING GET_CHILD GET_PARENT SAVE RESTORE
-// %token LSH "<<" RSH ">>"
+%token LSH "<<" RSH ">>"
+%token ARROW "->"
 %token RFALSE RTRUE RETURN
 %token OR AND NOT
 %token <zeroOp> STMT_0OP
@@ -910,8 +913,9 @@ std::map<const char*,_1op> f_1op;
 
 static uint8_t s_EncodedCharacters[256];
 
-uint16_t encode_string(uint8_t *dest,const char *src,size_t length) {
+uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize) {
 	uint16_t offset = 0, step = 0;
+	assert((destSize & 1) == 0);
 	auto storeCode = [&](uint8_t code) {
 		assert(code<32);
 		if (step==0) {
@@ -933,7 +937,7 @@ uint16_t encode_string(uint8_t *dest,const char *src,size_t length) {
 			offset += 2;
 		}
 	};
-	while (length--) {
+	while (srcSize-- && (!destSize || offset < destSize)) {
 		uint8_t code = s_EncodedCharacters[*src++];
 		if (code == 255) {
 			storeCode(5);
@@ -1015,9 +1019,9 @@ void init() {
 
 int encode_string(const char *src) {
 	size_t srcLen = strlen(src);
-	uint16_t bytes = encode_string(nullptr,src,srcLen);
+	uint16_t bytes = encode_string(nullptr,0,src,srcLen);
 	uint8_t *dest = new uint8_t[bytes];
-	encode_string(dest,src,srcLen);
+	encode_string(dest,0,src,srcLen);
 	return 0; // TODO
 }
 
@@ -1057,8 +1061,116 @@ void emit2op(operand lval,_2op opcode,operand rval) {
 	emitOperand(rval);
 }
 
+int yych, yylen;
+char yytoken[32];
+FILE *yyinput;
+inline int yynext() { return getc(yyinput); }
+
 int yylex() {
-	return INTLIT;
+	yylen = 0;
+	while (isspace(yych))
+		yych=yynext();
+
+	if (isalpha(yych)||yych=='#'||yych=='_') {
+		do {
+			if (yylen==sizeof(yytoken)-1)
+				yyerror("token too long");
+			yytoken[yylen++] = yych;
+			yych = yynext();
+		} while (isalnum(yych)||yych=='_');
+		yytoken[yylen] = 0;
+		auto r = rw.find(yytoken);
+		if (r != rw.end())
+			return r->second;
+		auto z = f_0op.find(yytoken);
+		if (z != f_0op.end()) {
+			yylval.zeroOp = z->second;
+			return STMT_0OP;
+		}
+		auto o = f_1op.find(yytoken);
+		if (o != f_1op.end()) {
+			yylval.oneOp = o->second;
+			return STMT_1OP;
+		}
+		// otherwise NEWSYM or FWDREF or existing symbol of specific type
+		return NEWSYM;
+	}
+	else switch(yych) {
+		case '-':
+			yytoken[yylen++] = '-';
+			yych = yynext();
+			if (yych<'0'||yych>'9') {
+				return '-';
+			}
+			[[fallthrough]];
+		case '0': case '1': case '2': case '3': case '4':
+		case '5': case '6': case '7': case '8': case '9':
+			do {
+				yytoken[yylen++] = yych;
+				yych = yynext();
+			} while (yych>='0'&&yych<='9');
+			yytoken[yylen] = 0;
+			yylval.ival = atoi(yytoken);
+			return INTLIT;
+		case '+': case '(': case '[': case ')': case ']':
+		case '~': case '*': case ':': case '.': case '%':
+		case '&': case '|':
+			yytoken[0] = yych;
+			yych = yynext();
+			return yytoken[0];
+		case '=':
+			yych = yynext();
+			if (yych=='=') {
+				yych = yynext();
+				return EQ;
+			}
+			else
+				return '='; 
+		case '<':
+			yych = yynext();
+			if (yych=='<') {
+				yych = yynext();
+				return LSH;
+			}
+			else if (yych=='=') {
+				yych = yynext();
+				return LE;
+			}
+			else if (yych=='>') {
+				yych = yynext();
+				return NE;
+			}
+			else
+				return '<';
+		case '>':
+			yych = yynext();
+			if (yych=='>') {
+				yych = yynext();
+				return RSH;
+			}
+			else if (yych=='=') {
+				yych = yynext();
+				return GE;
+			}
+			else
+				return '>';
+		case '\'':
+			yych = yynext();
+			while (yych != '\'' && yych != EOF) {
+				if (yylen+1==sizeof(yytoken))
+					yyerror("dictionary word way too long");
+				yytoken[yylen++] = tolower(yych);
+				yych = yynext();
+			}
+			yych = yynext();
+			yytoken[yylen] = 0;
+			return DICT;
+		default:
+			yyerror("unknown character %c in input",yych);
+			[[fallthrough]];
+		case EOF:
+			return EOF;
+	}
 }
 
 void yyerror(const char *fmt,...) {
@@ -1072,5 +1184,7 @@ void yyerror(const char *fmt,...) {
 
 int main(int argc,char **argv) {
 	init();
+	yyinput = fopen(argv[1],"r");
+	yych = 32;
 	yyparse();
 }
