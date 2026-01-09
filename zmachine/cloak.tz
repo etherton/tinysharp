@@ -108,6 +108,7 @@ direction w_to 'west' 'w';
 global location;
 global score;
 global turns;
+global scratch;		// fourth global is used as a dummy storage slot for v3 subroutine calls that ignore result.
 global deadflag;
 
 // player is always first at object 1. this also guarantees that
