@@ -148,16 +148,19 @@
 		};
 	};
 	std::map<std::string,symbol> the_globals;
-	std::vector<std::map<std::string,uint8_t>> the_locals;
-	void open_scope() { the_locals.emplace_back(); }
-	void close_scope() { the_locals.pop_back(); }
+	std::vector<std::map<std::string,symbol>*> the_locals;
+	void open_scope() { the_locals.push_back(new std::map<std::string,symbol>()); }
+	void close_scope() { delete the_locals.back(); the_locals.pop_back(); }
 
 	struct object {
 		int16_t child, sibling, parent;
 		uint8_t attributes[6];
-		uint16_t descrLen;
+		uint16_t descrLen, propertySize;
 		uint8_t *descr;
-		uint8_t **properties;
+		union {
+			uint8_t **properties;
+			uint8_t *finalProps;
+		};
 	} *cdef;
 	std::vector<object*> the_object_table;
 	struct dict_entry {
@@ -735,19 +738,45 @@ location_def
 	;
 
 object_or_location_def
-	: 
-	ONAME STRLIT opt_parent '{' {
+	: ONAME STRLIT opt_parent '{' {
 		cdef = the_object_table[$1];
-		cdef->child = cdef->sibling = 0;
+		cdef->child = 0;
 		cdef->parent = $3;
+		if ($3) {
+			cdef->sibling = the_object_table[$3]->child;
+			the_object_table[$3]->child = $1;
+		}
+		else
+			cdef->sibling = 0;
 		cdef->descrLen = encode_string(nullptr,0,$2,strlen($2));
 		cdef->descr = new uint8_t[cdef->descrLen];
 		encode_string(cdef->descr,cdef->descrLen,$2,strlen($2));
 		memset(cdef->attributes,0,sizeof(cdef->attributes));
 		unsigned propCount = the_header.version==3? 32 : 64;
 		cdef->properties = new uint8_t*[propCount];
+		cdef->propertySize = 0;
 		memset(cdef->properties,0,propCount * sizeof(uint8_t*));
-	} property_or_attribute_list '}' ';'
+	} property_or_attribute_list '}' {
+		unsigned finalSize = 1 + cdef->descrLen + cdef->propertySize + 1;
+		uint8_t *finalProps = new uint8_t[finalSize];
+		finalProps[0] = cdef->descrLen>>1;
+		memcpy(finalProps+1, cdef->descr, cdef->descrLen);
+		unsigned propCount = the_header.version==3? 32 : 64;
+		unsigned offset = 1 + cdef->descrLen;
+		while (--propCount) {
+			uint8_t *p = cdef->properties[propCount];
+			if (p) {
+				memcpy(finalProps + offset, p+1, p[0]);
+				offset += p[0];
+				delete[] p;
+			}
+		}
+		finalProps[offset++] = 0;
+		assert(offset == finalSize);
+		delete [] cdef->properties;
+		cdef->finalProps = finalProps;
+		cdef->propertySize = finalSize;
+	} ';'
 	;
 
 opt_parent
@@ -770,6 +799,7 @@ property_or_attribute
 					yyerror("already have this property set");
 				cdef->properties[thisIndex] = $3;
 				property_set_index($3,thisIndex);
+				cdef->propertySize += $3[0];
 			}
 	| ANAME ';'
 			{ 
@@ -843,8 +873,10 @@ params_list
 param
 	:  NEWSYM 
 		{ 
-			if (next_local==3) 
+			if (the_header.version==3 && next_local==3) 
 				yyerror("too many params (limit is 3 for v3)"); 
+			else if (the_header.version>3 && next_local==7)
+				yyerror("too many params (limit is 7 for v4+)");
 			$1->token = LNAME; 
 			$1->ival = next_local++; 
 		}
@@ -1135,6 +1167,7 @@ int yylex() {
 			yych = yynext();
 		} while (isalnum(yych)||yych=='_');
 		yytoken[yylen] = 0;
+		// reserved words and builtin funcs first
 		auto r = rw.find(yytoken);
 		if (r != rw.end())
 			return r->second;
@@ -1148,11 +1181,30 @@ int yylex() {
 			yylval.oneOp = o->second;
 			return STMT_1OP;
 		}
-		// otherwise NEWSYM or existing symbol of specific type
+		// check locals, which take precedence over other symbols
+		if (the_locals.size()) {
+			auto l = the_locals.back()->find(yytoken);
+			if (l != the_locals.back()->end()) {
+				yylval.ival = l->second.ival;
+				return LNAME;
+			}
+		}
+		// finally search globals
+		auto s = the_globals.find(yytoken);
+		if (s != the_globals.end()) {
+			yylval.ival = s->second.ival;
+			return s->second.token;
+		}
+		// otherwise it's a new symbol (do no actual work on first pass)
 		if (yypass==1)
 			return NEWSYM;
-		else
+		else {
+			if (the_locals.size())
+				yylval.sym = &the_locals.back()->operator[](yytoken);
+			else
+				yylval.sym = &the_globals.operator[](yytoken);
 			return NEWSYM;
+		}
 	}
 	else switch(yych) {
 		case '-':
@@ -1259,24 +1311,24 @@ int main(int argc,char **argv) {
 		int nextObject = 1;
 		yych = 32;
 		if (yypass==1) {
-			int t = yylex();
-			if (t == '{')
-				++scope;
-			else if (t == '}')
-				--scope;
-			else if (scope == 0) {
-				if (t == ATTRIBUTE || t == PROPERTY)
-					yylex();	// skip LOCATION/OBJECT/GLOBAL
-				else if (t == OBJECT || t == LOCATION) {
-					if (yylex() != NEWSYM)
-						yyerror("expected object name after 'object' or location'");
-					// declare the object and assign its value
-					the_globals[yytoken] = { (int16_t)t,(int16_t)the_object_table.size() };
-					the_object_table.push_back(new object);
+			int t;
+			while ((t = yylex()) != EOF) {
+				if (t == '{')
+					++scope;
+				else if (t == '}')
+					--scope;
+				else if (scope == 0) {
+					if (t == ATTRIBUTE || t == PROPERTY)
+						yylex();	// skip LOCATION/OBJECT/GLOBAL
+					else if (t == OBJECT || t == LOCATION) {
+						if (yylex() != NEWSYM)
+							yyerror("expected object name after 'object' or location'");
+						// declare the object and assign its value
+						the_globals[yytoken] = { (int16_t)t,(int16_t)the_object_table.size() };
+						the_object_table.push_back(new object {});
+					}
 				}
 			}
-			while (yylex() != -1)
-				;
 			printf("%zu words in dictionary\n",the_dictionary.size());
 			// build the final dictionary, assigning word indices.
 			uint16_t idx = 0;
