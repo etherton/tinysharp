@@ -8,8 +8,6 @@
 	#include <map>
 	#include <cassert>
 
-	void open_scope() { }
-	void close_scope() { }
 	int yylex();
 	void yyerror(const char*,...);
 	uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize);
@@ -90,24 +88,29 @@
 	}
 
 	struct symbol {
-		const char *name;
 		int16_t token;	// if zero, it's a NEWSYM
 		union {
 			int16_t ival;
-			struct object *optr;
+			uint16_t uval;
 		};
 	};
+	std::map<std::string,symbol> the_globals;
+	std::vector<std::map<std::string,uint8_t>> the_locals;
+	void open_scope() { the_locals.emplace_back(); }
+	void close_scope() { the_locals.pop_back(); }
 	struct property {
 		uint8_t index;
 		uint8_t size;
 		uint8_t payload[64];	// can be up to 8 for v3, 64 for v4+
 	};
 	struct object {
-		symbol *child, *sibling, *parent;
-		uint64_t attributes;
-		const char *descr;
+		int16_t child, sibling, parent;
+		uint8_t attributes[6];
+		uint16_t descrLen;
+		uint8_t *descr;
 		list_node<property> *properties;
 	} *cdef;
+	std::vector<object*> the_object_table;
 
 	struct dict_entry {
 		uint8_t encoded[6];		// 6 letters for V3, 9 letters for V4+
@@ -554,7 +557,7 @@
 %token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT
 %token BYTE_ARRAY WORD_ARRAY CALL
 %token <dict> DICT
-%token <ival> ANAME PNAME LNAME GNAME RNAME INTLIT
+%token <ival> ANAME PNAME LNAME GNAME RNAME INTLIT ONAME
 %token <sval> STRLIT
 %token <sym> FWDREF // Can be NEWSYM or existing sym
 %token <sym> NEWSYM
@@ -582,12 +585,11 @@
 %left OR
 
 %type <eval> expr primary aname arg cond_expr
-%type <ival> init routine_body vname
+%type <ival> init routine_body vname opt_parent
 %type <scopeval> scope
 %type <dlist> dict_list;
 %type <ilist> init_list;
 %type <elist> opt_call_args arg_list
-%type <sym> opt_parent
 %type <pval> pvalue
 %type <stval> stmt opt_else
 %type <stlist> stmts
@@ -688,20 +690,22 @@ location_def
 	;
 
 object_or_location_def
-	: NEWSYM STRLIT opt_parent '{' { 
-		cdef = new object; 
-		$1->optr = cdef;
-		cdef->child = cdef->sibling = nullptr;
-		cdef->parent = $3;
-		cdef->descr = $2;
-		cdef->attributes = 0;
-		cdef->properties = nullptr;
+	: 
+	ONAME STRLIT opt_parent '{' {
+		auto &o = *the_object_table[$1];
+		o.child = o.sibling = 0;
+		o.parent = $3;
+		o.descrLen = encode_string(nullptr,0,$2,strlen($2));
+		o.descr = new uint8_t[o.descrLen];
+		encode_string(o.descr,o.descrLen,$2,strlen($2));
+		memset(o.attributes,0,sizeof(o.attributes));
+		o.properties = nullptr;
 	} property_or_attribute_list '}' ';'
 	;
 
 opt_parent
-	: 						{ $$ = nullptr; }
-	| '(' FWDREF ')'		{ $$ = $2; }
+	: 						{ $$ = 0; }
+	| '(' ONAME ')'			{ $$ = $2; }
 	;
 
 property_or_attribute_list
@@ -731,10 +735,9 @@ property_or_attribute
 			{ 
 				if (!($1 & expected_scope)) 
 					yyerror("wrong type of attribute"); 
-				uint64_t mask = 1ULL << ($1 & 63);
-				if (cdef->attributes & mask)
+				if (cdef->attributes[$1>>3] & (0x80 >> ($1 & 7)))
 					yyerror("already have this attribute set");
-				cdef->attributes |= mask;
+				cdef->attributes[$1>>3] |= (0x80 >> ($1 & 7));
 			}
 	;
 
@@ -1015,6 +1018,8 @@ void init() {
 	s_EncodedCharacters[32] = 0;
 	s_EncodedCharacters[10] = (5 << 5) | 7;
 	// 1,2,3=abbreviations, 4=shift1, 5=shift2
+
+	the_object_table.push_back(nullptr);	// object zero doesn't exist
 }
 
 int encode_string(const char *src) {
@@ -1061,7 +1066,7 @@ void emit2op(operand lval,_2op opcode,operand rval) {
 	emitOperand(rval);
 }
 
-int yych, yylen;
+int yych, yylen, yypass;
 char yytoken[32];
 FILE *yyinput;
 inline int yynext() { return getc(yyinput); }
@@ -1093,7 +1098,10 @@ int yylex() {
 			return STMT_1OP;
 		}
 		// otherwise NEWSYM or FWDREF or existing symbol of specific type
-		return NEWSYM;
+		if (yypass==1)
+			return NEWSYM;
+		else
+			return NEWSYM;
 	}
 	else switch(yych) {
 		case '-':
@@ -1184,7 +1192,33 @@ void yyerror(const char *fmt,...) {
 
 int main(int argc,char **argv) {
 	init();
-	yyinput = fopen(argv[1],"r");
-	yych = 32;
-	yyparse();
+	for (yypass=1; yypass<=2; yypass++) {
+		yyinput = fopen(argv[1],"r");
+		int scope = 0;
+		int nextObject = 1;
+		yych = 32;
+		if (yypass==1) {
+			int t = yylex();
+			if (t == '{')
+				++scope;
+			else if (t == '}')
+				--scope;
+			else if (scope == 0) {
+				if (t == ATTRIBUTE || t == PROPERTY)
+					yylex();	// skip LOCATION/OBJECT/GLOBAL
+				else if (t == OBJECT || t == LOCATION) {
+					if (yylex() != NEWSYM)
+						yyerror("expected object name after 'object' or location'");\
+					// declare the object and assign its value
+					the_globals[yytoken] = { (int16_t)t,(int16_t)the_object_table.size() };
+					the_object_table.push_back(new object);
+				}
+			}
+			while (yylex() != -1)
+				;
+		}
+		else
+			yyparse();
+		fclose(yyinput);
+	}
 }
