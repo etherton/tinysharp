@@ -55,6 +55,7 @@
 		}
 	}
 	void property_set_index(uint8_t *p,uint8_t idx) {
+		assert(idx && idx < (the_header.version==3? 32 : 64));
 		p[1] |= idx;
 	}
 	uint8_t property_get_index(uint8_t *p) {
@@ -150,17 +151,13 @@
 	std::vector<std::map<std::string,uint8_t>> the_locals;
 	void open_scope() { the_locals.emplace_back(); }
 	void close_scope() { the_locals.pop_back(); }
-	struct property {
-		uint8_t index;
-		uint8_t size;
-		uint8_t payload[64];	// can be up to 8 for v3, 64 for v4+
-	};
+
 	struct object {
 		int16_t child, sibling, parent;
 		uint8_t attributes[6];
 		uint16_t descrLen;
 		uint8_t *descr;
-		list_node<property> *properties;
+		uint8_t **properties;
 	} *cdef;
 	std::vector<object*> the_object_table;
 	struct dict_entry {
@@ -606,11 +603,10 @@
 %token BYTE_ARRAY WORD_ARRAY CALL
 %token <ival> DICT ANAME PNAME LNAME GNAME RNAME INTLIT ONAME
 %token <sval> STRLIT
-%token <sym> FWDREF // Can be NEWSYM or existing sym
 %token <sym> NEWSYM
 %token WHILE REPEAT IF ELSE
 %token LE "<=" GE ">=" EQ "==" NE "!="
-%token DEC_CHK "--<" INC_CHK "++>"
+// %token DEC_CHK "--<" INC_CHK "++>"
 %token GET_SIBLING GET_CHILD GET_PARENT SAVE RESTORE
 %token LSH "<<" RSH ">>"
 %token ARROW "->"
@@ -741,14 +737,16 @@ location_def
 object_or_location_def
 	: 
 	ONAME STRLIT opt_parent '{' {
-		auto &o = *the_object_table[$1];
-		o.child = o.sibling = 0;
-		o.parent = $3;
-		o.descrLen = encode_string(nullptr,0,$2,strlen($2));
-		o.descr = new uint8_t[o.descrLen];
-		encode_string(o.descr,o.descrLen,$2,strlen($2));
-		memset(o.attributes,0,sizeof(o.attributes));
-		o.properties = nullptr;
+		cdef = the_object_table[$1];
+		cdef->child = cdef->sibling = 0;
+		cdef->parent = $3;
+		cdef->descrLen = encode_string(nullptr,0,$2,strlen($2));
+		cdef->descr = new uint8_t[cdef->descrLen];
+		encode_string(cdef->descr,cdef->descrLen,$2,strlen($2));
+		memset(cdef->attributes,0,sizeof(cdef->attributes));
+		unsigned propCount = the_header.version==3? 32 : 64;
+		cdef->properties = new uint8_t*[propCount];
+		memset(cdef->properties,0,propCount * sizeof(uint8_t*));
 	} property_or_attribute_list '}' ';'
 	;
 
@@ -768,17 +766,10 @@ property_or_attribute
 				if (!($1 & expected_scope))
 					yyerror("wrong type of property"); 
 				uint8_t thisIndex = $1 & 63;
-				for (auto p = cdef->properties; p; p=p->cdr)
-					if (p->car.index == thisIndex)
-						yyerror("already have this property set");
-				list_node<property> **pPrev = &cdef->properties;
-				// properties are kept in descending order
-				while (*pPrev && (*pPrev)->car.index < thisIndex)
-					pPrev = &((*pPrev)->cdr);
-				list_node<property> *newNode = new list_node<property>({},*pPrev);
-				*pPrev = newNode;
-				/* newNode->car.index = thisIndex;
-				newNode->car.size =  */
+				if (cdef->properties[thisIndex])
+					yyerror("already have this property set");
+				cdef->properties[thisIndex] = $3;
+				property_set_index($3,thisIndex);
 			}
 	| ANAME ';'
 			{ 
@@ -1157,7 +1148,7 @@ int yylex() {
 			yylval.oneOp = o->second;
 			return STMT_1OP;
 		}
-		// otherwise NEWSYM or FWDREF or existing symbol of specific type
+		// otherwise NEWSYM or existing symbol of specific type
 		if (yypass==1)
 			return NEWSYM;
 		else
