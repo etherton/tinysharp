@@ -13,7 +13,7 @@
 	uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize);
 	int encode_string(const char*);
 	uint8_t next_global, next_local, story_shift = 1, dict_entry_size = 4;
-	storyHeader the_header;
+	storyHeader the_header = { 3 };
 	struct operand { // 0=long, 1=small, variable=2, omitted=3
 		int value:30;
 		optype type:2;
@@ -60,6 +60,9 @@
 	}
 	uint8_t property_get_index(uint8_t *p) {
 		return the_header.version==3? p[1] & 31 : p[1] & 63;
+	}
+	uint8_t *property_payload(uint8_t *p) {
+		return the_header.version>3 && (p[1] & 0x80)? p + 3 : p + 2;
 	}
 	static uint8_t *property_int(int v) {
 		if (v>=0 && v<=255) {
@@ -821,7 +824,7 @@ pvalue
 	| INTLIT { $$ = property_int($1); }
 	| routine_body { $$ = property_int($1); }
 	| dict_list { 
-		uint8_t *p = ($$ = property_blob($1->size() * 2)) + 2;
+		uint8_t *p = property_payload(($$ = property_blob($1->size() * 2)));
 		auto s = $1;
 		while (s) {
 			*p++ = s->car >> 8;
