@@ -12,7 +12,7 @@
 	void yyerror(const char*,...);
 	uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize);
 	int encode_string(const char*);
-	uint8_t next_global, next_local, story_shift = 1;
+	uint8_t next_global, next_local, story_shift = 1, dict_entry_size = 4;
 	storyHeader the_header;
 	struct operand { // 0=long, 1=small, variable=2, omitted=3
 		int value:30;
@@ -23,7 +23,56 @@
 	static const uint8_t opsizes[3] = { 2,1,1 };
 	const uint8_t LONG_JUMP = 0x8C;			// +/-32767
 	const uint8_t SHORT_JUMP = 0x9C;		// 0-255
-
+	// first byte is the total size of the property
+	// second byte encodes the property index and size depending on version.
+	static uint8_t *property_blob(uint8_t size) {
+		if (!size)
+			yyerror("cannot have zero-sized property");
+		if (the_header.version == 3) {
+			if (size > 8)
+				yyerror("property too large for v3");
+			uint8_t *pval = new uint8_t[size+2];
+			pval[0] = size+1;
+			pval[1] = (size-1) << 5;
+			return pval;
+		}
+		else {
+			if (size > 64)
+				yyerror("property too large for v4+");
+			if (size <= 2) {
+				uint8_t *pval = new uint8_t[size+2];
+				pval[0] = size+1;
+				pval[1] = size==1? 0 : 64;
+				return pval;
+			}
+			else {
+				uint8_t *pval = new uint8_t[size+3];
+				pval[0] = size+1;
+				pval[1] = 0x80;
+				pval[2] = 0x80 | (size & 63);
+				return pval;
+			}
+		}
+	}
+	void property_set_index(uint8_t *p,uint8_t idx) {
+		p[1] |= idx;
+	}
+	uint8_t property_get_index(uint8_t *p) {
+		return the_header.version==3? p[1] & 31 : p[1] & 63;
+	}
+	static uint8_t *property_int(int v) {
+		if (v>=0 && v<=255) {
+			uint8_t *p = property_blob(1);
+			p[2] = v;
+			return p;
+		}
+		else {
+			uint8_t *p = property_blob(2);
+			p[2] = v >> 8;
+			p[3] = v;
+			return p;
+		}
+	}
 	uint8_t *currentRoutine;
 	uint16_t pc;
 	void emitByte(uint8_t b) {
@@ -44,6 +93,9 @@
 		list_node<T>(T a,list_node<T> *b) : car(a), cdr(b) { }
 		T car;
 		list_node<T> *cdr;
+		size_t size() const {
+			return 1 + cdr->size();
+		}
 	};
 
 
@@ -111,18 +163,15 @@
 		list_node<property> *properties;
 	} *cdef;
 	std::vector<object*> the_object_table;
-
 	struct dict_entry {
-		uint8_t encoded[6];		// 6 letters for V3, 9 letters for V4+
-		uint8_t payload;
+		uint8_t encoded[6];
+		bool operator <(const dict_entry &rhs) const {
+			return memcmp(encoded,rhs.encoded,sizeof(encoded)) < 0;
+		}
 	};
-	std::set<dict_entry> dictionary;
-	// if upper N bits are all zero or all one, it's an ival, else sym
-	union pvalue {
-		symbol *sym;
-		ptrdiff_t ival;
-		list_node<dict_entry*> *wval;
-	};
+	std::map<dict_entry,uint16_t> the_dictionary; // maps a dictionary word to its index
+	uint8_t *z_dict;		// 5/7 bytes per entry
+	uint8_t& z_dict_payload(uint16_t i) { return z_dict[i * (dict_entry_size+1) + dict_entry_size]; }
 
 	struct expr {
 		virtual void emit(uint8_t dest) { }
@@ -540,14 +589,13 @@
 %union {
 	int ival;
 	const char *sval;
+	uint8_t *pval;
 	expr *eval;
 	symbol *sym;
 	scope_enum scopeval;
-	dict_entry *dict;
-	list_node<dict_entry*> *dlist;
+	list_node<uint16_t> *dlist;
 	list_node<expr*> *elist;
 	list_node<int> *ilist;
-	pvalue pval;
 	list_node<stmt*> *stlist;
 	stmt *stval;
 	_0op zeroOp;
@@ -556,8 +604,7 @@
 
 %token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT
 %token BYTE_ARRAY WORD_ARRAY CALL
-%token <dict> DICT
-%token <ival> ANAME PNAME LNAME GNAME RNAME INTLIT ONAME
+%token <ival> DICT ANAME PNAME LNAME GNAME RNAME INTLIT ONAME
 %token <sval> STRLIT
 %token <sym> FWDREF // Can be NEWSYM or existing sym
 %token <sym> NEWSYM
@@ -636,17 +683,19 @@ direction_def
 			yyerror("direction property must be type location");
 		if (($2 & 63) == 0 || ($2 & 63) > 14) 
 			yyerror("direction property index must be between 1 and 14");
-		for (auto it=$3; it; it=it->cdr)
-			if ($3->car->payload & 15) 
+		for (auto it=$3; it; it=it->cdr) {
+			uint8_t &payload = z_dict_payload($3->car);
+			if (payload & 15) 
 				yyerror("dictionary word already has direction bits set");
 			else
-				$3->car->payload |= ($2 & 15);
+				payload |= ($2 & 15);
+		}
 	}
 	;
 
 dict_list
-	: DICT dict_list	{ $$ = new list_node<dict_entry*>($1,$2); }
-	| DICT				{ $$ = new list_node<dict_entry*>($1,nullptr); }
+	: DICT dict_list	{ $$ = new list_node<uint16_t>($1,$2); }
+	| DICT				{ $$ = new list_node<uint16_t>($1,nullptr); }
 	;
 
 
@@ -742,15 +791,23 @@ property_or_attribute
 	;
 
 pvalue
-	: FWDREF { $$.sym = $1; }
+	: ONAME { $$ = property_int($1); }
 	| STRLIT
 		{
 			// string literal is just a shorthand for the address of a routine that calls print_ret with that string
-			$$.ival = emit_routine(0,new stmt_print_ret($1));
+			$$ = property_int(emit_routine(0,new stmt_print_ret($1)));
 		}
-	| INTLIT { $$.ival = $1; }
-	| routine_body { $$.ival = $1; }
-	| dict_list { $$.wval = $1; }
+	| INTLIT { $$ = property_int($1); }
+	| routine_body { $$ = property_int($1); }
+	| dict_list { 
+		uint8_t *p = ($$ = property_blob($1->size() * 2)) + 2;
+		auto s = $1;
+		while (s) {
+			*p++ = s->car >> 8;
+			*p++ = s->car;
+			s = s->cdr;
+		}
+	}
 	;
 
 routine_def
@@ -760,11 +817,13 @@ routine_def
 article_def
 	: ARTICLE dict_list ';'
 		{
-			for (auto it=$2; it; it = it->cdr)
-				if (it->car->payload & 15)
+			for (auto it=$2; it; it = it->cdr) {
+				auto &payload = z_dict_payload(it->car);
+				if (payload & 15)
 					yyerror("already an article or direction");
 				else
-					it->car->payload |= 15;
+					payload |= 15;
+			}
 		}
 	;
 
@@ -1036,6 +1095,7 @@ void set_version(int version) {
 	attribute_next[0] = version>3? 47 : 31;
 	property_next[0] = version>3? 63 : 31;
 	story_shift = version==8? 3 : version==3? 1 : 2;
+	dict_entry_size = version>3? 6 : 4;
 	the_header.version = version;
 }
 
@@ -1162,7 +1222,7 @@ int yylex() {
 			}
 			else
 				return '>';
-		case '\'':
+		case '\'': {
 			yych = yynext();
 			while (yych != '\'' && yych != EOF) {
 				if (yylen+1==sizeof(yytoken))
@@ -1172,7 +1232,17 @@ int yylex() {
 			}
 			yych = yynext();
 			yytoken[yylen] = 0;
+			dict_entry de = {};
+			encode_string(de.encoded,dict_entry_size,yytoken,yylen);
+			if (yypass==1) {
+				the_dictionary[de] = -1;
+				yylval.ival = -1;
+			}
+			else {
+				yylval.ival = the_dictionary[de];
+			}
 			return DICT;
+		}
 		default:
 			yyerror("unknown character %c in input",yych);
 			[[fallthrough]];
@@ -1208,7 +1278,7 @@ int main(int argc,char **argv) {
 					yylex();	// skip LOCATION/OBJECT/GLOBAL
 				else if (t == OBJECT || t == LOCATION) {
 					if (yylex() != NEWSYM)
-						yyerror("expected object name after 'object' or location'");\
+						yyerror("expected object name after 'object' or location'");
 					// declare the object and assign its value
 					the_globals[yytoken] = { (int16_t)t,(int16_t)the_object_table.size() };
 					the_object_table.push_back(new object);
@@ -1216,6 +1286,17 @@ int main(int argc,char **argv) {
 			}
 			while (yylex() != -1)
 				;
+			printf("%zu words in dictionary\n",the_dictionary.size());
+			// build the final dictionary, assigning word indices.
+			uint16_t idx = 0;
+			z_dict = new uint8_t[the_dictionary.size() * (dict_entry_size+1)];
+			uint8_t *zi = z_dict;
+			for (auto &d: the_dictionary) {
+				d.second = idx++;
+				memcpy(zi,d.first.encoded,dict_entry_size);
+				zi[dict_entry_size] = 0;
+				zi += dict_entry_size + 1;
+			}
 		}
 		else
 			yyparse();
