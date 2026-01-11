@@ -14,75 +14,139 @@
 	int encode_string(const char*);
 	uint8_t next_global, next_local, story_shift = 1, dict_entry_size = 4;
 	storyHeader the_header = { 3 };
+
+	template <typename T> struct list_node {
+		list_node<T>(T a,list_node<T> *b) : car(a), cdr(b) { }
+		~list_node() {
+			delete cdr;
+		}
+		T car;
+		list_node<T> *cdr;
+		size_t size() const {
+			return 1 + cdr->size();
+		}
+	};
+
 	struct operand { // 0=long, 1=small, variable=2, omitted=3
 		int value:30;
 		optype type:2;
 	};
-
 	static_assert(sizeof(operand)==4);
+
+	// a relocatable blob can itself be relocated, and can contain
+	// zero or more references to other relocatable blobs.
+	// all recloations are 16 bits and can represent either a
+	// direct address, or a packed story-shifted address.
+	// there can be up to 32768 relocations.
+	std::vector<struct relocatableBlob*> the_relocations;
+	struct relocatableBlob {
+		static uint16_t firstFree;
+		static relocatableBlob* create(uint16_t totalSize) {
+			relocatableBlob* result = (relocatableBlob*) new uint8_t[totalSize + sizeof(relocatableBlob)];
+			result->size = totalSize;
+			result->offset = 0;
+			result->relocations = nullptr;
+			result->userData = 0;
+			if (firstFree != 0xFFFF) {
+				result->index = firstFree;
+				firstFree = (uint16_t)(size_t)the_relocations[firstFree];
+				the_relocations[result->index] = result;
+			}
+			else {
+				result->index = the_relocations.size();
+				the_relocations.push_back(result);
+			}
+			return result;
+		}
+		static uint16_t createInt(int16_t t) {
+			auto r = create(2);
+			r->storeInt(t);
+			return r->index;
+		}
+		static relocatableBlob* createProperty(uint16_t size,uint8_t propertyIndex) {
+			if (!size)
+				yyerror("cannot have zero-sized proeprty");
+			if (the_header.version == 3) {
+				if (size > 8)
+					yyerror("property too large for v3");
+				auto r = create(2);
+				r->storeByte(((size-1)<<5) | propertyIndex);
+				return r;
+			}
+			else {
+				if (size > 64)
+					yyerror("property too large for v4+");
+				if (size <= 2) {
+					auto r = create(size+1);
+					r->storeByte(size==1? propertyIndex : 64 | propertyIndex);
+					return r;
+				}
+				else {
+					auto r = create(size+2);
+					r->storeByte(0x80 | propertyIndex);
+					r->storeByte(0x80 | (size & 63));
+					return r;
+				}
+			}
+		}
+		void destroy() {
+			uint16_t indexSave = index;
+			delete the_relocations[index]->relocations;
+			delete [] (uint16_t*) the_relocations[index];
+			the_relocations[indexSave] = (relocatableBlob*)(size_t)firstFree;
+			firstFree = indexSave;
+		}
+		void seal() {
+			assert(offset <= size);
+			relocatableBlob *newResult = (relocatableBlob*) new uint8_t[offset + sizeof(relocatableBlob)];
+			newResult->size = newResult->offset = offset;
+			newResult->relocations = relocations;
+			newResult->userData = userData;
+			delete [] (uint8_t*) the_relocations[index];
+			the_relocations[index] = newResult;;
+		}
+		void storeByte(uint8_t b) {
+			assert(offset < size);
+			contents[offset++] = b;
+		}
+		void copy(const uint8_t *src,size_t srcLen) {
+			while (srcLen--)
+				storeByte(*src++);
+		}
+		void storeWord(uint16_t w) {
+			storeByte(w >> 8);
+			storeByte(w);
+		}
+		void storeInt(int16_t w) {
+			storeByte(w >> 8);
+			storeByte(w);
+		}
+		void addRelocation(uint16_t ri,uint16_t o) {
+			relocations = new list_node<std::pair<uint16_t,uint16_t>>(std::pair<uint16_t,uint16_t>(ri,o),relocations);
+		}
+		void append(relocatableBlob *other) {
+			memcpy(contents+offset,other->contents,other->size);
+			for (auto i=other->relocations; i; i=i->cdr)
+				addRelocation(i->car.first,i->car.second + offset);
+			assert(offset + other->size <= size);
+			offset += other->size;
+			other->destroy();
+		}
+		uint16_t size, offset, index, userData;
+		list_node<std::pair<uint16_t,uint16_t>> *relocations;
+		uint8_t contents[0];
+	};
+	uint16_t relocatableBlob::firstFree;
+
 	static const uint8_t opsizes[3] = { 2,1,1 };
 	const uint8_t LONG_JUMP = 0x8C;			// +/-32767
 	const uint8_t SHORT_JUMP = 0x9C;		// 0-255
-	// first byte is the total size of the property
-	// second byte encodes the property index and size depending on version.
-	static uint8_t *property_blob(uint8_t size) {
-		if (!size)
-			yyerror("cannot have zero-sized property");
-		if (the_header.version == 3) {
-			if (size > 8)
-				yyerror("property too large for v3");
-			uint8_t *pval = new uint8_t[size+2];
-			pval[0] = size+1;
-			pval[1] = (size-1) << 5;
-			return pval;
-		}
-		else {
-			if (size > 64)
-				yyerror("property too large for v4+");
-			if (size <= 2) {
-				uint8_t *pval = new uint8_t[size+2];
-				pval[0] = size+1;
-				pval[1] = size==1? 0 : 64;
-				return pval;
-			}
-			else {
-				uint8_t *pval = new uint8_t[size+3];
-				pval[0] = size+1;
-				pval[1] = 0x80;
-				pval[2] = 0x80 | (size & 63);
-				return pval;
-			}
-		}
-	}
-	void property_set_index(uint8_t *p,uint8_t idx) {
-		assert(idx && idx < (the_header.version==3? 32 : 64));
-		p[1] |= idx;
-	}
-	uint8_t property_get_index(uint8_t *p) {
-		return the_header.version==3? p[1] & 31 : p[1] & 63;
-	}
-	uint8_t *property_payload(uint8_t *p) {
-		return the_header.version>3 && (p[1] & 0x80)? p + 3 : p + 2;
-	}
-	static uint8_t *property_int(int v) {
-		if (v>=0 && v<=255) {
-			uint8_t *p = property_blob(1);
-			p[2] = v;
-			return p;
-		}
-		else {
-			uint8_t *p = property_blob(2);
-			p[2] = v >> 8;
-			p[3] = v;
-			return p;
-		}
-	}
-	uint8_t *currentRoutine;
-	uint16_t pc;
-	void emitByte(uint8_t b) {
-		currentRoutine[pc++] = b;
-	}
 
+	relocatableBlob * currentRoutine;
+	uint8_t currentProperty;
+	void emitByte(uint8_t b) {
+		currentRoutine->storeByte(b);
+	}
 	void emitOperand(operand o) {
 		if (o.type==optype::large_constant)
 			emitByte(o.value >> 8);
@@ -92,16 +156,6 @@
 	void emit2op(operand l,_2op op,operand r);
 	void emit1op(_1op op,operand un);
 	const uint8_t TOS = 0, SCRATCH = 4;
-
-	template <typename T> struct list_node {
-		list_node<T>(T a,list_node<T> *b) : car(a), cdr(b) { }
-		T car;
-		list_node<T> *cdr;
-		size_t size() const {
-			return 1 + cdr->size();
-		}
-	};
-
 
 	typedef struct label_info {
 		uint16_t offset;
@@ -114,25 +168,25 @@
 		return result;
 	}
 	void placeLabel(label l) {
-		l->offset = pc;
+		l->offset = currentRoutine->offset;
 		for (auto i=l->references; i; i=i->cdr) {
-			int16_t delta = (i->car - pc + 2);
-			if (currentRoutine[i->car])
-				currentRoutine[i->car] |= (delta >> 8) & 63;
+			int16_t delta = (i->car - currentRoutine->offset + 2);
+			if (currentRoutine->contents[i->car])
+				currentRoutine->contents[i->car] |= (delta >> 8) & 63;
 			else
-				currentRoutine[i->car] = (delta >> 8);
-			currentRoutine[i->car + 1] = delta;
+				currentRoutine->contents[i->car] = (delta >> 8);
+			currentRoutine->contents[i->car + 1] = delta;
 		}
 	}
 	void emitJump(label l) {
 		emitByte(LONG_JUMP);
 		if (l->offset != 0xFFFF) {
-			int16_t delta = l->offset - pc + 2;
+			int16_t delta = l->offset - currentRoutine->offset + 2;
 			emitByte(delta >> 8);
 			emitByte(delta);
 		}
 		else {
-			l->references = new list_node<uint16_t>(pc,l->references);
+			l->references = new list_node<uint16_t>(currentRoutine->offset,l->references);
 			emitByte(0);
 			emitByte(0);
 		}
@@ -152,8 +206,18 @@
 	};
 	std::map<std::string,symbol> the_globals;
 	std::vector<std::map<std::string,symbol>*> the_locals;
-	void open_scope() { the_locals.push_back(new std::map<std::string,symbol>()); }
-	void close_scope() { delete the_locals.back(); the_locals.pop_back(); }
+	std::vector<relocatableBlob*> routine_stack;
+	void open_scope() { 
+		the_locals.push_back(new std::map<std::string,symbol>()); 
+		routine_stack.push_back(currentRoutine);
+		currentRoutine = nullptr;
+	}
+	void close_scope() { 
+		currentRoutine = routine_stack.back();
+		routine_stack.pop_back();
+		delete the_locals.back(); 
+		the_locals.pop_back();
+	 }
 
 	struct object {
 		int16_t child, sibling, parent;
@@ -161,8 +225,8 @@
 		uint16_t descrLen, propertySize;
 		uint8_t *descr;
 		union {
-			uint8_t **properties;
-			uint8_t *finalProps;
+			relocatableBlob **properties;
+			relocatableBlob *finalProps;
 		};
 	} *cdef;
 	std::vector<object*> the_object_table;
@@ -262,14 +326,14 @@
 			if (negated)
 				n = !n;
 			if (target->offset != 0xFFFF) {
-				int16_t delta = target->offset - pc + 2;
+				int16_t delta = target->offset - currentRoutine->offset + 2;
 				emitByte((n? 0xC0 : 0x040) | ((delta >> 8) & 63));
 				emitByte(delta);
 			}
 			else {
 				emitByte(n? 0xC0 : 0x40);
 				emitByte(0);
-				target->references = new list_node<uint16_t>(pc,target->references);
+				target->references = new list_node<uint16_t>(currentRoutine->offset,target->references);
 			}
 		}
 		bool negated;
@@ -568,16 +632,16 @@
 		const char *string;
 		void emit() {
 			emitByte((uint8_t)_0op::print_ret);
-			pc += encode_string(currentRoutine + pc,1024-pc,string,strlen(string));
+			currentRoutine->offset += encode_string(currentRoutine->contents + currentRoutine->offset,
+				currentRoutine->size - currentRoutine->offset,string,strlen(string));
 		}
 		unsigned size() const {
-			return 1 + encode_string(nullptr,1024-pc,string,strlen(string));
+			return 1 + encode_string(nullptr,currentRoutine->size - currentRoutine->offset,string,strlen(string));
 		}
 	};
-	int16_t emit_routine(int numLocals,stmt *body) {
-		currentRoutine = new uint8_t[1024];
-		pc = 0;
-		currentRoutine[0] = numLocals;
+	uint16_t emit_routine(int numLocals,stmt *body) {
+		currentRoutine = relocatableBlob::create(1024);
+		emitByte(numLocals);
 		if (the_header.version < 5) {
 			while (numLocals--) { 
 				emitByte(0); 
@@ -585,14 +649,14 @@
 			}
 		}
 		body->emit();
-		return 0;
+		return currentRoutine->index;
 	}
 %}
 
 %union {
 	int ival;
+	uint16_t rval;
 	const char *sval;
-	uint8_t *pval;
 	expr *eval;
 	symbol *sym;
 	scope_enum scopeval;
@@ -607,8 +671,9 @@
 
 %token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT
 %token BYTE_ARRAY WORD_ARRAY CALL
-%token <ival> DICT ANAME PNAME LNAME GNAME RNAME INTLIT ONAME
+%token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME
 %token <sval> STRLIT
+%token <rval> RNAME
 %token <sym> NEWSYM
 %token WHILE REPEAT IF ELSE
 %token LE "<=" GE ">=" EQ "==" NE "!="
@@ -634,12 +699,12 @@
 %left OR
 
 %type <eval> expr primary aname arg cond_expr
-%type <ival> init routine_body vname opt_parent
+%type <ival> init vname opt_parent
+%type <rval> routine_body pvalue
 %type <scopeval> scope
 %type <dlist> dict_list;
 %type <ilist> init_list;
 %type <elist> opt_call_args arg_list
-%type <pval> pvalue
 %type <stval> stmt opt_else
 %type <stlist> stmts
 
@@ -729,7 +794,7 @@ init_list
 
 init
 	: INTLIT			{ $$ = $1; }
-	| STRLIT			{ $$ = encode_string($1); }
+	// | STRLIT			{ $$ = encode_string($1); }
 	;
 
 object_def
@@ -756,26 +821,21 @@ object_or_location_def
 		encode_string(cdef->descr,cdef->descrLen,$2,strlen($2));
 		memset(cdef->attributes,0,sizeof(cdef->attributes));
 		unsigned propCount = the_header.version==3? 32 : 64;
-		cdef->properties = new uint8_t*[propCount];
+		cdef->properties = new relocatableBlob*[propCount];
 		cdef->propertySize = 0;
-		memset(cdef->properties,0,propCount * sizeof(uint8_t*));
+		memset(cdef->properties,0,propCount * sizeof(relocatableBlob*));
 	} property_or_attribute_list '}' {
 		unsigned finalSize = 1 + cdef->descrLen + cdef->propertySize + 1;
-		uint8_t *finalProps = new uint8_t[finalSize];
-		finalProps[0] = cdef->descrLen>>1;
-		memcpy(finalProps+1, cdef->descr, cdef->descrLen);
+		auto finalProps = relocatableBlob::create(finalSize);
+		finalProps->storeByte(cdef->descrLen>>1);
+		finalProps->copy(cdef->descr,cdef->descrLen);
 		unsigned propCount = the_header.version==3? 32 : 64;
-		unsigned offset = 1 + cdef->descrLen;
 		while (--propCount) {
-			uint8_t *p = cdef->properties[propCount];
-			if (p) {
-				memcpy(finalProps + offset, p+1, p[0]);
-				offset += p[0];
-				delete[] p;
-			}
+			auto p = cdef->properties[propCount];
+			if (p)
+				finalProps->append(p);
 		}
-		finalProps[offset++] = 0;
-		assert(offset == finalSize);
+		finalProps->storeByte(0);
 		delete [] cdef->properties;
 		cdef->finalProps = finalProps;
 		cdef->propertySize = finalSize;
@@ -793,16 +853,15 @@ property_or_attribute_list
 	;
 
 property_or_attribute
-	: PNAME ':' pvalue ';'		
+	: PNAME ':' { currentProperty = $1; } pvalue ';'		
 			{ 
 				if (!($1 & expected_scope))
 					yyerror("wrong type of property"); 
 				uint8_t thisIndex = $1 & 63;
 				if (cdef->properties[thisIndex])
 					yyerror("already have this property set");
-				cdef->properties[thisIndex] = $3;
-				property_set_index($3,thisIndex);
-				cdef->propertySize += $3[0];
+				cdef->properties[thisIndex] = the_relocations[$4];
+				cdef->propertySize += the_relocations[$4]->size;
 			}
 	| ANAME ';'
 			{ 
@@ -815,20 +874,20 @@ property_or_attribute
 	;
 
 pvalue
-	: ONAME { $$ = property_int($1); }
+	: ONAME { $$ = relocatableBlob::createInt($1); }
 	| STRLIT
 		{
 			// string literal is just a shorthand for the address of a routine that calls print_ret with that string
-			$$ = property_int(emit_routine(0,new stmt_print_ret($1)));
+			$$ = emit_routine(0,new stmt_print_ret($1));
 		}
-	| INTLIT { $$ = property_int($1); }
-	| routine_body { $$ = property_int($1); }
+	| INTLIT { $$ = relocatableBlob::createInt($1); }
+	| routine_body { $$ = $1; }
 	| dict_list { 
-		uint8_t *p = property_payload(($$ = property_blob($1->size() * 2)));
+		auto p = relocatableBlob::createProperty($1->size() * 2,currentProperty);
+		$$ = p->index;
 		auto s = $1;
 		while (s) {
-			*p++ = s->car >> 8;
-			*p++ = s->car;
+			p->storeWord(s->car);
 			s = s->cdr;
 		}
 	}
@@ -860,7 +919,11 @@ action_def
 	;
 
 routine_body
-	: '[' { open_scope(); } opt_params_list opt_locals_list ']' '{' stmts '}' { close_scope(); }
+	: '[' { open_scope(); next_local=0; } opt_params_list opt_locals_list ']' stmt
+		{ 
+			$$ = emit_routine(next_local,$6);
+			close_scope();
+		}
 	;
 
 opt_params_list
