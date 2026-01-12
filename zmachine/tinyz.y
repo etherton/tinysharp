@@ -1,5 +1,5 @@
 /* tinyz.y */
-/* bison tinyz.y -o tinyz.tab.cpp && clang++ -std=c++17 tinyz.tab.cpp */
+/* bison --debug tinyz.y -o tinyz.tab.cpp && clang++ -g -std=c++17 tinyz.tab.cpp */
 
 %{
 	#include "opcodes.h"
@@ -134,7 +134,7 @@
 		list_node<std::pair<uint16_t,uint16_t>> *relocations;
 		uint8_t contents[0];
 	};
-	uint16_t relocatableBlob::firstFree;
+	uint16_t relocatableBlob::firstFree=0xFFFF;
 	relocatableBlob *header_blob, *dictionary_blob, *object_blob, *properties_blob;
 
 	static const uint8_t opsizes[3] = { 2,1,1 };
@@ -1086,9 +1086,9 @@ vname
 
 %%
 
-std::map<const char*,int16_t> rw;
-std::map<const char*,_0op> f_0op;
-std::map<const char*,_1op> f_1op;
+std::map<std::string,int16_t> rw;
+std::map<std::string,_0op> f_0op;
+std::map<std::string,_1op> f_1op;
 
 static uint8_t s_EncodedCharacters[256];
 
@@ -1243,10 +1243,10 @@ void emit2op(operand lval,_2op opcode,operand rval) {
 	emitOperand(rval);
 }
 
-int yych, yylen, yypass;
+int yych, yylen, yypass, yyline;
 char yytoken[32];
 FILE *yyinput;
-inline int yynext() { return getc(yyinput); }
+inline int yynext() { int c = getc(yyinput); if (c == 10) ++yyline; return c; }
 
 int yylex() {
 	yylen = 0;
@@ -1261,6 +1261,7 @@ int yylex() {
 			yych = yynext();
 		} while (isalnum(yych)||yych=='_');
 		yytoken[yylen] = 0;
+		if (yypass==2 && yydebug) puts(yytoken);
 		// reserved words and builtin funcs first
 		auto r = rw.find(yytoken);
 		if (r != rw.end())
@@ -1319,7 +1320,7 @@ int yylex() {
 			return INTLIT;
 		case '+': case '(': case '[': case ')': case ']':
 		case '~': case '*': case ':': case '.': case '%':
-		case '&': case '|':
+		case '&': case '|': case ';': case '{': case '}':
 			yytoken[0] = yych;
 			yych = yynext();
 			return yytoken[0];
@@ -1359,6 +1360,15 @@ int yylex() {
 			}
 			else
 				return '>';
+		case '/':
+			yych = yynext();
+			if (yych == '/') {
+				while ((yych=yynext()) != EOF && yych != 10)
+					;
+				return yylex();	// silly, should just goto top, hopefully compiler spots tail recursion :)
+			}
+			else
+				return '/';
 		case '\'': {
 			yych = yynext();
 			while (yych != '\'' && yych != EOF) {
@@ -1380,6 +1390,12 @@ int yylex() {
 			}
 			return DICT;
 		}
+		case '"': {
+			while ((yych=yynext())!=EOF && yych!='"')
+				;
+			// TODO: completely broken
+			return STRLIT;
+		}
 		default:
 			yyerror("unknown character %c in input",yych);
 			[[fallthrough]];
@@ -1391,6 +1407,7 @@ int yylex() {
 void yyerror(const char *fmt,...) {
 	va_list args;
 	va_start(args,fmt);
+	fprintf(stderr,"line %d: ",yyline);
 	vfprintf(stderr,fmt,args);
 	putc('\n',stderr);
 	va_end(args);
@@ -1399,11 +1416,13 @@ void yyerror(const char *fmt,...) {
 
 int main(int argc,char **argv) {
 	init();
+	yydebug = 1;
 	for (yypass=1; yypass<=2; yypass++) {
 		yyinput = fopen(argv[1],"r");
 		int scope = 0;
 		int nextObject = 1;
 		yych = 32;
+		yyline = 1;
 		if (yypass==1) {
 			int t;
 			while ((t = yylex()) != EOF) {
