@@ -125,11 +125,9 @@
 			relocations = new list_node<std::pair<uint16_t,uint16_t>>(std::pair<uint16_t,uint16_t>(ri,o),relocations);
 		}
 		void append(relocatableBlob *other) {
-			memcpy(contents+offset,other->contents,other->size);
 			for (auto i=other->relocations; i; i=i->cdr)
 				addRelocation(i->car.first,i->car.second + offset);
-			assert(offset + other->size <= size);
-			offset += other->size;
+			copy(other->contents,other->size);
 			other->destroy();
 		}
 		uint16_t size, offset, index, userData;
@@ -178,16 +176,18 @@
 			currentRoutine->contents[i->car + 1] = delta;
 		}
 	}
-	void emitJump(label l) {
-		emitByte(LONG_JUMP);
+	void emitJump(label l,bool isLong) {
+		emitByte(isLong? LONG_JUMP : SHORT_JUMP);
 		if (l->offset != 0xFFFF) {
 			int16_t delta = l->offset - currentRoutine->offset + 2;
-			emitByte(delta >> 8);
+			if (isLong)
+				emitByte(delta >> 8);
 			emitByte(delta);
 		}
 		else {
 			l->references = new list_node<uint16_t>(currentRoutine->offset,l->references);
-			emitByte(0);
+			if (isLong)
+				emitByte(0);
 			emitByte(0);
 		}
 	}
@@ -322,17 +322,22 @@
 		void emit() {
 			// shouldn't be called.
 		}
-		virtual void emitBranch(label target,bool n) {
+		virtual void emitBranch(label target,bool n,bool isLong) {
 			if (negated)
 				n = !n;
 			if (target->offset != 0xFFFF) {
 				int16_t delta = target->offset - currentRoutine->offset + 2;
-				emitByte((n? 0xC0 : 0x040) | ((delta >> 8) & 63));
-				emitByte(delta);
+				if (isLong) {
+					emitByte((n? 0xC0 : 0x040) | ((delta >> 8) & 63));
+					emitByte(delta);
+				}
+				else
+					emitByte((n? 0x80 : 0x00) | delta & 63);
 			}
 			else {
 				emitByte(n? 0xC0 : 0x40);
-				emitByte(0);
+				if (isLong)
+					emitByte(0);
 				target->references = new list_node<uint16_t>(currentRoutine->offset,target->references);
 			}
 		}
@@ -343,23 +348,23 @@
 		expr_binary_branch(expr *l,_2op op,bool negated,expr *r) : left(l), opcode(op), right(r), expr_branch(negated) { }
 		_2op opcode;
 		expr *left, *right;
-		void emitBranch(label target,bool negated) {
+		void emitBranch(label target,bool negated,bool isLong) {
 			operand lval, rval;
 			right->eval(rval);
 			left->eval(lval);
 			emit2op(lval,opcode,rval);
-			expr_branch::emitBranch(target,negated);
+			expr_branch::emitBranch(target,negated,isLong);
 		}
 	};
 	struct expr_unary_branch: public expr_branch {
 		expr_unary_branch(_1op op,bool negated,expr *e) : opcode(op), unary(e), expr_branch(negated) { }
 		_1op opcode;
 		expr *unary;
-		void emitBranch(label target,bool negated) {
+		void emitBranch(label target,bool negated,bool isLong) {
 			operand un;
 			unary->eval(un);
 			emit1op(opcode,un);
-			expr_branch::emitBranch(target,negated);
+			expr_branch::emitBranch(target,negated,isLong);
 		}
 	};
 	struct expr_operand: public expr {
@@ -393,8 +398,8 @@
 	struct expr_logical_not: public expr_branch {
 		expr_logical_not(expr *e) : unary(to_branch(e)), expr_branch(!to_branch(e)->negated) { }
 		expr_branch *unary;
-		void emitBranch(label target,bool negated) {
-			unary->emitBranch(target,negated);
+		void emitBranch(label target,bool negated,bool isLong) {
+			unary->emitBranch(target,negated,isLong);
 		}
 	};
 	// (a and b) or (c and d) { trueStuff; } else { falseStuff; }
@@ -410,35 +415,35 @@
 	struct expr_logical_and: public expr_branch {
 		expr_logical_and(expr *l,expr *r) : left(to_branch(l)), right(to_branch(r)), expr_branch(false) { }
 		expr_branch *left, *right;
-		void emitBranch(label target,bool negated) {
+		void emitBranch(label target,bool negated,bool isLong) {
 			// (negated=true) if (a and b) means jz a,target; jz b,target
 			// (negated=true) while (a and b) means jz a,target; jz b,target
 			// (negated=false) repeat ... while (a and b) means jz skip; jnz b,target; skip:
 			if (negated) {	// not (a and b) -> (not a) or (not b)
 				label trueBranch = createLabel();
-				left->emitBranch(trueBranch,true);
-				right->emitBranch(target,false);
+				left->emitBranch(trueBranch,true,isLong);
+				right->emitBranch(target,false,isLong);
 				placeLabel(trueBranch);
 			}
 			else {
-				left->emitBranch(target,false);
-				right->emitBranch(target,false);
+				left->emitBranch(target,false,isLong);
+				right->emitBranch(target,false,isLong);
 			}
 		}
 	};
 	struct expr_logical_or: public expr_branch {
 		expr_logical_or(expr *l,expr *r) : left(to_branch(l)), right(to_branch(r)), expr_branch(false) { }
 		expr_branch *left, *right;
-		void emitBranch(label target,bool negated) {
+		void emitBranch(label target,bool negated,bool isLong) {
 			// if (a or b) means jnz a,skip; jz b,target; skip:
 			if (negated) { // not (a or b) -> (not a) and (not b)
-				left->emitBranch(target,true);
-				right->emitBranch(target,true);
+				left->emitBranch(target,true,isLong);
+				right->emitBranch(target,true,isLong);
 			}
 			else {
 				label trueBranch = createLabel();
-				left->emitBranch(trueBranch,false);
-				right->emitBranch(target,false);
+				left->emitBranch(trueBranch,false,isLong);
+				right->emitBranch(target,false,isLong);
 				placeLabel(trueBranch);
 			}
 		}
@@ -498,6 +503,15 @@
 	};
 	struct stmt_flow: public stmt {
 	};
+	size_t jumpPastSize(stmt*s) {
+		return s? (s->size() > 61? 3 : 2) : 0;
+	}
+	size_t includingBranchPast(size_t s) {
+		return s > 61? 2 : 1;
+	}
+	size_t includingJumpPast(size_t s) {
+		return s > 61? 3 : 2;
+	}
 	struct stmt_if: public stmt_flow {
 		stmt_if(expr *e,stmt *t,stmt *f): cond(expr_binary_branch::to_branch(e)), ifTrue(t), ifFalse(f) { }
 		expr_branch *cond;
@@ -507,11 +521,11 @@
 		// TODO: If ifTrue ends in a return, we don't need the jump past false block
 		void emit() {
 			label falseBranch = createLabel();
-			cond->emitBranch(falseBranch,true);
+			cond->emitBranch(falseBranch,true,ifTrue->size() > (ifFalse? 57 : 59));
 			ifTrue->emit();
 			if (ifFalse) {
 				label skipFalse = createLabel();
-				emitJump(skipFalse);
+				emitJump(skipFalse,ifFalse->size() > 59);
 				placeLabel(falseBranch);
 				ifFalse->emit();
 				placeLabel(skipFalse);
@@ -520,8 +534,8 @@
 				placeLabel(falseBranch);
 		}
 		unsigned size() const {
-			bool shortBranch = (ifTrue->size() < (ifFalse || ifTrue->isReturn()? 58 : 61));
-			return cond->size() + (shortBranch? 1 : 2) + ifTrue->size() + (ifFalse? 3 + ifFalse->size() : 0);
+			return cond->size() + includingBranchPast(ifTrue->size() + jumpPastSize(ifFalse)) +
+				(ifFalse? ifFalse->size() : 0);
 		}
 	};
 	struct stmt_while: public stmt_flow {
@@ -530,14 +544,14 @@
 		stmt *body;
 		void emit() {
 			label falseBranch = createLabel(), top = createLabelHere();
-			cond->emitBranch(falseBranch,true);
+			cond->emitBranch(falseBranch,true,body->size() > 58);
 			// TODO: continue and break via a stack
 			body->emit();
-			emitJump(top);
+			emitJump(top,true);
 			placeLabel(falseBranch);
 		}
 		unsigned size() const { 
-			return cond->size() + body->size() + 3; 
+			return cond->size() + includingJumpPast(body->size()) + 3; 
 		}
 	};
 	struct stmt_repeat: public stmt_flow {
@@ -547,7 +561,7 @@
 		void emit() {
 			auto trueBranch = createLabelHere();
 			body->emit();
-			cond->emitBranch(trueBranch,false);
+			cond->emitBranch(trueBranch,false,true);
 		}
 		unsigned size() const { 
 			return cond->size() + body->size(); 
