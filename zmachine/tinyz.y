@@ -135,6 +135,7 @@
 		uint8_t contents[0];
 	};
 	uint16_t relocatableBlob::firstFree;
+	relocatableBlob *header_blob, *dictionary_blob, *object_blob, *properties_blob;
 
 	static const uint8_t opsizes[3] = { 2,1,1 };
 	const uint8_t LONG_JUMP = 0x8C;			// +/-32767
@@ -237,8 +238,7 @@
 		}
 	};
 	std::map<dict_entry,uint16_t> the_dictionary; // maps a dictionary word to its index
-	uint8_t *z_dict;		// 5/7 bytes per entry
-	uint8_t& z_dict_payload(uint16_t i) { return z_dict[i * (dict_entry_size+1) + dict_entry_size]; }
+	uint8_t& z_dict_payload(uint16_t i) { return dictionary_blob->contents[7 + i * (dict_entry_size+1) + dict_entry_size]; }
 
 	struct expr {
 		virtual void emit(uint8_t dest) { }
@@ -665,6 +665,8 @@
 		body->emit();
 		return currentRoutine->index;
 	}
+
+	uint16_t property_defaults[63];
 %}
 
 %union {
@@ -713,7 +715,7 @@
 %left OR
 
 %type <eval> expr primary aname arg cond_expr
-%type <ival> init vname opt_parent
+%type <ival> init vname opt_parent opt_default
 %type <rval> routine_body pvalue
 %type <scopeval> scope
 %type <dlist> dict_list;
@@ -755,7 +757,19 @@ scope
 	;
 
 property_def
-	: PROPERTY scope NEWSYM ';' { $3->token = PNAME; $3->ival = next_value_in_scope($2,property_next); }
+	: PROPERTY scope NEWSYM opt_default ';' 
+		{ 
+			$3->token = PNAME; 
+			$3->ival = next_value_in_scope($2,property_next); 
+			if (property_defaults[$3->ival] && property_defaults[$3->ival] != $4)
+				yyerror("inconsistent value for default property");
+			property_defaults[$3->ival] = $4;
+		}
+	;
+
+opt_default
+	: 			{ $$ = 0; }
+	| INTLIT	{ $$ = $1; }
 	;
 
 direction_def
@@ -1411,18 +1425,56 @@ int main(int argc,char **argv) {
 			}
 			printf("%zu words in dictionary\n",the_dictionary.size());
 			// build the final dictionary, assigning word indices.
+			dictionary_blob = relocatableBlob::create(7 + the_dictionary.size() * (dict_entry_size+1));
+			dictionary_blob->storeByte(3);
+			dictionary_blob->storeByte('.');
+			dictionary_blob->storeByte(',');
+			dictionary_blob->storeByte('"');
+			dictionary_blob->storeByte(dict_entry_size+1);
+			dictionary_blob->storeWord(the_dictionary.size());
 			uint16_t idx = 0;
-			z_dict = new uint8_t[the_dictionary.size() * (dict_entry_size+1)];
-			uint8_t *zi = z_dict;
 			for (auto &d: the_dictionary) {
 				d.second = idx++;
-				memcpy(zi,d.first.encoded,dict_entry_size);
-				zi[dict_entry_size] = 0;
-				zi += dict_entry_size + 1;
+				dictionary_blob->copy(d.first.encoded,dict_entry_size);
+				dictionary_blob->storeByte(0);
 			}
 		}
 		else
 			yyparse();
 		fclose(yyinput);
 	}
+	header_blob = relocatableBlob::create(64);
+	header_blob->storeByte(the_header.version);
+	// typical order
+	// header (64 bytes)
+	// +0 version
+	// +1 misc flags
+	// +4 byte address of high memory
+	// +6 initial program counter
+	// +8 byte address of dictionary
+	// +10 byte address of object table
+	// +12 byte address of globals
+	// +14 byte address of static memory
+	// +16 more flags
+	// +18 serial number (ascii)
+	// +24 byte address of abbreviation table
+	// +26 length of file (>> story_shift)
+	// +28 checksum
+	// +46 (v5+) byte address of terminating characters table
+	// +52 (v5+) byte address of alphabet table
+	// property defaults (31 words in v3, else 63)
+	// objects
+	// object properties (dynamic) (first object must be here)
+	// global variables
+	// arrays
+	// -- end of dynamic memory --
+	// object properties (static)
+	// abbreviations (one word per up to 96 abbreviations, word address of that abbreviation)
+	// grammar table
+	// actions table
+	// dictionary
+	// -- high memory --
+	// routines
+	// static strings
+	// -- end of file --
 }
