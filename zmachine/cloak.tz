@@ -88,15 +88,16 @@ attribute object scenery;
 // room properties can only be attached to rooms
 // object and room properties cannot be given nonzero default values
 // because they actually overlap
-property global description { routine };
-property global before { routine };
-property global after { routine };
-property object adjective { words };
-property object noun { words };
-property location n_to { routine object };
-property location s_to { routine object };
-property location e_to { routine object };
-property location w_to { routine object };
+property global description;
+property global before;
+property global after;
+property object adjective;
+property object noun;
+property location dummy;
+property location n_to;
+property location s_to;
+property location e_to;
+property location w_to;
 
 // the direction directive takes a property value followed by one or more words.
 direction n_to 'north' 'n';
@@ -105,7 +106,7 @@ direction e_to 'east' 'e';
 direction w_to 'west' 'w';
 
 // the first three must be in this order for status line (v3) games.
-global location;
+global room;
 global score;
 global turns;
 global scratch;		// fourth global is used as a dummy storage slot for v3 subroutine calls that ignore result.
@@ -330,7 +331,7 @@ routine test_object_attr [obj attr]
 	rfalse;
 }
 
-routine Take [o'obj] {
+routine Take [obj] {
 	if (obj hasnt scenery) {
 		if (BlockBefore(#take,location) or BlockBefore(#take,obj))
 			rtrue;
