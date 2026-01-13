@@ -116,7 +116,7 @@ global deadflag;
 // a room a player can be in is always greater than 1, meaning routines
 // that return a location can also rtrue or rfalse as well.
 object player "Player" (foyer) {
-};
+}
 
 // If a string constant crosses multiple lines, any number of spaces and tabs
 // followed by a line break is consumed. Next, N line breaks is turned into

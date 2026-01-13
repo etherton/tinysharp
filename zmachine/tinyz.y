@@ -24,7 +24,7 @@
 		T car;
 		list_node<T> *cdr;
 		size_t size() const {
-			return 1 + cdr->size();
+			return cdr? 1 + cdr->size() : 1;
 		}
 	};
 
@@ -782,8 +782,7 @@ direction_def
 		if (($2 & 63) == 0 || ($2 & 63) > 14) 
 			yyerror("direction property index must be between 1 and 14");
 		for (auto it=$3; it; it=it->cdr) {
-			printf("processing word index %d\n",it->car);
-			uint8_t &payload = z_dict_payload($3->car);
+			uint8_t &payload = z_dict_payload(it->car);
 			if (payload & 15) 
 				yyerror("dictionary word already has direction bits set (payload %d)",payload);
 			else
@@ -851,12 +850,13 @@ object_or_location_def
 		cdef->descrLen = encode_string(nullptr,0,$2,strlen($2));
 		cdef->descr = new uint8_t[cdef->descrLen];
 		encode_string(cdef->descr,cdef->descrLen,$2,strlen($2));
+		delete[] $2;
 		memset(cdef->attributes,0,sizeof(cdef->attributes));
 		unsigned propCount = the_header.version==3? 32 : 64;
 		cdef->properties = new relocatableBlob*[propCount];
 		cdef->propertySize = 0;
 		memset(cdef->properties,0,propCount * sizeof(relocatableBlob*));
-	} property_or_attribute_list '}' {
+	} opt_property_or_attribute_list '}' {
 		unsigned finalSize = 1 + cdef->descrLen + cdef->propertySize + 1;
 		auto finalProps = relocatableBlob::create(finalSize);
 		finalProps->storeByte(cdef->descrLen>>1);
@@ -871,12 +871,17 @@ object_or_location_def
 		delete [] cdef->properties;
 		cdef->finalProps = finalProps;
 		cdef->propertySize = finalSize;
-	} ';'
+	}
 	;
 
 opt_parent
 	: 						{ $$ = 0; }
 	| '(' ONAME ')'			{ $$ = $2; }
+	;
+
+opt_property_or_attribute_list
+	:
+	| property_or_attribute_list
 	;
 
 property_or_attribute_list
@@ -891,7 +896,7 @@ property_or_attribute
 					yyerror("wrong type of property"); 
 				uint8_t thisIndex = $1 & 63;
 				if (cdef->properties[thisIndex])
-					yyerror("already have this property set");
+					yyerror("already have property %d set",thisIndex);
 				cdef->properties[thisIndex] = the_relocations[$4];
 				cdef->propertySize += the_relocations[$4]->size;
 			}
@@ -899,9 +904,10 @@ property_or_attribute
 			{ 
 				if (!($1 & expected_scope)) 
 					yyerror("wrong type of attribute"); 
-				if (cdef->attributes[$1>>3] & (0x80 >> ($1 & 7)))
-					yyerror("already have this attribute set");
-				cdef->attributes[$1>>3] |= (0x80 >> ($1 & 7));
+				uint8_t thisIndex = $1 & 63;
+				if (cdef->attributes[thisIndex>>3] & (0x80 >> (thisIndex & 7)))
+					yyerror("already have attribute %d set",thisIndex);
+				cdef->attributes[thisIndex>>3] |= (0x80 >> (thisIndex & 7));
 			}
 	;
 
@@ -1031,7 +1037,7 @@ cond_expr
 
 opt_call_args
 	:					{ $$ = nullptr; }
-	| STRLIT			{ $$ = new list_node<expr*>(new expr_literal(encode_string($1)),nullptr); }
+	| STRLIT			{ $$ = new list_node<expr*>(new expr_literal(encode_string($1)),nullptr); delete[] $1; }
 	| '(' arg_list ')'	{ $$ = $2; }
 	;
 
@@ -1305,7 +1311,6 @@ int yylex_() {
 			yynext();
 		} while (isalnum(yych)||yych=='_');
 		yytoken[yylen] = 0;
-		if (yypass==2 && yydebug) puts(yytoken);
 		// reserved words and builtin funcs first
 		auto r = rw.find(yytoken);
 		if (r != rw.end())
@@ -1440,10 +1445,16 @@ int yylex_() {
 			return DICT;
 		}
 		case '"': {
-			while (yynext()!=EOF && yych!='"')
-				;
+			const unsigned maxString = 512;
+			char *sval = new char[maxString];
+			unsigned offset = 0;
+			while (yynext()!=EOF && yych!='"') {
+				if (offset < maxString-1)
+					sval[offset++] = yych;
+			}
 			yynext();
-			// TODO: completely broken
+			sval[offset] = 0;
+			yylval.sval = sval;
 			return STRLIT;
 		}
 		default:
@@ -1487,7 +1498,7 @@ int main(int argc,char **argv) {
 	putchar('\n');
 	return 1; */
 
-	// yydebug = 1;
+	yydebug = 1;
 	for (yypass=1; yypass<=2; yypass++) {
 		yyinput = fopen(argv[1],"r");
 		int scope = 0;
@@ -1507,7 +1518,7 @@ int main(int argc,char **argv) {
 					else if (t == OBJECT || t == LOCATION) {
 						if (yylex() == NEWSYM) {
 							// declare the object and assign its value
-							the_globals[yytoken] = { (int16_t)t,(int16_t)the_object_table.size() };
+							the_globals[yytoken] = { ONAME,(int16_t)the_object_table.size() };
 							the_object_table.push_back(new object {});
 						}
 					}
@@ -1524,9 +1535,11 @@ int main(int argc,char **argv) {
 			dictionary_blob->storeWord(the_dictionary.size());
 			uint16_t idx = 0;
 			for (auto &d: the_dictionary) {
-				printf("word %u: [",idx);
-				print_encoded_string(d.first.encoded,[](char ch){putchar(ch);});
-				printf("]\n");
+				if (yydebug) {
+					printf("word %u: [",idx);
+					print_encoded_string(d.first.encoded,[](char ch){putchar(ch);});
+					printf("]\n");
+				}
 				d.second = idx++;
 				dictionary_blob->copy(d.first.encoded,dict_entry_size);
 				dictionary_blob->storeByte(0);
