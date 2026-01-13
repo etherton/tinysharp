@@ -12,6 +12,7 @@
 	void yyerror(const char*,...);
 	uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize);
 	int encode_string(const char*);
+	void print_encoded_string(const uint8_t *src,void (*pr)(char ch));
 	uint8_t next_global, next_local, story_shift = 1, dict_entry_size = 4;
 	storyHeader the_header = { 3 };
 
@@ -761,9 +762,11 @@ property_def
 		{ 
 			$3->token = PNAME; 
 			$3->ival = next_value_in_scope($2,property_next); 
-			if (property_defaults[$3->ival] && property_defaults[$3->ival] != $4)
-				yyerror("inconsistent value for default property");
-			property_defaults[$3->ival] = $4;
+			auto i = $3->ival & 63;
+			if (property_defaults[i] && property_defaults[i] != $4)
+				yyerror("inconsistent valuep for default property (index %d) %d <> %d",
+					i,property_defaults[i],$4);
+			property_defaults[i] = $4;
 		}
 	;
 
@@ -774,14 +777,15 @@ opt_default
 
 direction_def
 	: DIRECTION PNAME dict_list ';' { 
-		if (($2 & SCOPE_LOCATION_MASK) != 0)
+		if (($2 & SCOPE_LOCATION_MASK) == 0)
 			yyerror("direction property must be type location");
 		if (($2 & 63) == 0 || ($2 & 63) > 14) 
 			yyerror("direction property index must be between 1 and 14");
 		for (auto it=$3; it; it=it->cdr) {
+			printf("processing word index %d\n",it->car);
 			uint8_t &payload = z_dict_payload($3->car);
 			if (payload & 15) 
-				yyerror("dictionary word already has direction bits set");
+				yyerror("dictionary word already has direction bits set (payload %d)",payload);
 			else
 				payload |= ($2 & 15);
 		}
@@ -1092,6 +1096,41 @@ std::map<std::string,_1op> f_1op;
 
 static uint8_t s_EncodedCharacters[256];
 
+void print_encoded_string(const uint8_t *src,void (*pr)(char ch)) {
+	uint8_t step = 0, end = 0;
+	auto readCode = [&]() {
+		if (step==0) {
+			step = 1;
+			return (src[0] >> 2) & 31;
+		}
+		else if (step==1) {
+			step = 2;
+			return ((src[0] & 3) << 3) | (src[1] >> 5);
+		}
+		else {
+			step = 0;
+			end = !!(src[0] & 0x80);
+			src += 2;
+			return src[-1] & 31;
+		}
+	};
+	const char *alphabet = DEFAULT_ZSCII_ALPHABET;
+	uint8_t shift = 0;
+	while (!end) {
+		uint8_t ch = readCode();
+		if (!ch)
+			pr(32);
+		else if (ch==4)
+			shift = 26;
+		else if (ch==5)
+			shift = 52;
+		else if (ch>=6) {
+			pr(alphabet[(ch-6)+shift]);
+			shift = 0;
+		}
+	}
+}
+
 uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize) {
 	uint16_t offset = 0, step = 0;
 	assert((destSize & 1) == 0);
@@ -1246,19 +1285,19 @@ void emit2op(operand lval,_2op opcode,operand rval) {
 int yych, yylen, yypass, yyline;
 char yytoken[32];
 FILE *yyinput;
-inline int yynext() { int c = getc(yyinput); if (c == 10) ++yyline; return c; }
+inline int yynext() { yych = getc(yyinput); if (yych == 10) ++yyline; return yych; }
 
-int yylex() {
+int yylex_() {
 	yylen = 0;
 	while (isspace(yych))
-		yych=yynext();
+		yynext();
 
 	if (isalpha(yych)||yych=='#'||yych=='_') {
 		do {
 			if (yylen==sizeof(yytoken)-1)
 				yyerror("token too long");
 			yytoken[yylen++] = yych;
-			yych = yynext();
+			yynext();
 		} while (isalnum(yych)||yych=='_');
 		yytoken[yylen] = 0;
 		if (yypass==2 && yydebug) puts(yytoken);
@@ -1304,7 +1343,7 @@ int yylex() {
 	else switch(yych) {
 		case '-':
 			yytoken[yylen++] = '-';
-			yych = yynext();
+			yynext();
 			if (yych<'0'||yych>'9') {
 				return '-';
 			}
@@ -1313,7 +1352,7 @@ int yylex() {
 		case '5': case '6': case '7': case '8': case '9':
 			do {
 				yytoken[yylen++] = yych;
-				yych = yynext();
+				yynext();
 			} while (yych>='0'&&yych<='9');
 			yytoken[yylen] = 0;
 			yylval.ival = atoi(yytoken);
@@ -1321,41 +1360,42 @@ int yylex() {
 		case '+': case '(': case '[': case ')': case ']':
 		case '~': case '*': case ':': case '.': case '%':
 		case '&': case '|': case ';': case '{': case '}':
+		case ',': case '!':
 			yytoken[0] = yych;
-			yych = yynext();
+			yynext();
 			return yytoken[0];
 		case '=':
-			yych = yynext();
+			yynext();
 			if (yych=='=') {
-				yych = yynext();
+				yynext();
 				return EQ;
 			}
 			else
 				return '='; 
 		case '<':
-			yych = yynext();
+			yynext();
 			if (yych=='<') {
-				yych = yynext();
+				yynext();
 				return LSH;
 			}
 			else if (yych=='=') {
-				yych = yynext();
+				yynext();
 				return LE;
 			}
 			else if (yych=='>') {
-				yych = yynext();
+				yynext();
 				return NE;
 			}
 			else
 				return '<';
 		case '>':
-			yych = yynext();
+			yynext();
 			if (yych=='>') {
-				yych = yynext();
+				yynext();
 				return RSH;
 			}
 			else if (yych=='=') {
-				yych = yynext();
+				yynext();
 				return GE;
 			}
 			else
@@ -1363,9 +1403,9 @@ int yylex() {
 		case '/':
 			yych = yynext();
 			if (yych == '/') {
-				while ((yych=yynext()) != EOF && yych != 10)
+				while (yynext() != EOF && yych != 10)
 					;
-				return yylex();	// silly, should just goto top, hopefully compiler spots tail recursion :)
+				return yylex_();	// silly, should just goto top, hopefully compiler spots tail recursion :)
 			}
 			else
 				return '/';
@@ -1375,9 +1415,9 @@ int yylex() {
 				if (yylen+1==sizeof(yytoken))
 					yyerror("dictionary word way too long");
 				yytoken[yylen++] = tolower(yych);
-				yych = yynext();
+				yynext();
 			}
-			yych = yynext();
+			yynext();
 			yytoken[yylen] = 0;
 			dict_entry de = {};
 			encode_string(de.encoded,dict_entry_size,yytoken,yylen);
@@ -1391,8 +1431,9 @@ int yylex() {
 			return DICT;
 		}
 		case '"': {
-			while ((yych=yynext())!=EOF && yych!='"')
+			while (yynext()!=EOF && yych!='"')
 				;
+			yynext();
 			// TODO: completely broken
 			return STRLIT;
 		}
@@ -1402,6 +1443,18 @@ int yylex() {
 		case EOF:
 			return EOF;
 	}
+}
+
+int yylex() {
+	int token = yylex_();
+	//if (yypass==2)
+	if (token==EOF)
+		printf("[[EOF]]\n");
+	else if (token < 255)
+		printf("%u:[%c][%d]\n",yyline,token,token);
+	else
+		printf("%u:[%s][%s][%d]\n",yyline,yytoken,yytname[token - 255],token);
+	return token;
 }
 
 void yyerror(const char *fmt,...) {
@@ -1416,6 +1469,14 @@ void yyerror(const char *fmt,...) {
 
 int main(int argc,char **argv) {
 	init();
+
+	/* uint8_t dest[6];
+	encode_string(dest,6,"Test",4);
+	printf("%x %x %x %x %x %x\n",dest[0],dest[1],dest[2],dest[3],dest[4],dest[5]);
+	print_encoded_string(dest,[](char ch){putchar(ch);});
+	putchar('\n');
+	return 1; */
+	
 	yydebug = 1;
 	for (yypass=1; yypass<=2; yypass++) {
 		yyinput = fopen(argv[1],"r");
@@ -1434,11 +1495,11 @@ int main(int argc,char **argv) {
 					if (t == ATTRIBUTE || t == PROPERTY)
 						yylex();	// skip LOCATION/OBJECT/GLOBAL
 					else if (t == OBJECT || t == LOCATION) {
-						if (yylex() != NEWSYM)
-							yyerror("expected object name after 'object' or location'");
-						// declare the object and assign its value
-						the_globals[yytoken] = { (int16_t)t,(int16_t)the_object_table.size() };
-						the_object_table.push_back(new object {});
+						if (yylex() == NEWSYM) {
+							// declare the object and assign its value
+							the_globals[yytoken] = { (int16_t)t,(int16_t)the_object_table.size() };
+							the_object_table.push_back(new object {});
+						}
 					}
 				}
 			}
@@ -1453,6 +1514,9 @@ int main(int argc,char **argv) {
 			dictionary_blob->storeWord(the_dictionary.size());
 			uint16_t idx = 0;
 			for (auto &d: the_dictionary) {
+				printf("word %u: [",idx);
+				print_encoded_string(d.first.encoded,[](char ch){putchar(ch);});
+				printf("]\n");
 				d.second = idx++;
 				dictionary_blob->copy(d.first.encoded,dict_entry_size);
 				dictionary_blob->storeByte(0);
