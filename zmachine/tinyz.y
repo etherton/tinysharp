@@ -10,7 +10,7 @@
 
 	int yylex();
 	void yyerror(const char*,...);
-	uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize);
+	uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize,bool forDict = false);
 	int encode_string(const char*);
 	void print_encoded_string(const uint8_t *src,void (*pr)(char ch));
 	uint8_t next_global, next_local, story_shift = 1, dict_entry_size = 4;
@@ -1131,7 +1131,7 @@ void print_encoded_string(const uint8_t *src,void (*pr)(char ch)) {
 	}
 }
 
-uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize) {
+uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize,bool forDict) {
 	uint16_t offset = 0, step = 0;
 	assert((destSize & 1) == 0);
 	auto storeCode = [&](uint8_t code) {
@@ -1174,6 +1174,11 @@ uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcS
 		storeCode(5);
 		if (step)
 			storeCode(5);
+	}
+	while (forDict && offset < destSize) {
+		storeCode(5);
+		storeCode(5);
+		storeCode(5);
 	}
 	if (dest)
 		dest[offset-2] |= 0x80; // mark end of string
@@ -1411,16 +1416,20 @@ int yylex_() {
 				return '/';
 		case '\'': {
 			yych = yynext();
-			while (yych != '\'' && yych != EOF) {
+			while (yych != '\'' && yych != EOF && yych != 32) {
 				if (yylen+1==sizeof(yytoken))
 					yyerror("dictionary word way too long");
 				yytoken[yylen++] = tolower(yych);
 				yynext();
 			}
-			yynext();
+			// turn a space into a new dict word
+			if (yych==32)
+				yych = '\'';
+			else
+				yynext();
 			yytoken[yylen] = 0;
 			dict_entry de = {};
-			encode_string(de.encoded,dict_entry_size,yytoken,yylen);
+			encode_string(de.encoded,dict_entry_size,yytoken,yylen,true);
 			if (yypass==1) {
 				the_dictionary[de] = -1;
 				yylval.ival = -1;
@@ -1447,13 +1456,14 @@ int yylex_() {
 
 int yylex() {
 	int token = yylex_();
-	//if (yypass==2)
-	if (token==EOF)
-		printf("[[EOF]]\n");
-	else if (token < 255)
-		printf("%u:[%c][%d]\n",yyline,token,token);
-	else
-		printf("%u:[%s][%s][%d]\n",yyline,yytoken,yytname[token - 255],token);
+	if (yydebug) {
+		if (token==EOF)
+			printf("[[EOF]]\n");
+		else if (token < 255)
+			printf("%u:[%c][%d]\n",yyline,token,token);
+		else
+			printf("%u:[%s][%s][%d]\n",yyline,yytoken,yytname[token - 255],token);
+	}
 	return token;
 }
 
@@ -1476,8 +1486,8 @@ int main(int argc,char **argv) {
 	print_encoded_string(dest,[](char ch){putchar(ch);});
 	putchar('\n');
 	return 1; */
-	
-	yydebug = 1;
+
+	// yydebug = 1;
 	for (yypass=1; yypass<=2; yypass++) {
 		yyinput = fopen(argv[1],"r");
 		int scope = 0;
