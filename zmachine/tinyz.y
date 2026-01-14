@@ -1,5 +1,5 @@
 /* tinyz.y */
-/* bison --debug tinyz.y -o tinyz.tab.cpp && clang++ -g -std=c++17 tinyz.tab.cpp */
+/* bison --debug --token-table --verbose tinyz.y -o tinyz.tab.cpp && clang++ -g -std=c++17 tinyz.tab.cpp */
 
 %{
 	#include "opcodes.h"
@@ -70,7 +70,7 @@
 			if (the_header.version == 3) {
 				if (size > 8)
 					yyerror("property too large for v3");
-				auto r = create(2);
+				auto r = create(size+1);
 				r->storeByte(((size-1)<<5) | propertyIndex);
 				return r;
 			}
@@ -231,7 +231,12 @@
 			relocatableBlob *finalProps;
 		};
 	} *cdef;
+	uint16_t self_value;
 	std::vector<object*> the_object_table;
+	struct action {
+	};
+	std::vector<action*> the_action_table;
+
 	struct dict_entry {
 		uint8_t encoded[6];
 		bool operator <(const dict_entry &rhs) const {
@@ -343,7 +348,7 @@
 			}
 		}
 		bool negated;
-		bool isLogical() { return true; }
+		bool isLogical() const { return true; }
 	};
 	struct expr_binary_branch: public expr_branch {
 		expr_binary_branch(expr *l,_2op op,bool negated,expr *r) : left(l), opcode(op), right(r), expr_branch(negated) { }
@@ -365,6 +370,19 @@
 			operand un;
 			unary->eval(un);
 			emit1op(opcode,un);
+			expr_branch::emitBranch(target,negated,isLong);
+		}
+	};
+	struct expr_unary_branch_store: public expr_branch {
+		expr_unary_branch_store(_1op op,expr *e,uint8_t d) : opcode(op), unary(e), dest(d), expr_branch(false) { }
+		_1op opcode;
+		uint8_t dest;
+		expr *unary;
+		void emitBranch(label target,bool negated,bool isLong) {
+			operand un;
+			unary->eval(un);
+			emit1op(opcode,un);
+			emitByte(dest);
 			expr_branch::emitBranch(target,negated,isLong);
 		}
 	};
@@ -642,16 +660,17 @@
 		}
 		expr_call call;
 	};
-	struct stmt_print_ret: public stmt {
-		stmt_print_ret(const char *s) : string(s) { }
+	struct stmt_print: public stmt {
+		stmt_print(_0op o,const char *s) : opcode(o), string(s) { }
 		const char *string;
+		_0op opcode;
 		void emit() {
-			emitByte((uint8_t)_0op::print_ret);
+			emitByte((uint8_t)opcode);
 			currentRoutine->offset += encode_string(currentRoutine->contents + currentRoutine->offset,
-				currentRoutine->size - currentRoutine->offset,string,strlen(string));
+				(currentRoutine->size - currentRoutine->offset) & ~1,string,strlen(string));
 		}
 		unsigned size() const {
-			return 1 + encode_string(nullptr,currentRoutine->size - currentRoutine->offset,string,strlen(string));
+			return 1 + encode_string(nullptr,0,string,strlen(string));
 		}
 	};
 	uint16_t emit_routine(int numLocals,stmt *body) {
@@ -687,7 +706,7 @@
 }
 
 %token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT
-%token BYTE_ARRAY WORD_ARRAY CALL
+%token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF
 %token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME
 %token <sval> STRLIT
 %token <rval> RNAME
@@ -695,9 +714,9 @@
 %token WHILE REPEAT IF ELSE
 %token LE "<=" GE ">=" EQ "==" NE "!="
 // %token DEC_CHK "--<" INC_CHK "++>"
-%token GET_SIBLING GET_CHILD GET_PARENT SAVE RESTORE
+%token GET_SIBLING GET_CHILD SAVE RESTORE
 %token LSH "<<" RSH ">>"
-%token ARROW "->"
+%token ARROW "->" INCR "++" DECR "--"
 %token RFALSE RTRUE RETURN
 %token OR AND NOT
 %token <zeroOp> STMT_0OP
@@ -706,7 +725,7 @@
 %right '~' NOT
 %left '*' '/' '%'
 %left '+' '-'
-%nonassoc HAS HASNT
+%nonassoc HAS HASNT GET_CHILD GET_SIBLING
 %left '<' LE '>' GE
 %left EQ NE
 // %left LSH RSH
@@ -838,6 +857,7 @@ location_def
 
 object_or_location_def
 	: ONAME STRLIT opt_parent '{' {
+		self_value = $1;
 		cdef = the_object_table[$1];
 		cdef->child = 0;
 		cdef->parent = $3;
@@ -871,6 +891,7 @@ object_or_location_def
 		delete [] cdef->properties;
 		cdef->finalProps = finalProps;
 		cdef->propertySize = finalSize;
+		self_value = 0;
 	}
 	;
 
@@ -890,7 +911,7 @@ property_or_attribute_list
 	;
 
 property_or_attribute
-	: PNAME ':' { currentProperty = $1; } pvalue ';'		
+	: PNAME ':' { currentProperty = $1; } pvalue		
 			{ 
 				if (!($1 & expected_scope))
 					yyerror("wrong type of property"); 
@@ -912,15 +933,15 @@ property_or_attribute
 	;
 
 pvalue
-	: ONAME { $$ = relocatableBlob::createInt($1); }
-	| STRLIT
+	: ONAME ';' { $$ = relocatableBlob::createInt($1); }
+	| STRLIT ';'
 		{
 			// string literal is just a shorthand for the address of a routine that calls print_ret with that string
-			$$ = emit_routine(0,new stmt_print_ret($1));
+			$$ = emit_routine(0,new stmt_print(_0op::print_ret,$1));
 		}
-	| INTLIT { $$ = relocatableBlob::createInt($1); }
+	| INTLIT ';' { $$ = relocatableBlob::createInt($1); }
 	| routine_body { $$ = $1; }
-	| dict_list { 
+	| dict_list ';' { 
 		auto p = relocatableBlob::createProperty($1->size() * 2,currentProperty);
 		$$ = p->index;
 		auto s = $1;
@@ -1012,7 +1033,7 @@ stmts
 	;
 
 stmt
-	: IF cond_expr stmt opt_else ';'	{ $$ = new stmt_if($2,$3,$4); }
+	: IF cond_expr stmt opt_else 		{ $$ = new stmt_if($2,$3,$4); }
 	| REPEAT stmt WHILE cond_expr ';'	{ $$ = new stmt_repeat($2,$4); }
 	| WHILE cond_expr stmt ';'			{ $$ = new stmt_while($2,$3); }
 	| '{' stmts '}'			{ $$ = new stmts($2); }
@@ -1023,11 +1044,13 @@ stmt
 	| CALL expr opt_call_args ';'	{ $$ = new stmt_call(new list_node<expr*>($2,$3));  }
 	| RNAME opt_call_args ';'		{ $$ = new stmt_call(new list_node<expr*>(new expr_literal($1),$2)); }
 	| STMT_0OP ';'					{ $$ = new stmt_0op($1); }
-	| STMT_1OP '(' expr ')' ';'		{ $$ = new stmt_1op($1,$3); }
+	| STMT_1OP  expr  ';'			{ $$ = new stmt_1op($1,$2); }
+	| PRINT STRLIT ';'				{ $$ = new stmt_print(_0op::print,$2); }
+	| PRINT_RET STRLIT ';'			{ $$ = new stmt_print(_0op::print_ret,$2); }
 	; 
 	
 opt_else
-	:			{ $$ = nullptr; }
+	: ';'		{ $$ = nullptr; }
 	| ELSE stmt	{ $$ = $2; }
 	;
 
@@ -1073,6 +1096,9 @@ expr
 	| expr OR expr		{ $$ = new expr_logical_or($1,$3); }
 	| expr HAS aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,false,$3); }
 	| expr HASNT aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,true,$3); }
+	| GET_CHILD '(' expr ')' ARROW vname { $$ = new expr_unary_branch_store(_1op::get_child,$3,$6); }
+	| GET_SIBLING '(' expr ')' ARROW vname { $$ = new expr_unary_branch_store(_1op::get_sibling,$3,$6); }
+
 	| SAVE				{ $$ = new expr_save(); }
 	| RESTORE			{ $$ = new expr_restore(); }
 	| '{' expr ',' expr '}'				{ $$ = new expr_grouped($2,$4); }
@@ -1082,6 +1108,12 @@ expr
 primary
 	: aname			{ $$ = $1; }
 	| PNAME			{ $$ = new expr_literal($1); }
+	| ONAME			{ $$ = new expr_literal($1); }
+	| SELF			{ 
+						if (!self_value) 
+							yyerror("'self' can only appear within objects"); 
+						$$ = new expr_literal(self_value); 
+					}
 	;
 
 aname
@@ -1191,17 +1223,19 @@ uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcS
 	return offset;
 }
 
+const int TOPLEVEL = 16384;
+
 void init() {
-	rw["attribute"] = ATTRIBUTE;
-	rw["property"] = PROPERTY;
-	rw["direction"] = DIRECTION;
-	rw["global"] = GLOBAL;
-	rw["object"] = OBJECT;
-	rw["location"] = LOCATION;
-	rw["routine"] = ROUTINE;
-	rw["article"] = ARTICLE;
-	rw["placeholder"] = PLACEHOLDER;
-	rw["action"] = ACTION;
+	rw["attribute"] = ATTRIBUTE | TOPLEVEL;
+	rw["property"] = PROPERTY | TOPLEVEL;
+	rw["direction"] = DIRECTION | TOPLEVEL;
+	rw["global"] = GLOBAL | TOPLEVEL;
+	rw["object"] = OBJECT | TOPLEVEL;
+	rw["location"] = LOCATION | TOPLEVEL;
+	rw["routine"] = ROUTINE | TOPLEVEL;
+	rw["article"] = ARTICLE | TOPLEVEL;
+	rw["placeholder"] = PLACEHOLDER | TOPLEVEL;
+	rw["action"] = ACTION | TOPLEVEL;
 	rw["has"] = HAS;
 	rw["hasnt"] = HASNT;
 	rw["byte_array"] = BYTE_ARRAY;
@@ -1209,6 +1243,8 @@ void init() {
 	rw["call"] = CALL;
 	rw["while"] = WHILE;
 	rw["repeat"] = REPEAT;
+	rw["rtrue"] = RTRUE;
+	rw["rfalse"] = RFALSE;
 	rw["if"] = IF;
 	rw["else"] = ELSE;
 	rw["return"] = RETURN;
@@ -1219,14 +1255,16 @@ void init() {
 	rw["restore"] = RESTORE;
 	rw["get_sibling"] = GET_SIBLING;
 	rw["get_child"] = GET_CHILD;
-	rw["get_parent"] = GET_PARENT;
+	rw["print"] = PRINT;
+	rw["print_ret"] = PRINT_RET;
+	rw["self"] = SELF;
 
 	f_0op["restart"] = _0op::restart;
 	f_0op["quit"] = _0op::quit;
 	f_0op["crlf"] = _0op::new_line;
 	f_0op["show_status"] = _0op::show_status;
 
-	// f_1op["get_parent"] = _1op::get_parent;
+	f_1op["get_parent"] = _1op::get_parent; // unlike others, get_parent isn't a branch
 	f_1op["print_addr"] = _1op::print_addr;
 	f_1op["print_paddr"] = _1op::print_paddr;
 	f_1op["remove_obj"] = _1op::remove_obj;
@@ -1246,6 +1284,7 @@ void init() {
 	// 1,2,3=abbreviations, 4=shift1, 5=shift2
 
 	the_object_table.push_back(nullptr);	// object zero doesn't exist
+	the_action_table.push_back(nullptr);
 }
 
 int encode_string(const char *src) {
@@ -1293,7 +1332,7 @@ void emit2op(operand lval,_2op opcode,operand rval) {
 	emitOperand(rval);
 }
 
-int yych, yylen, yypass, yyline;
+int yych, yylen, yypass, yyline, yyscope;
 char yytoken[32];
 FILE *yyinput;
 inline int yynext() { yych = getc(yyinput); if (yych == 10) ++yyline; return yych; }
@@ -1313,8 +1352,8 @@ int yylex_() {
 		yytoken[yylen] = 0;
 		// reserved words and builtin funcs first
 		auto r = rw.find(yytoken);
-		if (r != rw.end())
-			return r->second;
+		if (r != rw.end() && (!yyscope || !(r->second & TOPLEVEL)))
+			return r->second & (TOPLEVEL-1);
 		auto z = f_0op.find(yytoken);
 		if (z != f_0op.end()) {
 			yylval.zeroOp = z->second;
@@ -1355,7 +1394,16 @@ int yylex_() {
 			yytoken[yylen++] = '-';
 			yynext();
 			if (yych<'0'||yych>'9') {
-				return '-';
+				if (yych=='>') {
+					yynext();
+					return ARROW;
+				}
+				else if (yych=='-') {
+					yynext();
+					return DECR;
+				}
+				else	
+					return '-';
 			}
 			[[fallthrough]];
 		case '0': case '1': case '2': case '3': case '4':
@@ -1367,14 +1415,36 @@ int yylex_() {
 			yytoken[yylen] = 0;
 			yylval.ival = atoi(yytoken);
 			return INTLIT;
-		case '+': case '(': case '[': case ')': case ']':
+		case '+': 
+			if (yynext()=='+') {
+				yynext();
+				return INCR;
+			}
+			else
+				return '+';
+		case '(': case ')':
 		case '~': case '*': case ':': case '.': case '%':
-		case '&': case '|': case ';': case '{': case '}':
+		case '&': case '|': case ';':
 		case ',': case '!':
 			yytoken[0] = yych;
 			yynext();
 			return yytoken[0];
-		case '=':
+		case '[':
+			++yyscope;
+			yynext();
+			return '[';
+		case ']':
+			--yyscope;
+			yynext();
+			return ']';
+		case '{':
+			++yyscope;
+			yynext();
+			return '{';
+		case '}':
+			--yyscope;
+			yynext();
+			return '}';		case '=':
 			yynext();
 			if (yych=='=') {
 				yynext();
@@ -1468,6 +1538,7 @@ int yylex_() {
 int yylex() {
 	int token = yylex_();
 	if (yydebug) {
+		printf("(%d)",yyscope);
 		if (token==EOF)
 			printf("[[EOF]]\n");
 		else if (token < 255)
@@ -1501,18 +1572,14 @@ int main(int argc,char **argv) {
 	yydebug = 1;
 	for (yypass=1; yypass<=2; yypass++) {
 		yyinput = fopen(argv[1],"r");
-		int scope = 0;
 		int nextObject = 1;
 		yych = 32;
 		yyline = 1;
+		yyscope = 0;
 		if (yypass==1) {
 			int t;
 			while ((t = yylex()) != EOF) {
-				if (t == '{')
-					++scope;
-				else if (t == '}')
-					--scope;
-				else if (scope == 0) {
+				if (yyscope == 0) {
 					if (t == ATTRIBUTE || t == PROPERTY)
 						yylex();	// skip LOCATION/OBJECT/GLOBAL
 					else if (t == OBJECT || t == LOCATION) {
@@ -1520,6 +1587,14 @@ int main(int argc,char **argv) {
 							// declare the object and assign its value
 							the_globals[yytoken] = { ONAME,(int16_t)the_object_table.size() };
 							the_object_table.push_back(new object {});
+						}
+					}
+					else if (t == ACTION) {
+						if (yylex() == NEWSYM) {
+							if (yytoken[0]!='#')
+								yyerror("action symbols must start with #");
+							the_globals[yytoken] = { INTLIT,(int16_t)the_action_table.size() };
+							the_action_table.push_back(new action {});
 						}
 					}
 				}
@@ -1544,6 +1619,8 @@ int main(int argc,char **argv) {
 				dictionary_blob->copy(d.first.encoded,dict_entry_size);
 				dictionary_blob->storeByte(0);
 			}
+			printf("%zu objects\n",the_object_table.size());
+			printf("%zu actions\n",the_action_table.size());
 		}
 		else
 			yyparse();

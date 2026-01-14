@@ -184,9 +184,9 @@ location bar "Foyer Bar" {
 			be some sort of message scrawled in the sawdust on the floor.";
 	n_to: foyer;
 	before: [action; temp] {
-		if (action==#look,#inv)
+		if (action=={#look,#inv})
 			rtrue;
-		else if (action==#leave and self hasnt lit and noun!=n_to) {
+		else if (action==#leave and self hasnt lit and noun <> n_to) {
 			++message_damage;
 			++message_damage;
 			print_ret "Blundering around in the dark isn't a good idea!";
@@ -213,7 +213,7 @@ object cloak "velvet cloak" (player) {
 	after: [action] {
 		if (action==#take)
 			clear_attr(bar,lit);
-		else if ((action==#puton,#drop) and location==cloakroom) {
+		else if ((action=={#puton,#drop}) and location==cloakroom) {
 			set_attr(bar,lit);
 			if (action==#puton and self has general) {
 				clear_attr(self,general);
@@ -323,7 +323,7 @@ routine Travel [dir;r] {
 	}
 }
 
-routine test_object_attr [obj attr] 
+routine test_object_attr [obj attr] {
 	if (get_attr(obj,is_location))
 		rfalse;
 	if (get_attr(obj,attr))
@@ -362,11 +362,12 @@ routine Drop [obj] {
 
 // actions are scanned in-order
 // so specific cases need to be before more general cases
+// some actions are really just messages and aren't part of grammer
 action #travel { direction: Travel }
 action #inv { 'i'/'inventory'/'take inventory': Inventory }
 action #take { 'get'/'take'/'pick up' here: Take }
 action #drop { 'drop'/'put down' held: Drop }
-action #lookat { 'look at'/'examine'/'x' here/held: Examine }
+action #look { 'look at'/'examine'/'x' here/held: Examine }
 action #puton { 'hang'/'place'/'put' held 'on'/'upon' here: [do ido] {
 	if (ido has supporter) {
 		if (get_child(ido) != 0)
@@ -383,6 +384,7 @@ action #puton { 'hang'/'place'/'put' held 'on'/'upon' here: [do ido] {
 		print_ret "You can't put it on that.";
 }}
 action #go { 'go'/'walk'/'travel' direction: Travel }
+action #leave { }
 
 byte_array(64) text_buffer = { 63 };
 byte_array(64) parse_buffer = { 15 };
@@ -405,10 +407,9 @@ routine DoTurn[;wc wp wt] {
 }
 
 routine Startup[] {
-   print "^^\n\nHurrying through the rainswept November night, you're glad to see the
+   print_ret "^^\n\nHurrying through the rainswept November night, you're glad to see the
 	bright lights of the Opera House. It's surprising that there aren't more
 	people about but, hey, what do you expect in a cheap demo game...?\n\n";
-
 }
 
 routine main [] {
