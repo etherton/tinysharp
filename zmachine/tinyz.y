@@ -1,6 +1,7 @@
 /* tinyz.y */
 /* bison --debug --token-table --verbose tinyz.y -o tinyz.tab.cpp && clang++ -g -std=c++17 tinyz.tab.cpp */
 
+%expect 1
 %{
 	#include "opcodes.h"
 	#include "header.h"
@@ -321,7 +322,7 @@
 			if (e->isLogical())
 				return static_cast<expr_branch*>(e);
 			else {
-				yyerror("semantic error, must be boolean expression");
+				yyerror("semantic error, must be boolean expression, not %s",typeid(e).name());
 				return nullptr;
 			}
 		}
@@ -741,7 +742,7 @@
 %type <dlist> dict_list;
 %type <ilist> init_list;
 %type <elist> opt_call_args arg_list
-%type <stval> stmt opt_else
+%type <stval> stmt
 %type <stlist> stmts
 
 %%
@@ -1033,9 +1034,10 @@ stmts
 	;
 
 stmt
-	: IF cond_expr stmt opt_else 		{ $$ = new stmt_if($2,$3,$4); }
+	: IF cond_expr stmt  				{ $$ = new stmt_if($2,$3,nullptr); }
+	| IF cond_expr stmt ELSE stmt 	%prec IF	{ $$ = new stmt_if($2,$3,$5); }
 	| REPEAT stmt WHILE cond_expr ';'	{ $$ = new stmt_repeat($2,$4); }
-	| WHILE cond_expr stmt ';'			{ $$ = new stmt_while($2,$3); }
+	| WHILE cond_expr stmt				{ $$ = new stmt_while($2,$3); }
 	| '{' stmts '}'			{ $$ = new stmts($2); }
 	| vname '=' expr ';'	{ $$ = new stmt_assign($1,expr::fold_constant($3)); }
 	| RETURN expr ';'		{ $$ = new stmt_return(expr::fold_constant($2)); }
@@ -1047,13 +1049,10 @@ stmt
 	| STMT_1OP  expr  ';'			{ $$ = new stmt_1op($1,$2); }
 	| PRINT STRLIT ';'				{ $$ = new stmt_print(_0op::print,$2); }
 	| PRINT_RET STRLIT ';'			{ $$ = new stmt_print(_0op::print_ret,$2); }
+	| INCR vname ';'				{ $$ = new stmt_assign($2,new expr_binary_add(new expr_variable($2),new expr_literal(1))); }
+	| DECR vname ';'				{ $$ = new stmt_assign($2,new expr_binary_sub(new expr_variable($2),new expr_literal(1))); }
 	; 
 	
-opt_else
-	: ';'		{ $$ = nullptr; }
-	| ELSE stmt	{ $$ = $2; }
-	;
-
 cond_expr
 	: '(' expr ')' { $$ = $2; }
 	;

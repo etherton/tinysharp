@@ -186,7 +186,7 @@ location bar "Foyer Bar" {
 	before: [action; temp] {
 		if (action=={#look,#inv})
 			rtrue;
-		else if (action==#leave and self hasnt lit and noun <> n_to) {
+		else if ((action==#leave) and (self hasnt lit) and (noun <> n_to)) {
 			++message_damage;
 			++message_damage;
 			print_ret "Blundering around in the dark isn't a good idea!";
@@ -205,7 +205,7 @@ object cloak "velvet cloak" (player) {
 			spattered with raindrops. Its blackness is so deep that it
 			almost seems to suck light from the room.";
 	before: [action] {
-		if (action==#drop,#puton and (location!=cloakroom))
+		if (action=={#drop,#puton} and (location<>cloakroom))
 			print_ret "This isn't the best place to leave
 				a smart cloak lying around.";
 		rfalse; // not handled, allow action to continue
