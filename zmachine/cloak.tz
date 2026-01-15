@@ -205,18 +205,18 @@ object cloak "velvet cloak" (player) {
 			spattered with raindrops. Its blackness is so deep that it
 			almost seems to suck light from the room.";
 	before: [action] {
-		if (action=={#drop,#puton} and (location<>cloakroom))
+		if ((action=={#drop,#puton}) and (room<>cloakroom))
 			print_ret "This isn't the best place to leave
 				a smart cloak lying around.";
 		rfalse; // not handled, allow action to continue
 	}
 	after: [action] {
 		if (action==#take)
-			clear_attr(bar,lit);
-		else if ((action=={#puton,#drop}) and location==cloakroom) {
-			set_attr(bar,lit);
+			bar loses lit;
+		else if ((action=={#puton,#drop}) and (room==cloakroom)) {
+			bar gains lit;
 			if (action==#puton and self has general) {
-				clear_attr(self,general);
+				self loses general;
 				++score;
 			}
 		}

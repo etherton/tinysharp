@@ -327,7 +327,7 @@
 			}
 		}
 		void emit() {
-			// shouldn't be called.
+			assert(false); // shouldn't be called.
 		}
 		virtual void emitBranch(label target,bool n,bool isLong) {
 			if (negated)
@@ -615,6 +615,20 @@
 			return 3;
 		}
 	};
+	struct stmt_2op: public stmt {
+		stmt_2op(_2op op,expr *l,expr *r) : opcode(op), left(l), right(r) { }
+		_2op opcode;
+		expr *left, *right;
+		void emit() {
+			operand lop, rop;
+			right->eval(rop);
+			left->eval(lop);
+			emit2op(lop,opcode,rop);
+		}
+		unsigned size() const {
+			return left->size() + right->size() + 1;
+		}
+	};		
 	struct stmt_1op: public stmt {
 		stmt_1op(_1op op,expr *e) : opcode(op), value(e) { }
 		_1op opcode;
@@ -722,11 +736,12 @@
 %token OR AND NOT
 %token <zeroOp> STMT_0OP
 %token <oneOp> STMT_1OP
+%token GAINS LOSES
 
 %right '~' NOT
 %left '*' '/' '%'
 %left '+' '-'
-%nonassoc HAS HASNT GET_CHILD GET_SIBLING
+%left HAS HASNT GET_CHILD GET_SIBLING
 %left '<' LE '>' GE
 %left EQ NE
 // %left LSH RSH
@@ -1051,6 +1066,8 @@ stmt
 	| PRINT_RET STRLIT ';'			{ $$ = new stmt_print(_0op::print_ret,$2); }
 	| INCR vname ';'				{ $$ = new stmt_assign($2,new expr_binary_add(new expr_variable($2),new expr_literal(1))); }
 	| DECR vname ';'				{ $$ = new stmt_assign($2,new expr_binary_sub(new expr_variable($2),new expr_literal(1))); }
+	| primary GAINS aname ';' 		{ $$ = new stmt_2op(_2op::set_attr,$1,$3); }
+	| primary LOSES aname ';'		{ $$ = new stmt_2op(_2op::clear_attr,$1,$3); }
 	; 
 	
 cond_expr
@@ -1093,11 +1110,10 @@ expr
 	| NOT expr			{ $$ = new expr_logical_not($2); }
 	| expr AND expr		{ $$ = new expr_logical_and($1,$3); }
 	| expr OR expr		{ $$ = new expr_logical_or($1,$3); }
-	| expr HAS aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,false,$3); }
-	| expr HASNT aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,true,$3); }
+	| primary HAS aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,false,$3); }
+	| primary HASNT aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,true,$3); }
 	| GET_CHILD '(' expr ')' ARROW vname { $$ = new expr_unary_branch_store(_1op::get_child,$3,$6); }
 	| GET_SIBLING '(' expr ')' ARROW vname { $$ = new expr_unary_branch_store(_1op::get_sibling,$3,$6); }
-
 	| SAVE				{ $$ = new expr_save(); }
 	| RESTORE			{ $$ = new expr_restore(); }
 	| '{' expr ',' expr '}'				{ $$ = new expr_grouped($2,$4); }
@@ -1237,6 +1253,8 @@ void init() {
 	rw["action"] = ACTION | TOPLEVEL;
 	rw["has"] = HAS;
 	rw["hasnt"] = HASNT;
+	rw["gains"] = GAINS;
+	rw["loses"] = LOSES;
 	rw["byte_array"] = BYTE_ARRAY;
 	rw["word_array"] = WORD_ARRAY;
 	rw["call"] = CALL;
