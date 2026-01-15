@@ -358,7 +358,7 @@
 		}
 	};
 	struct expr_in: public expr_branch {
-		expr_in(expr *l,expr *a,expr *b=nullptr,expr *c=nullptr) : left(l), right1(a), right2(b), right3(c), expr_branch(false) { }
+		expr_in(expr *l,expr *r1,expr *r2=nullptr,expr *r3=nullptr) : left(l), right1(r1), right2(r2), right3(r3), expr_branch(false) { }
 		expr *left,*right1,*right2,*right3;
 		void emitBranch(label target,bool negated,bool isLong) {
 			operand lval, rval1, rval2, rval3;
@@ -366,8 +366,6 @@
 				right3->eval(rval3);
 			if (right2)
 				right2->eval(rval2);
-			if (right1)
-				right1->eval(rval1);
 			left->eval(lval);
 			if (right3)
 				emitvarop(lval,_2op::je,rval1,rval2,rval3);
