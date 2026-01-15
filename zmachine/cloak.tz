@@ -264,12 +264,12 @@ article 'a' 'an' 'the';
 // -01: this is a single word
 // -10: this is the second word of a two-word phrase
 
-// when a 'word' appears in a routine, it evaluates to the 1-based index
+// when a 'word' appears in a routine, it evaluates to the 0-based index
 // of the word in the master dictionary
 placeholder held;
 placeholder here;
 placeholder anyobj;
-placeholder direction;
+placeholder compass;
 
 routine Inventory [;i] {
 	if (get_child(player)->i) {
@@ -364,7 +364,7 @@ routine Drop [obj] {
 // actions are scanned in-order
 // so specific cases need to be before more general cases
 // some actions are really just messages and aren't part of grammer
-action #travel { direction: Travel }
+action #travel { compass: Travel }
 action #inv { 'i'/'inventory'/'take inventory': Inventory }
 action #take { 'get'/'take'/'pick up' here: Take }
 action #drop { 'drop'/'put down' held: Drop }
@@ -384,7 +384,7 @@ action #puton { 'hang'/'place'/'put' held 'on'/'upon' here: [do ido] {
 	else
 		print_ret "You can't put it on that.";
 }}
-action #go { 'go'/'walk'/'travel' direction: Travel }
+action #go { 'go'/'walk'/'travel' compass: Travel }
 action #leave { }
 
 byte_array(64) text_buffer = { 63 };

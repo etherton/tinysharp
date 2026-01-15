@@ -154,6 +154,8 @@
 		emitByte(o.value);
 	}
 	// void emitBranch(uint16_t target);
+	void emitvarop(operand l,_2op op,operand r1,operand r2);
+	void emitvarop(operand l,_2op op,operand r1,operand r2,operand r3);
 	void emit2op(operand l,_2op op,operand r);
 	void emit1op(_1op op,operand un);
 	const uint8_t TOS = 0, SCRATCH = 4;
@@ -355,6 +357,27 @@
 			expr_branch::emitBranch(target,negated,isLong);
 		}
 	};
+	struct expr_in: public expr_branch {
+		expr_in(expr *l,expr *a,expr *b=nullptr,expr *c=nullptr) : left(l), right1(a), right2(b), right3(c), expr_branch(false) { }
+		expr *left,*right1,*right2,*right3;
+		void emitBranch(label target,bool negated,bool isLong) {
+			operand lval, rval1, rval2, rval3;
+			if (right3)
+				right3->eval(rval3);
+			if (right2)
+				right2->eval(rval2);
+			if (right1)
+				right1->eval(rval1);
+			left->eval(lval);
+			if (right3)
+				emitvarop(lval,_2op::je,rval1,rval2,rval3);
+			else if (right2)
+				emitvarop(lval,_2op::je,rval1,rval2);
+			else
+				emit2op(lval,_2op::je,rval1);
+			expr_branch::emitBranch(target,negated,isLong);
+		}
+	};
 	struct expr_unary_branch: public expr_branch {
 		expr_unary_branch(_1op op,bool negated,expr *e) : opcode(op), unary(e), expr_branch(negated) { }
 		_1op opcode;
@@ -459,10 +482,6 @@
 				placeLabel(trueBranch);
 			}
 		}
-	};
-	struct expr_grouped: public expr {
-		expr_grouped(expr*a,expr *b,expr *c = nullptr) { exprs[0] = a; exprs[1] = b; exprs[2] = c; }
-		expr *exprs[3];
 	};
 	struct expr_call: public expr { // first arg is func address
 		expr_call(list_node<expr*> *a) : args(a) { }
@@ -713,7 +732,7 @@
 	_1op oneOp;
 }
 
-%token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT IN
+%token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT IN HOLDS
 %token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF
 %token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME
 %token <sval> STRLIT
@@ -1104,9 +1123,9 @@ bool_expr
 	| expr GE expr		{ $$ = new expr_binary_branch($1,_2op::jl,true,$3); }
 	| expr EQ expr		{ $$ = new expr_binary_branch($1,_2op::je,false,$3); }
 	| expr NE expr		{ $$ = new expr_binary_branch($1,_2op::je,true,$3); }
-	| expr IN '{' expr '}'	{ $$ = new expr_binary_branch($1,_2op::je,false,$4); }
-	| expr IN '{' expr ',' expr '}' { $$ = new expr_binary_branch($1,_2op::je,false,new expr_grouped($4,$6)); }
-	| expr IN '{' expr ',' expr ',' expr '}' { $$ = new expr_binary_branch($1,_2op::je,false,new expr_grouped($4,$6,$8)); }
+	| expr IN '{' expr '}'	{ $$ = new expr_in($1,$4); }
+	| expr IN '{' expr ',' expr '}' { $$ = new expr_in($1,$4,$6); }
+	| expr IN '{' expr ',' expr ',' expr '}' { $$ = new expr_in($1,$4,$6,$8); }
 	| NOT bool_expr		{ $$ = new expr_logical_not($2); }
 	| bool_expr AND bool_expr		{ $$ = new expr_logical_and($1,$3); }
 	| bool_expr OR bool_expr		{ $$ = new expr_logical_or($1,$3); }
@@ -1114,6 +1133,7 @@ bool_expr
 	| primary HASNT aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,true,$3); }
 	| GET_CHILD '(' expr ')' ARROW vname { $$ = new expr_unary_branch_store(_1op::get_child,$3,$6); }
 	| GET_SIBLING '(' expr ')' ARROW vname { $$ = new expr_unary_branch_store(_1op::get_sibling,$3,$6); }
+	| expr HOLDS expr 	{ $$ = new expr_binary_branch($1,_2op::jin,false,$3); }
 	| SAVE				{ $$ = new expr_save(); }
 	| RESTORE			{ $$ = new expr_restore(); }
 	| '(' bool_expr ')' { $$ = $2; }
@@ -1349,6 +1369,23 @@ void emit2op(operand lval,_2op opcode,operand rval) {
 	}
 	emitOperand(lval);
 	emitOperand(rval);
+}
+
+void emitvarop(operand lval,_2op opcode,operand rval1,operand rval2) {
+	emitByte((uint8_t)opcode + 0xC0);
+	emitByte((uint8_t(lval.type) << 6) | (uint8_t(rval1.type) << 4) | (uint8_t(rval2.type) << 2) | 0x3);
+	emitOperand(lval);
+	emitOperand(rval1);
+	emitOperand(rval2);
+}
+
+void emitvarop(operand lval,_2op opcode,operand rval1,operand rval2,operand rval3) {
+	emitByte((uint8_t)opcode + 0xC0);
+	emitByte((uint8_t(lval.type) << 6) | (uint8_t(rval1.type) << 4) | (uint8_t(rval2.type) << 2) | uint8_t(rval3.type));
+	emitOperand(lval);
+	emitOperand(rval1);
+	emitOperand(rval2);
+	emitOperand(rval3);
 }
 
 int yych, yylen, yypass, yyline, yyscope;
@@ -1588,7 +1625,7 @@ int main(int argc,char **argv) {
 	putchar('\n');
 	return 1; */
 
-	yydebug = 1;
+	yydebug = 0;
 	for (yypass=1; yypass<=2; yypass++) {
 		yyinput = fopen(argv[1],"r");
 		int nextObject = 1;
@@ -1638,8 +1675,9 @@ int main(int argc,char **argv) {
 				dictionary_blob->copy(d.first.encoded,dict_entry_size);
 				dictionary_blob->storeByte(0);
 			}
-			printf("%zu objects\n",the_object_table.size());
-			printf("%zu actions\n",the_action_table.size());
+			printf("%zu objects\n",the_object_table.size()-1);
+			printf("%zu actions\n",the_action_table.size()-1);
+			the_globals["object_count"] = { INTLIT, int16_t(the_object_table.size() - 1) };
 		}
 		else
 			yyparse();
