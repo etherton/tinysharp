@@ -720,7 +720,7 @@
 	_1op oneOp;
 }
 
-%token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT
+%token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT IN
 %token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF
 %token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME
 %token <sval> STRLIT
@@ -750,7 +750,7 @@
 %left AND
 %left OR
 
-%type <eval> expr primary aname arg cond_expr
+%type <eval> expr primary aname arg cond_expr bool_expr
 %type <ival> init vname opt_parent opt_default
 %type <rval> routine_body pvalue
 %type <scopeval> scope
@@ -1071,7 +1071,7 @@ stmt
 	; 
 	
 cond_expr
-	: '(' expr ')' { $$ = $2; }
+	: '(' bool_expr ')' { $$ = $2; }
 	;
 
 opt_call_args
@@ -1101,23 +1101,27 @@ expr
 	| '(' expr ')'  	{ $$ = $2; }
 	| primary       	{ $$ = $1; }
 	| INTLIT        	{ $$ = new expr_literal($1); }
-	| expr '<' expr		{ $$ = new expr_binary_branch($1,_2op::jl,false,$3); }
+	;
+
+bool_expr
+	: expr '<' expr		{ $$ = new expr_binary_branch($1,_2op::jl,false,$3); }
 	| expr LE expr		{ $$ = new expr_binary_branch($1,_2op::jg,true,$3); }
 	| expr '>' expr		{ $$ = new expr_binary_branch($1,_2op::jg,false,$3); }
 	| expr GE expr		{ $$ = new expr_binary_branch($1,_2op::jl,true,$3); }
 	| expr EQ expr		{ $$ = new expr_binary_branch($1,_2op::je,false,$3); }
 	| expr NE expr		{ $$ = new expr_binary_branch($1,_2op::je,true,$3); }
-	| NOT expr			{ $$ = new expr_logical_not($2); }
-	| expr AND expr		{ $$ = new expr_logical_and($1,$3); }
-	| expr OR expr		{ $$ = new expr_logical_or($1,$3); }
+	| expr IN '{' expr '}'	{ $$ = new expr_binary_branch($1,_2op::je,false,$4); }
+	| expr IN '{' expr ',' expr '}' { $$ = new expr_binary_branch($1,_2op::je,false,new expr_grouped($4,$6)); }
+	| expr IN '{' expr ',' expr ',' expr '}' { $$ = new expr_binary_branch($1,_2op::je,false,new expr_grouped($4,$6,$8)); }
+	| NOT bool_expr		{ $$ = new expr_logical_not($2); }
+	| bool_expr AND bool_expr		{ $$ = new expr_logical_and($1,$3); }
+	| bool_expr OR bool_expr		{ $$ = new expr_logical_or($1,$3); }
 	| primary HAS aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,false,$3); }
 	| primary HASNT aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,true,$3); }
 	| GET_CHILD '(' expr ')' ARROW vname { $$ = new expr_unary_branch_store(_1op::get_child,$3,$6); }
 	| GET_SIBLING '(' expr ')' ARROW vname { $$ = new expr_unary_branch_store(_1op::get_sibling,$3,$6); }
 	| SAVE				{ $$ = new expr_save(); }
 	| RESTORE			{ $$ = new expr_restore(); }
-	| '{' expr ',' expr '}'				{ $$ = new expr_grouped($2,$4); }
-	| '{' expr ',' expr ',' expr '}'	{ $$ = new expr_grouped($2,$4,$6); }
 	;
 
 primary
@@ -1251,6 +1255,9 @@ void init() {
 	rw["article"] = ARTICLE | TOPLEVEL;
 	rw["placeholder"] = PLACEHOLDER | TOPLEVEL;
 	rw["action"] = ACTION | TOPLEVEL;
+	rw["in"] = IN;
+	rw["is"] = EQ;
+	rw["isnt"] = NE;
 	rw["has"] = HAS;
 	rw["hasnt"] = HASNT;
 	rw["gains"] = GAINS;

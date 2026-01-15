@@ -184,9 +184,9 @@ location bar "Foyer Bar" {
 			be some sort of message scrawled in the sawdust on the floor.";
 	n_to: foyer;
 	before: [action; temp] {
-		if (action=={#look,#inv})
+		if (action in {#look,#inv})
 			rtrue;
-		else if ((action==#leave) and (self hasnt lit) and (noun <> n_to)) {
+		else if (action is #leave and self hasnt lit and noun isnt n_to) {
 			++message_damage;
 			++message_damage;
 			print_ret "Blundering around in the dark isn't a good idea!";
@@ -205,17 +205,17 @@ object cloak "velvet cloak" (player) {
 			spattered with raindrops. Its blackness is so deep that it
 			almost seems to suck light from the room.";
 	before: [action] {
-		if ((action=={#drop,#puton}) and (room<>cloakroom))
+		if (action in {#drop,#puton} and room isnt cloakroom)
 			print_ret "This isn't the best place to leave
 				a smart cloak lying around.";
 		rfalse; // not handled, allow action to continue
 	}
 	after: [action] {
-		if (action==#take)
+		if (action is #take)
 			bar loses lit;
-		else if ((action=={#puton,#drop}) and (room==cloakroom)) {
+		else if (action in {#puton,#drop} and room is cloakroom) {
 			bar gains lit;
-			if (action==#puton and self has general) {
+			if (action is #puton and self has general) {
 				self loses general;
 				++score;
 			}
@@ -248,11 +248,12 @@ object message "scrawled message" (bar) {
 // directions are also adjectives in most cases
 
 routine perform [act obj iobj] {
+	act = act;
 }
 
 // articles are skipped entirely except they do force the
 // parser to expect a direct or indirect object.
-article: 'a' 'an' 'the';
+article 'a' 'an' 'the';
 
 // words in action syntax get encoded into nonzero indices
 // we support up to 8191 unique words (plenty since each
