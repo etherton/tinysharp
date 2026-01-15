@@ -318,14 +318,6 @@
 	};
 	struct expr_branch: public expr {
 		expr_branch(bool n) : negated(n) { }
-		static expr_branch * to_branch(expr *e) {
-			if (e->isLogical())
-				return static_cast<expr_branch*>(e);
-			else {
-				yyerror("semantic error, must be boolean expression, not %s",typeid(e).name());
-				return nullptr;
-			}
-		}
 		void emit() {
 			assert(false); // shouldn't be called.
 		}
@@ -416,7 +408,7 @@
 		}
 	};
 	struct expr_logical_not: public expr_branch {
-		expr_logical_not(expr *e) : unary(to_branch(e)), expr_branch(!to_branch(e)->negated) { }
+		expr_logical_not(expr_branch *e) : unary(), expr_branch(!e->negated) { }
 		expr_branch *unary;
 		void emitBranch(label target,bool negated,bool isLong) {
 			unary->emitBranch(target,negated,isLong);
@@ -433,7 +425,7 @@
 	// after:
 	// not (a and b) -> (not a) OR (not b)
 	struct expr_logical_and: public expr_branch {
-		expr_logical_and(expr *l,expr *r) : left(to_branch(l)), right(to_branch(r)), expr_branch(false) { }
+		expr_logical_and(expr_branch *l,expr_branch *r) : left(l), right(r), expr_branch(false) { }
 		expr_branch *left, *right;
 		void emitBranch(label target,bool negated,bool isLong) {
 			// (negated=true) if (a and b) means jz a,target; jz b,target
@@ -452,7 +444,7 @@
 		}
 	};
 	struct expr_logical_or: public expr_branch {
-		expr_logical_or(expr *l,expr *r) : left(to_branch(l)), right(to_branch(r)), expr_branch(false) { }
+		expr_logical_or(expr_branch*l,expr_branch *r) : left(l), right(r), expr_branch(false) { }
 		expr_branch *left, *right;
 		void emitBranch(label target,bool negated,bool isLong) {
 			// if (a or b) means jnz a,skip; jz b,target; skip:
@@ -533,7 +525,7 @@
 		return s > 61? 3 : 2;
 	}
 	struct stmt_if: public stmt_flow {
-		stmt_if(expr *e,stmt *t,stmt *f): cond(expr_binary_branch::to_branch(e)), ifTrue(t), ifFalse(f) { }
+		stmt_if(expr_branch *e,stmt *t,stmt *f): cond(e), ifTrue(t), ifFalse(f) { }
 		expr_branch *cond;
 		stmt *ifTrue, *ifFalse;
 		// TODO: if ifTrue is rfalse/rtrue, we just need the non-negated branch to 0/1
@@ -559,7 +551,7 @@
 		}
 	};
 	struct stmt_while: public stmt_flow {
-		stmt_while(expr *e,stmt *b): cond(new expr_logical_not(expr_branch::to_branch(e))), body(b) { }
+		stmt_while(expr_branch *e,stmt *b): cond(e), body(b) { }
 		expr_branch *cond;
 		stmt *body;
 		void emit() {
@@ -575,7 +567,7 @@
 		}
 	};
 	struct stmt_repeat: public stmt_flow {
-		stmt_repeat(stmt *b,expr *e): body(b), cond(expr_branch::to_branch(e)) { }
+		stmt_repeat(stmt *b,expr_branch *e): body(b), cond(e) { }
 		stmt *body;
 		expr_branch *cond;
 		void emit() {
@@ -709,6 +701,7 @@
 	uint16_t rval;
 	const char *sval;
 	expr *eval;
+	expr_branch *brval;
 	symbol *sym;
 	scope_enum scopeval;
 	list_node<uint16_t> *dlist;
@@ -750,7 +743,8 @@
 %left AND
 %left OR
 
-%type <eval> expr primary aname arg cond_expr bool_expr
+%type <eval> expr primary aname arg
+%type <brval> bool_expr cond_expr
 %type <ival> init vname opt_parent opt_default
 %type <rval> routine_body pvalue
 %type <scopeval> scope
@@ -1122,6 +1116,7 @@ bool_expr
 	| GET_SIBLING '(' expr ')' ARROW vname { $$ = new expr_unary_branch_store(_1op::get_sibling,$3,$6); }
 	| SAVE				{ $$ = new expr_save(); }
 	| RESTORE			{ $$ = new expr_restore(); }
+	| '(' bool_expr ')' { $$ = $2; }
 	;
 
 primary
