@@ -357,7 +357,20 @@
 			expr_branch::emitBranch(target,negated,isLong);
 		}
 	};
-	struct expr_in: public expr_branch {
+	struct expr_binary_branch_store: public expr_branch {
+		expr_binary_branch_store(expr *l,_2op op,bool negated,expr *r,uint8_t d) : left(l), opcode(op), right(r), dest(d), expr_branch(negated) { }
+		_2op opcode;
+		uint8_t dest;
+		expr *left, *right;
+		void emitBranch(label target,bool negated,bool isLong) {
+			operand lval, rval;
+			right->eval(rval);
+			left->eval(lval);
+			emit2op(lval,opcode,rval);
+			emitByte(dest);
+			expr_branch::emitBranch(target,negated,isLong);
+		}
+	};	struct expr_in: public expr_branch {
 		expr_in(expr *l,expr *r1,expr *r2=nullptr,expr *r3=nullptr) : left(l), right1(r1), right2(r2), right3(r3), expr_branch(false) { }
 		expr *left,*right1,*right2,*right3;
 		void emitBranch(label target,bool negated,bool isLong) {
@@ -388,7 +401,7 @@
 		}
 	};
 	struct expr_unary_branch_store: public expr_branch {
-		expr_unary_branch_store(_1op op,expr *e,uint8_t d) : opcode(op), unary(e), dest(d), expr_branch(false) { }
+		expr_unary_branch_store(_1op op,bool negated,expr *e,uint8_t d) : opcode(op), unary(e), dest(d), expr_branch(negated) { }
 		_1op opcode;
 		uint8_t dest;
 		expr *unary;
@@ -731,7 +744,7 @@
 }
 
 %token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT IN HOLDS
-%token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF
+%token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF SIBLING CHILD PARENT MOVE TO
 %token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME
 %token <sval> STRLIT
 %token <rval> RNAME
@@ -739,7 +752,7 @@
 %token WHILE REPEAT IF ELSE
 %token LE "<=" GE ">=" EQ "==" NE "!="
 // %token DEC_CHK "--<" INC_CHK "++>"
-%token GET_SIBLING GET_CHILD SAVE RESTORE
+%token GET_CHILD GET_PROP SAVE RESTORE
 %token LSH "<<" RSH ">>"
 %token ARROW "->" INCR "++" DECR "--"
 %token RFALSE RTRUE RETURN
@@ -751,7 +764,7 @@
 %right '~' NOT
 %left '*' '/' '%'
 %left '+' '-'
-%left HAS HASNT GET_CHILD GET_SIBLING
+%nonassoc HAS HASNT GET_CHILD
 %left '<' LE '>' GE
 %left EQ NE
 // %left LSH RSH
@@ -762,7 +775,7 @@
 
 %type <eval> expr primary aname arg
 %type <brval> bool_expr cond_expr
-%type <ival> init vname opt_parent opt_default
+%type <ival> init vname opt_parent opt_default opt_arrow has_or_hasnt
 %type <rval> routine_body pvalue
 %type <scopeval> scope
 %type <dlist> dict_list;
@@ -1079,6 +1092,7 @@ stmt
 	| DECR vname ';'				{ $$ = new stmt_assign($2,new expr_binary_sub(new expr_variable($2),new expr_literal(1))); }
 	| primary GAINS aname ';' 		{ $$ = new stmt_2op(_2op::set_attr,$1,$3); }
 	| primary LOSES aname ';'		{ $$ = new stmt_2op(_2op::clear_attr,$1,$3); }
+	| MOVE primary TO primary ';'	{ $$ = new stmt_2op(_2op::insert_obj,$2,$4); }
 	; 
 	
 cond_expr
@@ -1086,8 +1100,8 @@ cond_expr
 	;
 
 opt_call_args
-	:					{ $$ = nullptr; }
-	| STRLIT			{ $$ = new list_node<expr*>(new expr_literal(encode_string($1)),nullptr); delete[] $1; }
+	: STRLIT			{ $$ = new list_node<expr*>(new expr_literal(encode_string($1)),nullptr); delete[] $1; }
+	| '(' ')'			{ $$ = nullptr; }
 	| '(' arg_list ')'	{ $$ = $2; }
 	;
 
@@ -1112,6 +1126,9 @@ expr
 	| '(' expr ')'  	{ $$ = $2; }
 	| primary       	{ $$ = $1; }
 	| INTLIT        	{ $$ = new expr_literal($1); }
+	| RNAME opt_call_args { $$ = new expr_call(new list_node<expr*>(new expr_literal($1),$2)); }
+	| CALL expr opt_call_args { $$ = new expr_call(new list_node<expr*>($2,$3)); }
+	| primary PARENT	{ }
 	;
 
 bool_expr
@@ -1127,14 +1144,24 @@ bool_expr
 	| NOT bool_expr		{ $$ = new expr_logical_not($2); }
 	| bool_expr AND bool_expr		{ $$ = new expr_logical_and($1,$3); }
 	| bool_expr OR bool_expr		{ $$ = new expr_logical_or($1,$3); }
-	| primary HAS aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,false,$3); }
-	| primary HASNT aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,true,$3); }
-	| GET_CHILD '(' expr ')' ARROW vname { $$ = new expr_unary_branch_store(_1op::get_child,$3,$6); }
-	| GET_SIBLING '(' expr ')' ARROW vname { $$ = new expr_unary_branch_store(_1op::get_sibling,$3,$6); }
+	| primary has_or_hasnt aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,$2,$3); }
+	| primary has_or_hasnt CHILD opt_arrow { $$ = new expr_unary_branch_store(_1op::get_child,$2,$1,$4); }
+	| primary has_or_hasnt SIBLING opt_arrow { $$ = new expr_unary_branch_store(_1op::get_sibling,$2,$1,$4); }
+	| primary has_or_hasnt PROPERTY primary opt_arrow { $$ = new expr_binary_branch_store($1,_2op::get_prop,$2,$4,$5); }
 	| expr HOLDS expr 	{ $$ = new expr_binary_branch($1,_2op::jin,false,$3); }
 	| SAVE				{ $$ = new expr_save(); }
 	| RESTORE			{ $$ = new expr_restore(); }
 	| '(' bool_expr ')' { $$ = $2; }
+	;
+
+has_or_hasnt
+	: HAS			{ $$ = false; }
+	| HASNT			{ $$ = true; }
+	;
+
+opt_arrow
+	: 				{ $$ = 16 + SCRATCH; }
+	| ARROW vname 	{ $$ = $2; }
 	;
 
 primary
@@ -1255,19 +1282,17 @@ uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcS
 	return offset;
 }
 
-const int TOPLEVEL = 16384;
-
 void init() {
-	rw["attribute"] = ATTRIBUTE | TOPLEVEL;
-	rw["property"] = PROPERTY | TOPLEVEL;
-	rw["direction"] = DIRECTION | TOPLEVEL;
-	rw["global"] = GLOBAL | TOPLEVEL;
-	rw["object"] = OBJECT | TOPLEVEL;
-	rw["location"] = LOCATION | TOPLEVEL;
-	rw["routine"] = ROUTINE | TOPLEVEL;
-	rw["article"] = ARTICLE | TOPLEVEL;
-	rw["placeholder"] = PLACEHOLDER | TOPLEVEL;
-	rw["action"] = ACTION | TOPLEVEL;
+	rw["attribute"] = ATTRIBUTE;
+	rw["property"] = PROPERTY;
+	rw["direction"] = DIRECTION;
+	rw["global"] = GLOBAL;
+	rw["object"] = OBJECT;
+	rw["location"] = LOCATION;
+	rw["routine"] = ROUTINE;
+	rw["article"] = ARTICLE;
+	rw["placeholder"] = PLACEHOLDER;
+	rw["action"] = ACTION;
 	rw["in"] = IN;
 	rw["is"] = EQ;
 	rw["isnt"] = NE;
@@ -1290,11 +1315,14 @@ void init() {
 	rw["not"] = NOT;
 	rw["save"] = SAVE;
 	rw["restore"] = RESTORE;
-	rw["get_sibling"] = GET_SIBLING;
-	rw["get_child"] = GET_CHILD;
+	rw["sibling"] = SIBLING;
+	rw["parent"] = PARENT;
+	rw["child"] = CHILD;
 	rw["print"] = PRINT;
 	rw["print_ret"] = PRINT_RET;
 	rw["self"] = SELF;
+	rw["move"] = MOVE;
+	rw["to"] = TO;
 
 	f_0op["restart"] = _0op::restart;
 	f_0op["quit"] = _0op::quit;
@@ -1322,6 +1350,9 @@ void init() {
 
 	the_object_table.push_back(nullptr);	// object zero doesn't exist
 	the_action_table.push_back(nullptr);
+
+	the_globals["false"] = symbol { INTLIT, 0 };
+	the_globals["true"] = symbol { INTLIT, 1 };
 }
 
 int encode_string(const char *src) {
@@ -1406,8 +1437,8 @@ int yylex_() {
 		yytoken[yylen] = 0;
 		// reserved words and builtin funcs first
 		auto r = rw.find(yytoken);
-		if (r != rw.end() && (!yyscope || !(r->second & TOPLEVEL)))
-			return r->second & (TOPLEVEL-1);
+		if (r != rw.end())
+			return r->second;
 		auto z = f_0op.find(yytoken);
 		if (z != f_0op.end()) {
 			yylval.zeroOp = z->second;
@@ -1623,7 +1654,7 @@ int main(int argc,char **argv) {
 	putchar('\n');
 	return 1; */
 
-	yydebug = 0;
+	yydebug = 1;
 	for (yypass=1; yypass<=2; yypass++) {
 		yyinput = fopen(argv[1],"r");
 		int nextObject = 1;

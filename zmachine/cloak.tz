@@ -159,7 +159,7 @@ object hook "small brass hook" (cloakroom) {
 	noun: 'hook' 'peg';
 	description: [;c] {
 		print "It's just a small brass hook, ";
-		if (get_child(self)->c) {
+		if (self has child -> c) {
 			print "with a ";
 			print_obj c;
 			print_ret " hanging on it.";
@@ -183,10 +183,10 @@ location bar "Foyer Bar" {
 			of the foyer to the north, is completely empty. There seems to
 			be some sort of message scrawled in the sawdust on the floor.";
 	n_to: foyer;
-	before: [action; temp] {
-		if (action in {#look,#inv})
+	before: [act; temp] {
+		if (act in {#look,#inv})
 			rtrue;
-		else if (action is #leave and self hasnt lit and noun isnt n_to) {
+		else if (act is #leave and self hasnt lit and noun isnt n_to) {
 			++message_damage;
 			++message_damage;
 			print_ret "Blundering around in the dark isn't a good idea!";
@@ -204,18 +204,18 @@ object cloak "velvet cloak" (player) {
 	description: "A handsome cloak, of velvet trimmed with satin, and slightly
 			spattered with raindrops. Its blackness is so deep that it
 			almost seems to suck light from the room.";
-	before: [action] {
-		if (action in {#drop,#puton} and room isnt cloakroom)
+	before: [act] {
+		if (act in {#drop,#puton} and room isnt cloakroom)
 			print_ret "This isn't the best place to leave
 				a smart cloak lying around.";
 		rfalse; // not handled, allow action to continue
 	}
-	after: [action] {
-		if (action is #take)
+	after: [act] {
+		if (act is #take)
 			bar loses lit;
-		else if (action in {#puton,#drop} and room is cloakroom) {
+		else if (act in {#puton,#drop} and room is cloakroom) {
 			bar gains lit;
-			if (action is #puton and self has general) {
+			if (act is #puton and self has general) {
 				self loses general;
 				++score;
 			}
@@ -272,71 +272,69 @@ placeholder anyobj;
 placeholder compass;
 
 routine Inventory [;i] {
-	if (get_child(player)->i) {
+	if (player has child -> i) {
 		print "You are carrying:";
 		crlf;
 		repeat {
 			print "  ";
 			print_obj i;
 			crlf;
-		} while (get_sibling(i)->i);
+		} while (i has sibling -> i);
 	}
 	else
 		print_ret "You are empty-handed.";
 }
 
-routine BlockBefore [action obj;r] {
-	if (obj==0)
+routine BlockBefore [act obj;r] {
+	if (obj is 0)
 		rfalse;
-	else if (get_prop(obj,before)->r)
-		return call r(action,obj);
+	else if (obj has property before -> r)
+		return call r(act,obj);
 	else
 		rfalse;
 }
 
-routine CheckAllBefore [action loc do ido] {
-	if (CheckBefore(action,loc) and 
-		CheckBefore(action,do) and 
-		CheckBefore(action,ido))
+routine CheckBefore [act obj;r] {
+	if (obj isnt 0 and obj has property before -> r)
+		return call r(act,obj);
+	else
 		rtrue;
-	else
-		rfalse;
 }
 
-routine CheckAfter [action obj;r] {
-	if (not(zero(obj)) and get_prop(obj,after)->r)
-		call r(action,obj);
+routine CheckAfter [act obj;r] {
+	if (obj isnt 0 and obj has property after -> r)
+		return call r(act,obj);
+	else
+		rtrue;
+}
+routine CallAfter [act obj;r] {
+	if (obj isnt 0 and obj has property after -> r)
+		return call r(act,obj);
+	else
+		rtrue;
 }
 
 routine Travel [dir;r] {
-	if (CheckBefore(#leave,location,dir)) {
-		if (not(get_prop(location,dir)->r))
+	if (CheckBefore(#leave,room) is true) {
+		if (room hasnt property dir -> r)
 			print_ret "You can't go in that direction";
 		else if (r > object_count)
 			r = call r();
 		// player is the first object, and cannot be a room.
 		// this leave rfalse and rtrue as valid responses.
 		if (r > 1) {
-			insert_obj(player,r);
-			location = r;
+			move player to r;
+			room = r;
 			CallAfter(#enter,r);
 		}
 	}
 }
 
-routine test_object_attr [obj attr] {
-	if (get_attr(obj,is_location))
-		rfalse;
-	if (get_attr(obj,attr))
-		rtrue;
-	rfalse;
-}
-
 routine Take [obj] {
 	if (obj hasnt scenery) {
-		if (BlockBefore(#take,location) or BlockBefore(#take,obj))
+		if (BlockBefore(#take,room) is true or BlockBefore(#take,obj) is true)
 			rtrue;
-		insert_obj(obj,player);
+		move obj to player;
 		CallAfter(#take,obj);
 		rfalse;
 	}
@@ -347,7 +345,7 @@ routine Take [obj] {
 routine Drop [obj] {
 	if (player holds obj and CheckBefore(#drop,location) and
 		CheckBefore(#drop,obj)) {
-		insert_obj(obj,get_parent(player))
+		move obj to player parent)
 	}
 }
 
@@ -371,9 +369,9 @@ action #drop { 'drop'/'put down' held: Drop }
 action #look { 'look at'/'examine'/'x' here/held: Examine }
 action #puton { 'hang'/'place'/'put' held 'on'/'upon' here: [do ido] {
 	if (ido has supporter) {
-		if (get_child(ido) != 0)
+		if (ido has child)
 			print_ret "There's no room.";
-		else if (CheckAllBefore(#puton,location,do,ido)) {
+		else if (CheckBefore(#puton,location) and CheckBefore(#puton,do) and CheckBefore(#puton,ido)) {
 			insert_obj(do,ido);
 			CallAllAfter(#puton,ido,do,location);
 			rfalse;
@@ -386,6 +384,7 @@ action #puton { 'hang'/'place'/'put' held 'on'/'upon' here: [do ido] {
 }}
 action #go { 'go'/'walk'/'travel' compass: Travel }
 action #leave { }
+action #enter { }
 
 byte_array(64) text_buffer = { 63 };
 byte_array(64) parse_buffer = { 15 };
