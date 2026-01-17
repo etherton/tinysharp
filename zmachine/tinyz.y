@@ -158,7 +158,7 @@
 	void emitvarop(operand l,_2op op,operand r1,operand r2,operand r3);
 	void emit2op(operand l,_2op op,operand r);
 	void emit1op(_1op op,operand un);
-	const uint8_t TOS = 0, SCRATCH = 4;
+	const uint8_t TOS = 0, SCRATCH = 3;
 
 	typedef struct label_info {
 		uint16_t offset;
@@ -744,7 +744,7 @@
 }
 
 %token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT IN HOLDS
-%token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF SIBLING CHILD PARENT MOVE TO
+%token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF SIBLING CHILD PARENT MOVE INTO
 %token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME
 %token <sval> STRLIT
 %token <rval> RNAME
@@ -762,6 +762,7 @@
 %token GAINS LOSES
 
 %right '~' NOT
+%left PARENT
 %left '*' '/' '%'
 %left '+' '-'
 %nonassoc HAS HASNT GET_CHILD
@@ -1092,7 +1093,7 @@ stmt
 	| DECR vname ';'				{ $$ = new stmt_assign($2,new expr_binary_sub(new expr_variable($2),new expr_literal(1))); }
 	| primary GAINS aname ';' 		{ $$ = new stmt_2op(_2op::set_attr,$1,$3); }
 	| primary LOSES aname ';'		{ $$ = new stmt_2op(_2op::clear_attr,$1,$3); }
-	| MOVE primary TO primary ';'	{ $$ = new stmt_2op(_2op::insert_obj,$2,$4); }
+	| MOVE primary INTO expr ';'	{ $$ = new stmt_2op(_2op::insert_obj,$2,$4); }
 	; 
 	
 cond_expr
@@ -1182,7 +1183,7 @@ aname
 
 vname
 	: LNAME			{ $$ = $1 + 1; }
-	| GNAME			{ $$ = $1 + 16; }
+	| GNAME			{ if ($1 == SCRATCH) yyerror("cannot refer to scratch variable here"); $$ = $1 + 16; }
 	;
 
 %%
@@ -1298,6 +1299,7 @@ void init() {
 	rw["isnt"] = NE;
 	rw["has"] = HAS;
 	rw["hasnt"] = HASNT;
+	rw["holds"] = HOLDS;
 	rw["gains"] = GAINS;
 	rw["loses"] = LOSES;
 	rw["byte_array"] = BYTE_ARRAY;
@@ -1322,7 +1324,7 @@ void init() {
 	rw["print_ret"] = PRINT_RET;
 	rw["self"] = SELF;
 	rw["move"] = MOVE;
-	rw["to"] = TO;
+	rw["into"] = INTO;
 
 	f_0op["restart"] = _0op::restart;
 	f_0op["quit"] = _0op::quit;
@@ -1420,14 +1422,14 @@ void emitvarop(operand lval,_2op opcode,operand rval1,operand rval2,operand rval
 int yych, yylen, yypass, yyline, yyscope;
 char yytoken[32];
 FILE *yyinput;
-inline int yynext() { yych = getc(yyinput); if (yych == 10) ++yyline; return yych; }
+inline int yynext() { if (yych!=EOF) { yych = getc(yyinput); if (yych == 10) ++yyline; } return yych; }
 
 int yylex_() {
 	yylen = 0;
 	while (isspace(yych))
 		yynext();
 
-	if (isalpha(yych)||yych=='#'||yych=='_') {
+	if (isalpha(yych)||yych=='#'||yych=='_'||yych=='$') {
 		do {
 			if (yylen==sizeof(yytoken)-1)
 				yyerror("token too long");
@@ -1566,16 +1568,22 @@ int yylex_() {
 			else
 				return '>';
 		case '/':
-			yych = yynext();
+			yynext();
 			if (yych == '/') {
 				while (yynext() != EOF && yych != 10)
 					;
 				return yylex_();	// silly, should just goto top, hopefully compiler spots tail recursion :)
 			}
+			else if (yych == '*') {
+				yynext();
+				while (true)
+					if ((yynext()=='*'&&yynext()=='/')||yych==EOF)
+						return yynext(), yylex_();
+			}
 			else
 				return '/';
 		case '\'': {
-			yych = yynext();
+			yynext();
 			while (yych != '\'' && yych != EOF && yych != 32) {
 				if (yylen+1==sizeof(yytoken))
 					yyerror("dictionary word way too long");
@@ -1706,7 +1714,8 @@ int main(int argc,char **argv) {
 			}
 			printf("%zu objects\n",the_object_table.size()-1);
 			printf("%zu actions\n",the_action_table.size()-1);
-			the_globals["object_count"] = { INTLIT, int16_t(the_object_table.size() - 1) };
+			the_globals["$object_count"] = { INTLIT, int16_t(the_object_table.size() - 1) };
+			the_globals["$dict_entry_size"] = { INTLIT, int16_t(dict_entry_size) };
 		}
 		else
 			yyparse();

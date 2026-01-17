@@ -67,10 +67,10 @@ attribute object scenery;
 // they are only kept in debug builds. they test the bit mask against a global
 // trace enable which can be set by other debug commands.
 
-// the global constant object_count is always the count
+// the global constant $object_count is always the count
 // of objects in the game. for properties that can refer
 // to an object, string, or routine, values less than or
-// equal to object_count are an object. otherwise it's
+// equal to $object_count are an object. otherwise it's
 // a routine. a string constant where a routine is allowed
 // generates a dummy routine that calls print_ret and the string.
 // (this costs two bytes, one for the local count and one
@@ -99,7 +99,19 @@ property location s_to;
 property location e_to;
 property location w_to;
 
-// the direction directive takes a property value followed by one or more words.
+// marks these words as equivalent for all purposes.
+/*
+synonym 'north' 'n' 'northern';
+synonym 'south' 's' 'southern';
+synonym	'east' 'e' 'eastern';
+synonym 'west' 'w' 'western';
+synonym 'get 'take';
+synonym 'examine' 'x';
+synonym 'again' 'g';
+synonym 'wait' 'z';
+*/
+
+// the direction directive takes a nonzero property value followed by one or more words.
 direction n_to 'north' 'n';
 direction s_to 'south' 's';
 direction e_to 'east' 'e';
@@ -109,7 +121,7 @@ direction w_to 'west' 'w';
 global room;
 global score;
 global turns;
-global scratch;		// fourth global is used as a dummy storage slot for v3 subroutine calls that ignore result.
+global scratch;		// fourth global is used as a dummy storage slot for branches and subroutine calls that ignore result.
 global deadflag;
 
 // player is always first at object 1. this also guarantees that
@@ -247,6 +259,7 @@ object message "scrawled message" (bar) {
 // dir_bit, adj_bit, noun_bit, verb_bit
 // directions are also adjectives in most cases
 
+
 routine perform [act obj iobj] {
 	act = act;
 }
@@ -266,10 +279,13 @@ article 'a' 'an' 'the';
 
 // when a 'word' appears in a routine, it evaluates to the 0-based index
 // of the word in the master dictionary
-placeholder held;
-placeholder here;
-placeholder anyobj;
-placeholder compass;
+
+// a placeholder encodes a bit shift between 0 and 12; there can be
+// up to 13 of them.
+placeholder held;		// object in your possession
+placeholder here;		// object in your room (parent)
+placeholder anyobj;		// any object not in room zero
+placeholder compass;	// a compass direction
 
 routine Inventory [;i] {
 	if (player has child -> i) {
@@ -318,12 +334,12 @@ routine Travel [dir;r] {
 	if (CheckBefore(#leave,room) is true) {
 		if (room hasnt property dir -> r)
 			print_ret "You can't go in that direction";
-		else if (r > object_count)
+		else if (r > $object_count)
 			r = call r();
 		// player is the first object, and cannot be a room.
 		// this leave rfalse and rtrue as valid responses.
 		if (r > 1) {
-			move player to r;
+			move player into r;
 			room = r;
 			CallAfter(#enter,r);
 		}
@@ -334,7 +350,7 @@ routine Take [obj] {
 	if (obj hasnt scenery) {
 		if (BlockBefore(#take,room) is true or BlockBefore(#take,obj) is true)
 			rtrue;
-		move obj to player;
+		move obj into player;
 		CallAfter(#take,obj);
 		rfalse;
 	}
@@ -343,9 +359,9 @@ routine Take [obj] {
 }
 
 routine Drop [obj] {
-	if (player holds obj and CheckBefore(#drop,location) and
-		CheckBefore(#drop,obj)) {
-		move obj to player parent)
+	if (player holds obj and CheckBefore(#drop,room) isnt false and
+		CheckBefore(#drop,obj) isnt false) {
+		move obj into player parent;
 	}
 }
 
@@ -359,9 +375,16 @@ routine Drop [obj] {
 // if dddd is 15, word is an article (and is therefore ignored except that
 // it starts the beginning of a placeholder)
 
+// each dictionary word has an extra two bytes associated with it
+// adj_bit - set if word is an adjective (appears in adjective list of an object)
+// noun_bit - set if word is a noun (appears in noun list of an object) (payload is first matching object)
+// verb_bit - set if word is a verb (payload is action index)
+// if payload is nonzero, the word is a synonym
+// if payload is nonzero but larger than number of words, it's a biased direction proeprty index
+
 // actions are scanned in-order
 // so specific cases need to be before more general cases
-// some actions are really just messages and aren't part of grammer
+// some actions are really just messages and aren't part of grammar
 action #travel { compass: Travel }
 action #inv { 'i'/'inventory'/'take inventory': Inventory }
 action #take { 'get'/'take'/'pick up' here: Take }
@@ -372,7 +395,7 @@ action #puton { 'hang'/'place'/'put' held 'on'/'upon' here: [do ido] {
 		if (ido has child)
 			print_ret "There's no room.";
 		else if (CheckBefore(#puton,location) and CheckBefore(#puton,do) and CheckBefore(#puton,ido)) {
-			insert_obj(do,ido);
+			move do into ido;
 			CallAllAfter(#puton,ido,do,location);
 			rfalse;
 		}
@@ -401,15 +424,19 @@ routine DoTurn[;wc wp wt] {
 		wc = loadb(parse_buffer,1);
 	} while (!wc);
 	wp = parse_buffer + 2;
-	wt = loadb(loadw(wp,0),4);
+	wt = loadb(loadw(wp,0),$dict_entry_size - 1);
 	if ((wt & 15) != 0)
 		return Travel(wt & 15);
 }
 
 routine Startup[] {
-   print_ret "^^\n\nHurrying through the rainswept November night, you're glad to see the
+   print_ret "
+   
+	Hurrying through the rainswept November night, you're glad to see the
 	bright lights of the Opera House. It's surprising that there aren't more
-	people about but, hey, what do you expect in a cheap demo game...?\n\n";
+	people about but, hey, what do you expect in a cheap demo game...?
+	
+	";
 }
 
 routine main [] {
