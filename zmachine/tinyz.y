@@ -14,7 +14,7 @@
 	uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize,bool forDict = false);
 	int encode_string(const char*);
 	void print_encoded_string(const uint8_t *src,void (*pr)(char ch));
-	uint8_t next_global, next_local, story_shift = 1, dict_entry_size = 4;
+	uint8_t next_global, next_local, next_placeholder, story_shift = 1, dict_entry_size = 4;
 	storyHeader the_header = { 3 };
 
 	template <typename T> struct list_node {
@@ -42,6 +42,7 @@
 	// there can be up to 32768 relocations.
 	std::vector<struct relocatableBlob*> the_relocations;
 	struct relocatableBlob {
+		using relocation_t = list_node<std::pair<uint16_t,uint16_t>>;
 		static uint16_t firstFree;
 		static relocatableBlob* create(uint16_t totalSize) {
 			relocatableBlob* result = (relocatableBlob*) new uint8_t[totalSize + sizeof(relocatableBlob)];
@@ -49,6 +50,7 @@
 			result->offset = 0;
 			result->relocations = nullptr;
 			result->userData = 0;
+			memset(result->contents,0,totalSize);
 			if (firstFree != 0xFFFF) {
 				result->index = firstFree;
 				firstFree = (uint16_t)(size_t)the_relocations[firstFree];
@@ -123,21 +125,22 @@
 			storeByte(w >> 8);
 			storeByte(w);
 		}
-		void addRelocation(uint16_t ri,uint16_t o) {
-			relocations = new list_node<std::pair<uint16_t,uint16_t>>(std::pair<uint16_t,uint16_t>(ri,o),relocations);
+		void addRelocation(uint16_t ri) {
+			relocations = new relocation_t(std::pair<uint16_t,uint16_t>(ri,offset),relocations);
+			storeWord(0);
 		}
 		void append(relocatableBlob *other) {
 			for (auto i=other->relocations; i; i=i->cdr)
-				addRelocation(i->car.first,i->car.second + offset);
+				relocations = new relocation_t(std::pair<uint16_t,uint16_t>(i->car.first,i->car.second + offset),relocations);
 			copy(other->contents,other->size);
 			other->destroy();
 		}
 		uint16_t size, offset, index, userData;
-		list_node<std::pair<uint16_t,uint16_t>> *relocations;
+		relocation_t *relocations;
 		uint8_t contents[0];
 	};
 	uint16_t relocatableBlob::firstFree=0xFFFF;
-	relocatableBlob *header_blob, *dictionary_blob, *object_blob, *properties_blob;
+	relocatableBlob *header_blob, *dictionary_blob, *object_blob, *properties_blob, *globals_blob, *current_global;
 
 	static const uint8_t opsizes[3] = { 2,1,1 };
 	const uint8_t LONG_JUMP = 0x8C;			// +/-32767
@@ -685,6 +688,17 @@
 			return value->size() + 1;
 		}
 	};
+	struct stmt_store: public stmt {
+		stmt_store(uint8_t d,expr *i,expr *e) : dest(d), index(i), value(e) { }
+		uint8_t dest;
+		expr *index, *value;
+		void emit() {
+			value->emit(dest);
+		}
+		unsigned size() const {
+			return value->size() + 1;
+		}
+	};
 	struct stmt_call: public stmt {
 		stmt_call(list_node<expr*> *a) : call(a) { }
 		void emit() {
@@ -736,7 +750,6 @@
 	scope_enum scopeval;
 	list_node<uint16_t> *dlist;
 	list_node<expr*> *elist;
-	list_node<int> *ilist;
 	list_node<stmt*> *stlist;
 	stmt *stval;
 	_0op zeroOp;
@@ -745,7 +758,7 @@
 
 %token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT IN HOLDS
 %token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF SIBLING CHILD PARENT MOVE INTO
-%token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME
+%token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME PLNAME
 %token <sval> STRLIT
 %token <rval> RNAME
 %token <sym> NEWSYM
@@ -776,11 +789,10 @@
 
 %type <eval> expr primary aname arg
 %type <brval> bool_expr cond_expr
-%type <ival> init vname opt_parent opt_default opt_arrow has_or_hasnt
+%type <ival> vname opt_parent opt_default opt_arrow has_or_hasnt phrase placeholder_list
 %type <rval> routine_body pvalue
 %type <scopeval> scope
 %type <dlist> dict_list;
-%type <ilist> init_list;
 %type <elist> opt_call_args arg_list
 %type <stval> stmt
 %type <stlist> stmts
@@ -858,34 +870,54 @@ dict_list
 
 
 global_def
-	: GLOBAL NEWSYM ';'		
-		{ 
-			if (next_global==240)
-				yyerror("too many globals");
-			$2->token = GNAME; 
-			$2->ival = next_global++;
-		}
-	| BYTE_ARRAY '(' INTLIT ')' NEWSYM opt_array_def ';'
-	| WORD_ARRAY '(' INTLIT ')' NEWSYM opt_array_def ';'
+	: GLOBAL GNAME opt_global_init ';'
 	;
 
-opt_array_def
+opt_global_init
+	:					{ globals_blob->storeWord(0); }
+	| '=' INTLIT		{ globals_blob->storeWord($2); }
+	| '=' BYTE_ARRAY '(' INTLIT ')'	{ globals_blob->addRelocation((current_global = relocatableBlob::create($4))->index); } opt_byte_list { current_global = nullptr; }
+	| '=' WORD_ARRAY '(' INTLIT ')' { globals_blob->addRelocation((current_global = relocatableBlob::create($4))->index); } opt_word_list { current_global = nullptr; }
+	;
+
+opt_byte_list
 	:
-	| array_def
+	| '{' byte_list '}'
 	;
 
-array_def
-	: '{' init_list '}'
+byte_list
+	: byte
+	| byte_list ',' byte
 	;
 
-init_list
-	: init					{ $$ = new list_node<int>($1,nullptr); }
-	| init ',' init_list	{ $$ = new list_node<int>($1,$3); }
+byte
+	: INTLIT	
+	{ 
+		if ($1 < 0 || $1 > 255) 
+			yyerror("value of out range for BYTE_ARRAY"); 
+		if (current_global->offset == current_global->size) 
+			yyerror("too many byte initializers");
+		current_global->storeByte($1); 
+	}
 	;
 
-init
-	: INTLIT			{ $$ = $1; }
-	// | STRLIT			{ $$ = encode_string($1); }
+opt_word_list
+	:
+	| '{' word_list '}'
+	;
+
+word_list
+	: word
+	| word_list ',' word
+	;
+
+word
+	: INTLIT 
+	{ 
+		if (current_global->offset == current_global->size) 
+			yyerror("too many word initializers"); 
+		current_global->storeWord($1); 
+	}
 	;
 
 object_def
@@ -1011,11 +1043,34 @@ article_def
 	;
 
 placeholder_def
-	: PLACEHOLDER NEWSYM ';'
+	: PLACEHOLDER NEWSYM ';' { $2->token = PLNAME; $2->ival = ++next_placeholder; }
 	;
 
 action_def
-	: ACTION NEWSYM '{' '}'
+	: ACTION INTLIT ';'
+	| ACTION INTLIT '{' action_list ':' routine_body '}'
+	| ACTION INTLIT '{' action_list ':' RNAME '}'
+	;
+
+action_list
+	: phrase_list
+	| phrase_list placeholder_list
+	| phrase_list placeholder_list phrase_list placeholder_list
+	;
+
+placeholder_list
+	: PLNAME						{ $$ = $1; }
+	| PLNAME '/' placeholder_list	{ $$ = $1 | ($3 << 4); }
+	;
+
+phrase_list
+	: phrase
+	| phrase '/' phrase_list
+	;
+
+phrase
+	: DICT			{ $$ = $1; }
+	| DICT DICT		{ $$ = (1<<28) | ($2 << 14) | $1; }
 	;
 
 routine_body
@@ -1080,6 +1135,7 @@ stmt
 	| WHILE cond_expr stmt				{ $$ = new stmt_while($2,$3); }
 	| '{' stmts '}'			{ $$ = new stmts($2); }
 	| vname '=' expr ';'	{ $$ = new stmt_assign($1,expr::fold_constant($3)); }
+	| vname '[' expr ']' '=' expr ';'	{ $$ = new stmt_store($1,expr::fold_constant($3),expr::fold_constant($6)); }
 	| RETURN expr ';'		{ $$ = new stmt_return(expr::fold_constant($2)); }
 	| RFALSE ';'			{ $$ = new stmt_return(new expr_literal(0)); }
 	| RTRUE ';'				{ $$ = new stmt_return(new expr_literal(1)); }
@@ -1331,7 +1387,7 @@ void init() {
 	f_0op["crlf"] = _0op::new_line;
 	f_0op["show_status"] = _0op::show_status;
 
-	f_1op["get_parent"] = _1op::get_parent; // unlike others, get_parent isn't a branch
+	// f_1op["get_parent"] = _1op::get_parent; // unlike others, get_parent isn't a branch
 	f_1op["print_addr"] = _1op::print_addr;
 	f_1op["print_paddr"] = _1op::print_paddr;
 	f_1op["remove_obj"] = _1op::remove_obj;
@@ -1690,6 +1746,14 @@ int main(int argc,char **argv) {
 							the_action_table.push_back(new action {});
 						}
 					}
+					else if (t == GLOBAL) {
+						if (yylex() == NEWSYM) {
+							if (next_global==240)
+								yyerror("cannot have more than 240 globals");
+							the_globals[yytoken] = { GNAME,next_global };
+							++next_global;
+						}
+					}
 				}
 			}
 			printf("%zu words in dictionary\n",the_dictionary.size());
@@ -1712,6 +1776,8 @@ int main(int argc,char **argv) {
 				dictionary_blob->copy(d.first.encoded,dict_entry_size);
 				dictionary_blob->storeByte(0);
 			}
+			printf("%u globals\n",next_global);
+			globals_blob = relocatableBlob::create(next_global * 2);
 			printf("%zu objects\n",the_object_table.size()-1);
 			printf("%zu actions\n",the_action_table.size()-1);
 			the_globals["$object_count"] = { INTLIT, int16_t(the_object_table.size() - 1) };

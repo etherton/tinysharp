@@ -358,6 +358,15 @@ routine Take [obj] {
 		print_ret "You can't take that, it's just scenery.";
 }
 
+routine Examine [obj; desc] {
+	if (obj has property description -> desc)
+		call desc();
+	else {
+		print "It's just an ordinary ";
+		print_obj obj;
+	}
+}
+
 routine Drop [obj] {
 	if (player holds obj and CheckBefore(#drop,room) isnt false and
 		CheckBefore(#drop,obj) isnt false) {
@@ -385,7 +394,6 @@ routine Drop [obj] {
 // actions are scanned in-order
 // so specific cases need to be before more general cases
 // some actions are really just messages and aren't part of grammar
-action #travel { compass: Travel }
 action #inv { 'i'/'inventory'/'take inventory': Inventory }
 action #take { 'get'/'take'/'pick up' here: Take }
 action #drop { 'drop'/'put down' held: Drop }
@@ -394,9 +402,13 @@ action #puton { 'hang'/'place'/'put' held 'on'/'upon' here: [do ido] {
 	if (ido has supporter) {
 		if (ido has child)
 			print_ret "There's no room.";
-		else if (CheckBefore(#puton,location) and CheckBefore(#puton,do) and CheckBefore(#puton,ido)) {
+		else if (CheckBefore(#puton,room) isnt false and 
+				CheckBefore(#puton,do) isnt false and 
+				CheckBefore(#puton,ido) isnt false) {
 			move do into ido;
-			CallAllAfter(#puton,ido,do,location);
+			CallAfter(#puton,ido);
+			CallAfter(#puton,do);
+			CallAfter(#puton,room);
 			rfalse;
 		}
 		else
@@ -406,13 +418,17 @@ action #puton { 'hang'/'place'/'put' held 'on'/'upon' here: [do ido] {
 		print_ret "You can't put it on that.";
 }}
 action #go { 'go'/'walk'/'travel' compass: Travel }
-action #leave { }
-action #enter { }
+action #leave;
+action #enter;
 
-byte_array(64) text_buffer = { 63 };
-byte_array(64) parse_buffer = { 15 };
+global text_buffer = byte_array(64) { 63 };
+global parse_buffer = byte_array(64) { 15 };
 
 routine DoTurn[;wc wp wt] {
+	text_buffer[0] = 63;
+	parse_buffer[0] = 15;
+	// storeb(text_buffer,0,63);
+	// storeb(parse_buffer,0,15);
 	// text_buffer[0] is the size of the input buffer
 	// parse_buffer[0] is the max number of words
 	// parse_buffer[1] is the actual number of words parsed
@@ -421,8 +437,8 @@ routine DoTurn[;wc wp wt] {
 	// next byte is the length of the word, then the position in text_buffer.
 	repeat {
 		read(text_buffer, parse_buffer);
-		wc = loadb(parse_buffer,1);
-	} while (!wc);
+		wc = parse_buffer[1];
+	} while (wc is zero);
 	wp = parse_buffer + 2;
 	wt = loadb(loadw(wp,0),$dict_entry_size - 1);
 	if ((wt & 15) != 0)
