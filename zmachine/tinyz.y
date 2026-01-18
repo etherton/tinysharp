@@ -159,6 +159,7 @@
 	// void emitBranch(uint16_t target);
 	void emitvarop(operand l,_2op op,operand r1,operand r2);
 	void emitvarop(operand l,_2op op,operand r1,operand r2,operand r3);
+	void emitvarop(_var op,operand o0,operand o1);
 	void emit2op(operand l,_2op op,operand r);
 	void emit1op(_1op op,operand un);
 	const uint8_t TOS = 0, SCRATCH = 3;
@@ -314,6 +315,9 @@
 			unary->eval(uval);
 			emit1op(opcode,uval);
 			emitByte(dest);
+			// emit a dummy branch to next instruction.
+			if (opcode == _1op::get_sibling || opcode == _1op::get_child)
+				emitByte(0x2);
 		}
 		unsigned size() const {
 			operand uval;
@@ -689,14 +693,32 @@
 		}
 	};
 	struct stmt_store: public stmt {
-		stmt_store(uint8_t d,expr *i,expr *e) : dest(d), index(i), value(e) { }
+		stmt_store(_var o,uint8_t d,expr *i,expr *e) : opcode(o), dest(d), index(i), value(e) { }
+		_var opcode;
 		uint8_t dest;
 		expr *index, *value;
 		void emit() {
-			value->emit(dest);
+			operand i, v;
+			value->eval(v);
+			index->eval(i);
+			emitvarop(opcode,v,i);
+			emitByte(dest);
 		}
 		unsigned size() const {
 			return value->size() + 1;
+		}
+	};
+	struct stmt_sread: public stmt {
+		stmt_sread(expr *tb,expr *pb) : text_buffer(tb), parse_buffer(pb) { }
+		expr *text_buffer, *parse_buffer;
+		void emit() {
+			operand a, b;
+			text_buffer->eval(a);
+			parse_buffer->eval(b);
+			emitvarop(_var::sread,a,b);
+		}
+		unsigned size() const {
+			return text_buffer->size() + parse_buffer->size() + 2;
 		}
 	};
 	struct stmt_call: public stmt {
@@ -765,7 +787,7 @@
 %token WHILE REPEAT IF ELSE
 %token LE "<=" GE ">=" EQ "==" NE "!="
 // %token DEC_CHK "--<" INC_CHK "++>"
-%token GET_CHILD GET_PROP SAVE RESTORE
+%token GET_CHILD GET_PROP SAVE RESTORE SREAD
 %token LSH "<<" RSH ">>"
 %token ARROW "->" INCR "++" DECR "--"
 %token RFALSE RTRUE RETURN
@@ -787,7 +809,7 @@
 %left AND
 %left OR
 
-%type <eval> expr primary aname arg
+%type <eval> expr pname objref primary aname arg
 %type <brval> bool_expr cond_expr
 %type <ival> vname opt_parent opt_default opt_arrow has_or_hasnt phrase placeholder_list
 %type <rval> routine_body pvalue
@@ -1135,7 +1157,8 @@ stmt
 	| WHILE cond_expr stmt				{ $$ = new stmt_while($2,$3); }
 	| '{' stmts '}'			{ $$ = new stmts($2); }
 	| vname '=' expr ';'	{ $$ = new stmt_assign($1,expr::fold_constant($3)); }
-	| vname '[' expr ']' '=' expr ';'	{ $$ = new stmt_store($1,expr::fold_constant($3),expr::fold_constant($6)); }
+	| vname '[' expr ']' '=' expr ';' { $$ = new stmt_store(_var::storeb,$1,$3,$6); }
+	| vname '[' '[' expr ']' ']' '=' expr ';' { $$ = new stmt_store(_var::storew,$1,$4,$8); }
 	| RETURN expr ';'		{ $$ = new stmt_return(expr::fold_constant($2)); }
 	| RFALSE ';'			{ $$ = new stmt_return(new expr_literal(0)); }
 	| RTRUE ';'				{ $$ = new stmt_return(new expr_literal(1)); }
@@ -1147,9 +1170,10 @@ stmt
 	| PRINT_RET STRLIT ';'			{ $$ = new stmt_print(_0op::print_ret,$2); }
 	| INCR vname ';'				{ $$ = new stmt_assign($2,new expr_binary_add(new expr_variable($2),new expr_literal(1))); }
 	| DECR vname ';'				{ $$ = new stmt_assign($2,new expr_binary_sub(new expr_variable($2),new expr_literal(1))); }
-	| primary GAINS aname ';' 		{ $$ = new stmt_2op(_2op::set_attr,$1,$3); }
-	| primary LOSES aname ';'		{ $$ = new stmt_2op(_2op::clear_attr,$1,$3); }
-	| MOVE primary INTO expr ';'	{ $$ = new stmt_2op(_2op::insert_obj,$2,$4); }
+	| objref GAINS aname ';' 		{ $$ = new stmt_2op(_2op::set_attr,$1,$3); }
+	| objref LOSES aname ';'		{ $$ = new stmt_2op(_2op::clear_attr,$1,$3); }
+	| MOVE objref INTO objref ';'	{ $$ = new stmt_2op(_2op::insert_obj,$2,$4); }
+	| SREAD '(' expr ',' expr ')' ';' { $$ = new stmt_sread($3,$5); }
 	; 
 	
 cond_expr
@@ -1185,7 +1209,6 @@ expr
 	| INTLIT        	{ $$ = new expr_literal($1); }
 	| RNAME opt_call_args { $$ = new expr_call(new list_node<expr*>(new expr_literal($1),$2)); }
 	| CALL expr opt_call_args { $$ = new expr_call(new list_node<expr*>($2,$3)); }
-	| primary PARENT	{ }
 	;
 
 bool_expr
@@ -1201,11 +1224,11 @@ bool_expr
 	| NOT bool_expr		{ $$ = new expr_logical_not($2); }
 	| bool_expr AND bool_expr		{ $$ = new expr_logical_and($1,$3); }
 	| bool_expr OR bool_expr		{ $$ = new expr_logical_or($1,$3); }
-	| primary has_or_hasnt aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,$2,$3); }
-	| primary has_or_hasnt CHILD opt_arrow { $$ = new expr_unary_branch_store(_1op::get_child,$2,$1,$4); }
-	| primary has_or_hasnt SIBLING opt_arrow { $$ = new expr_unary_branch_store(_1op::get_sibling,$2,$1,$4); }
-	| primary has_or_hasnt PROPERTY primary opt_arrow { $$ = new expr_binary_branch_store($1,_2op::get_prop,$2,$4,$5); }
-	| expr HOLDS expr 	{ $$ = new expr_binary_branch($1,_2op::jin,false,$3); }
+	| objref has_or_hasnt aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,$2,$3); }
+	| objref has_or_hasnt CHILD opt_arrow { $$ = new expr_unary_branch_store(_1op::get_child,$2,$1,$4); }
+	| objref has_or_hasnt SIBLING opt_arrow { $$ = new expr_unary_branch_store(_1op::get_sibling,$2,$1,$4); }
+	| objref has_or_hasnt PROPERTY pname opt_arrow { $$ = new expr_binary_branch_store($1,_2op::get_prop,$2,$4,$5); }
+	| objref HOLDS objref 	{ $$ = new expr_binary_branch($1,_2op::jin,false,$3); }
 	| SAVE				{ $$ = new expr_save(); }
 	| RESTORE			{ $$ = new expr_restore(); }
 	| '(' bool_expr ')' { $$ = $2; }
@@ -1221,15 +1244,24 @@ opt_arrow
 	| ARROW vname 	{ $$ = $2; }
 	;
 
+pname
+	: PNAME			{ $$ = new expr_literal($1); }
+	| vname			{ $$ = new expr_variable($1); }
+	;
+
 primary
-	: aname			{ $$ = $1; }
-	| PNAME			{ $$ = new expr_literal($1); }
-	| ONAME			{ $$ = new expr_literal($1); }
-	| SELF			{ 
-						if (!self_value) 
-							yyerror("'self' can only appear within objects"); 
-						$$ = new expr_literal(self_value); 
-					}
+	: objref						{ $$ = $1; }
+	| primary '[' expr ']'			{ $$ = $3; }
+	| primary '[' '[' expr ']' ']'	{ $$ = $4; }
+	;
+
+objref
+	: ONAME			{ $$ = new expr_literal($1); }
+	| SELF			{ $$ = new expr_literal(self_value); }
+	| vname			{ $$ = new expr_variable($1); }
+	| objref PARENT { $$ = new expr_unary(_1op::get_parent,$1); }
+	| objref CHILD 	{ $$ = new expr_unary(_1op::get_child,$1); }
+	| objref SIBLING { $$ = new expr_unary(_1op::get_sibling,$1); }
 	;
 
 aname
@@ -1381,6 +1413,7 @@ void init() {
 	rw["self"] = SELF;
 	rw["move"] = MOVE;
 	rw["into"] = INTO;
+	rw["sread"] = SREAD;
 
 	f_0op["restart"] = _0op::restart;
 	f_0op["quit"] = _0op::quit;
@@ -1464,6 +1497,13 @@ void emitvarop(operand lval,_2op opcode,operand rval1,operand rval2) {
 	emitOperand(lval);
 	emitOperand(rval1);
 	emitOperand(rval2);
+}
+
+void emitvarop(_var opcode,operand op1,operand op2) {
+	emitByte((uint8_t)opcode + 0xE0);
+	emitByte((uint8_t(op1.type) << 6) | (uint8_t(op2.type) << 4) | 0xF);
+	emitOperand(op1);
+	emitOperand(op2);
 }
 
 void emitvarop(operand lval,_2op opcode,operand rval1,operand rval2,operand rval3) {

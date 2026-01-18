@@ -1,0 +1,79 @@
+directions { north south east west up down }
+
+// a?sym represents an attribute
+// p?sym represents a property
+// o?sym represents an object
+// v?sym represents a vert
+
+attributes { lit open }
+
+// Part in parentheses is the operator name. If there are two, it must
+// be a branch instruction and the second operator negates the branch.
+binary_operator equals(= <>) { "je" const 2op/1/branch }
+binary_operator less_than(< >=) { "jl" const 2op/2/branch }
+binary_operator greater_than(> <=) { "jg" const 2op/3/branch }
+binary_operator dec_less_than(--< -->=) { "dec_chk" indirect 2op/4/branch }
+binary_operator inc_greater_than(++> ++<=) { "inc_chk" indirect 2op/5/branch }
+binary_operator __inside(inside outside) { const "jin" 2op/6/branch }
+binary_operator test(allset anyunset) { const "test" 2op/7/branch }
+binary_operator bitor(|) { result "or" 2op/8 }
+binary_operator bitand(&) { result "and" 2op/9 }
+binary_operator test_attr(is isnt) { "test_attr" const 2op/10/branch }
+builtin set_attr(gains) { "set_attr" volatile 2op/11 }
+builtin clear_attr(loses) { "clear_attr" volatile 2op/12 }
+binary_operator insert_obj(moves_to) { volatile 2op/14 }
+binary_operator loadw(-->) { "loadw" result 2op/15 }
+binary_operator loadb(->) { "loadb" result 2op/16 }
+binary_operator get_prop(.) { "get_prop" result 2op/17 }
+binary_operator get_prop_addr(at) { "get_prop_addr" result 2op/18 }
+binary_operator next_prop() { "get_next_prop" result 2op/19 }
+binary_operator add(+) { "add" result 2op/20 }
+binary_operator sub(-) { "sub" result 2op/21 }
+binary_operator mul(*) { "mul" result 2op/22 }
+binary_operator div(/) { "div" result 2op/23 }
+binary_operator mod(%) { "mod" result 2op/24 }
+
+unary_operator is_zero(not) { "jz" const 1op/0/branch }
+unary_operator get_sibling { "get_sibling" result 1op/1/branch }
+unary_operator get_child { "get_child" result 1op/2/branch }
+unary_operator get_parent { "get_parent" result 1op/3/branch }
+unary_operator dec(--) { "dec" indirect 1op/4 }
+unary_operator inc(++) { "inc" indirect 1op/5 }
+builtin remove_object { "remove_obj" volatile 1op/9 }
+builtin print_obj { "print_obj" volatile 1op/10 }
+builtin return { "ret" volatile 1op/11 }
+unary_operator not { "not" result 1op/15 }
+
+
+
+
+
+
+
+
+// compiler runs in two passes. First pass parses all global symbols (only)
+// That way, in the second pass we will know whether an operand will be short or long.
+// This is particularly useful for objects and verbs, which are often only 8 bits.
+
+// To parse a token: skip all whitespace. Then if character is alphanumeric,
+// keep parsing until no longer alphanumeric (? counts as alphanumeric). 
+// If character is a symbol, keep parsing until there is whitespace or alphanumeric.
+
+routine DoorCheck[o?door o?otherside] { 
+	if (door is a?locked)
+		print_ret("The door is locked and blocks your way.");
+	if (door isnt a?open) {
+		print("[Opening the door first]");
+		door gains a?open;
+	}
+	return otherside;
+}
+
+// @test_attr loc0 1 ~L0 			; 3 byte
+// @ret loc1					; 2 bytes
+// L0: @print_ret "The door is closed..."	; 1 byte + text
+
+object TheBridge "Starship Bridge" {
+	south []{ return DoorCheck(BridgeDoor,Corridor); }
+}
+
