@@ -96,7 +96,7 @@
 		void destroy() {
 			uint16_t indexSave = index;
 			delete the_relocations[index]->relocations;
-			delete [] (uint16_t*) the_relocations[index];
+			delete [] (uint8_t*) the_relocations[index];
 			the_relocations[indexSave] = (relocatableBlob*)(size_t)firstFree;
 			firstFree = indexSave;
 		}
@@ -284,10 +284,12 @@
 			emit(TOS);
 		}
 		unsigned size() const {
-			// TODO: need to rewind pc after eval
 			operand lval, rval;
+			auto prev = currentRoutine;
+			relocatableBlob temp; temp.offset = 0; temp.size = 1024; currentRoutine = &temp;
 			right->eval(rval);
 			left->eval(lval);
+			currentRoutine = prev;
 			// if either is large_constant then it uses VAR form and needs a type byte
 			if (rval.type==optype::large_constant||lval.type==optype::large_constant)
 				return 2 + opsizes[(uint8_t)rval.type] + opsizes[(uint8_t)lval.type];
@@ -321,7 +323,10 @@
 		}
 		unsigned size() const {
 			operand uval;
+			auto prev = currentRoutine;
+			relocatableBlob temp; temp.offset = 0; temp.size = 1024; currentRoutine = &temp;
 			unary->eval(uval);
+			currentRoutine = prev;
 			return 1 + opsizes[(uint8_t)uval.type];
 		}
 	};
@@ -1032,7 +1037,9 @@ pvalue
 	| STRLIT ';'
 		{
 			// string literal is just a shorthand for the address of a routine that calls print_ret with that string
+			open_scope();
 			$$ = emit_routine(0,new stmt_print(_0op::print_ret,$1));
+			close_scope();
 		}
 	| INTLIT ';' { $$ = relocatableBlob::createInt($1); }
 	| routine_body { $$ = $1; }
@@ -1251,8 +1258,8 @@ pname
 
 primary
 	: objref						{ $$ = $1; }
-	| primary '[' expr ']'			{ $$ = $3; }
-	| primary '[' '[' expr ']' ']'	{ $$ = $4; }
+	| primary '[' expr ']'			{ $$ = new expr_binary($1,_2op::loadb,$3); }
+	| primary '[' '[' expr ']' ']'	{ $$ = new expr_binary($1,_2op::loadw,$4); }
 	;
 
 objref
@@ -1758,7 +1765,7 @@ int main(int argc,char **argv) {
 	putchar('\n');
 	return 1; */
 
-	yydebug = 1;
+	yydebug = 0;
 	for (yypass=1; yypass<=2; yypass++) {
 		yyinput = fopen(argv[1],"r");
 		int nextObject = 1;
@@ -1822,13 +1829,14 @@ int main(int argc,char **argv) {
 			printf("%zu actions\n",the_action_table.size()-1);
 			the_globals["$object_count"] = { INTLIT, int16_t(the_object_table.size() - 1) };
 			the_globals["$dict_entry_size"] = { INTLIT, int16_t(dict_entry_size) };
+			header_blob = relocatableBlob::create(64);
+			header_blob->storeByte(the_header.version);		
 		}
 		else
 			yyparse();
 		fclose(yyinput);
 	}
-	header_blob = relocatableBlob::create(64);
-	header_blob->storeByte(the_header.version);
+
 	// typical order
 	// header (64 bytes)
 	// +0 version

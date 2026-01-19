@@ -195,10 +195,10 @@ location bar "Foyer Bar" {
 			of the foyer to the north, is completely empty. There seems to
 			be some sort of message scrawled in the sawdust on the floor.";
 	n_to: foyer;
-	before: [act; temp] {
+	before: [act do; temp] {
 		if (act in {#look,#inv})
 			rtrue;
-		else if (act is #leave and self hasnt lit and noun isnt n_to) {
+		else if (act is #leave and self hasnt lit and do isnt foyer) {
 			++message_damage;
 			++message_damage;
 			print_ret "Blundering around in the dark isn't a good idea!";
@@ -433,15 +433,15 @@ routine DoTurn[;wc wp wt] {
 	// parse_buffer[0] is the max number of words
 	// parse_buffer[1] is the actual number of words parsed
 	// each word consists of four bytes:
-	// first two bytes is address of the word, or zero if unknown
+	// first two bytes is address of the word, or 0 if unknown
 	// next byte is the length of the word, then the position in text_buffer.
 	repeat {
-		read(text_buffer, parse_buffer);
+		sread(text_buffer, parse_buffer);
 		wc = parse_buffer[1];
-	} while (wc is zero);
+	} while (wc is 0);
 	wp = parse_buffer + 2;
-	wt = loadb(loadw(wp,0),$dict_entry_size - 1);
-	if ((wt & 15) != 0)
+	wt = wp[[0]][$dict_entry_size - 1];
+	if ((wt & 15) isnt 0)
 		return Travel(wt & 15);
 }
 
@@ -457,13 +457,13 @@ routine Startup[] {
 
 routine main [] {
 	Startup();
-	while (true) {
+	while (deadflag is 0) {
 		DoTurn();
-		if (deadflag==3)
+		if (deadflag is 3)
 			print "*** You have lost! ***";
-		else if (deadflag==2)
+		else if (deadflag is 2)
 			print "*** You have won! ***";
-		if (deadflag != 0) {
+		if (deadflag isnt 0) {
 			crlf;
 			print "Restart or quit?";
 			restart;
