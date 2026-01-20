@@ -308,6 +308,31 @@
 	IMPL_EXPR_BINARY(mod,%);
 	IMPL_EXPR_BINARY(and_,&);
 	IMPL_EXPR_BINARY(or_,|);
+	struct expr_binary_log_shift: public expr {
+		expr_binary_log_shift(expr *l,expr *r) : left(l), right(r) { }
+		expr *left, *right;
+		void emit(uint8_t dest) {
+			// we defer eval call because there may be unsigned forward references
+			operand lval, rval;
+			right->eval(rval);
+			left->eval(lval);
+			if (the_header.version < 5)
+				yyerror("shift instructions not available in v3 or v4 stories");
+			emitByte(0xE0);
+			emitByte((uint8_t)_ext::log_shift);
+			emitByte(((uint8_t)lval.type << 6) | ((uint8_t)rval.type << 4) | 0xF);
+			emitByte(dest);
+		}
+		bool isConstant(int &v) const {
+			int l, r;
+			if (left->isConstant(l)&&right->isConstant(r)) { 
+				v = r<0? l >> -r : l << r; 
+				return true; 
+			} 
+			else 
+				return false; 
+		} 
+	};
 	struct expr_unary: public expr {
 		expr_unary(_1op op,expr *e) : opcode(op), unary(e) { } 
 		expr *unary;
@@ -784,7 +809,7 @@
 }
 
 %token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT IN HOLDS
-%token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF SIBLING CHILD PARENT MOVE INTO
+%token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF SIBLING CHILD PARENT MOVE INTO CONSTANT
 %token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME PLNAME
 %token <sval> STRLIT
 %token <rval> RNAME
@@ -792,7 +817,7 @@
 %token WHILE REPEAT IF ELSE
 %token LE "<=" GE ">=" EQ "==" NE "!="
 // %token DEC_CHK "--<" INC_CHK "++>"
-%token GET_CHILD GET_PROP SAVE RESTORE SREAD
+%token SAVE RESTORE SREAD
 %token LSH "<<" RSH ">>"
 %token ARROW "->" INCR "++" DECR "--"
 %token RFALSE RTRUE RETURN
@@ -808,7 +833,7 @@
 %nonassoc HAS HASNT GET_CHILD
 %left '<' LE '>' GE
 %left EQ NE
-// %left LSH RSH
+%left LSH RSH
 %left '&'
 %left '|'
 %left AND
@@ -844,6 +869,19 @@ decl
 	| article_def
 	| placeholder_def
 	| action_def
+	| constant_def
+	;
+
+constant_def
+	: CONSTANT NEWSYM '=' expr ';'
+		{
+			int v;
+			if (!$4->isConstant(v))
+				yyerror("constant directive must evaluate to compile-time constant value");
+			 $2->token = INTLIT; 
+			 $2->ival = v;
+			 // printf("constant = %d\n",v);
+		}
 	;
 
 attribute_def
@@ -1211,6 +1249,8 @@ expr
 	| '~' expr      	{ $$ = new expr_unary(_1op::not_,$2); }
 	| expr '&' expr 	{ $$ = new expr_binary_and_($1,$3); }
 	| expr '|' expr 	{ $$ = new expr_binary_or_($1,$3); }
+	| expr LSH expr		{ $$ = new expr_binary_log_shift($1,$3); }
+	| expr RSH expr		{ $$ = new expr_binary_log_shift($1,new expr_binary_sub(new expr_literal(0),$3)); }
 	| '(' expr ')'  	{ $$ = $2; }
 	| primary       	{ $$ = $1; }
 	| INTLIT        	{ $$ = new expr_literal($1); }
@@ -1380,6 +1420,7 @@ uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcS
 
 void init() {
 	rw["attribute"] = ATTRIBUTE;
+	rw["constant"] = CONSTANT;
 	rw["property"] = PROPERTY;
 	rw["direction"] = DIRECTION;
 	rw["global"] = GLOBAL;
@@ -1448,9 +1489,6 @@ void init() {
 
 	the_object_table.push_back(nullptr);	// object zero doesn't exist
 	the_action_table.push_back(nullptr);
-
-	the_globals["false"] = symbol { INTLIT, 0 };
-	the_globals["true"] = symbol { INTLIT, 1 };
 }
 
 int encode_string(const char *src) {

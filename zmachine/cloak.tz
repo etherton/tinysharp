@@ -83,6 +83,11 @@ attribute object scenery;
 // words and the next two bytes contain the address of
 // that many word indices.
 
+constant false = 0;
+constant true = 1;
+constant adjBit = 1 << 7;
+constant nounBit = 1 << 6;
+
 // plain properties can be attached to rooms or objects
 // object properties can only be attached to objects
 // room properties can only be attached to rooms
