@@ -790,6 +790,7 @@
 	}
 
 	uint16_t property_defaults[63];
+	uint8_t property_bits[63];
 %}
 
 %union {
@@ -841,7 +842,7 @@
 
 %type <eval> expr pname objref primary aname arg
 %type <brval> bool_expr cond_expr
-%type <ival> vname opt_parent opt_default opt_arrow has_or_hasnt phrase placeholder_list
+%type <ival> vname opt_parent opt_default opt_gains opt_arrow has_or_hasnt phrase placeholder_list
 %type <rval> routine_body pvalue
 %type <scopeval> scope
 %type <dlist> dict_list;
@@ -895,7 +896,7 @@ scope
 	;
 
 property_def
-	: PROPERTY scope NEWSYM opt_default ';' 
+	: PROPERTY scope NEWSYM opt_default opt_gains ';' 
 		{ 
 			$3->token = PNAME; 
 			$3->ival = next_value_in_scope($2,property_next); 
@@ -904,12 +905,18 @@ property_def
 				yyerror("inconsistent valuep for default property (index %d) %d <> %d",
 					i,property_defaults[i],$4);
 			property_defaults[i] = $4;
+			property_bits[i] = $5;
 		}
 	;
 
 opt_default
-	: 			{ $$ = 0; }
-	| INTLIT	{ $$ = $1; }
+	: 				{ $$ = 0; }
+	| '=' INTLIT	{ $$ = $2; }
+	;
+
+opt_gains
+	:				{ $$ = 0; }
+	| GAINS INTLIT	{ $$ = $2; }
 	;
 
 direction_def
@@ -1086,6 +1093,7 @@ pvalue
 		$$ = p->index;
 		auto s = $1;
 		while (s) {
+			z_dict_payload(s->car) |= property_bits[currentProperty];
 			p->storeWord(s->car);
 			s = s->cdr;
 		}
