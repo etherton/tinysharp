@@ -35,6 +35,10 @@
 	};
 	static_assert(sizeof(operand)==4);
 
+	const uint16_t UD_DYNAMIC = 1;
+	const uint16_t UD_STATIC = 2;
+	const uint16_t UD_HIGH = 3;
+
 	// a relocatable blob can itself be relocated, and can contain
 	// zero or more references to other relocatable blobs.
 	// all recloations are 16 bits and can represent either a
@@ -43,13 +47,15 @@
 	std::vector<struct relocatableBlob*> the_relocations;
 	struct relocatableBlob {
 		using relocation_t = list_node<std::pair<uint16_t,uint16_t>>;
-		static uint16_t firstFree;
-		static relocatableBlob* create(uint16_t totalSize) {
+		static uint16_t firstFree, firstPlaced, lastPlaced;
+		static uint32_t nextAddress;
+		static relocatableBlob* create(uint16_t totalSize,uint16_t ud = 0) {
 			relocatableBlob* result = (relocatableBlob*) new uint8_t[totalSize + sizeof(relocatableBlob)];
 			result->size = totalSize;
 			result->offset = 0;
 			result->relocations = nullptr;
-			result->userData = 0;
+			result->userData = ud;
+			result->address = ~0U;
 			memset(result->contents,0,totalSize);
 			if (firstFree != 0xFFFF) {
 				result->index = firstFree;
@@ -107,7 +113,32 @@
 			newResult->relocations = relocations;
 			newResult->userData = userData;
 			delete [] (uint8_t*) the_relocations[index];
-			the_relocations[index] = newResult;;
+			the_relocations[index] = newResult;
+		}
+		void place(uint32_t alignMask = 0) {
+			if (firstPlaced == 0xFFFF)
+				firstPlaced = index;
+			else
+				the_relocations[lastPlaced]->nextPlaced = index;
+			lastPlaced = index;
+			nextPlaced = 0xFFFF;
+			nextAddress = (nextAddress + alignMask) & ~alignMask;
+			address = nextAddress;
+			nextAddress += size;
+		}
+		static void placeAll(uint16_t type) {
+			for (uint16_t i=0; i<the_relocations.size(); i++) {
+				if ((size_t)the_relocations[i] > 0xFFFF && the_relocations[i]->address == ~0U &&
+					the_relocations[i]->userData == type)
+					the_relocations[i]->place(type==UD_HIGH?~0U << story_shift:~0U);
+			}
+		}
+		static void writeAll(FILE *output) {
+			uint16_t i = firstPlaced;
+			while (i != 0xFFFF) {
+				fwrite(the_relocations[i]->contents,the_relocations[i]->size,1,output);
+				i = the_relocations[i]->nextPlaced;
+			}
 		}
 		void storeByte(uint8_t b) {
 			assert(offset < size);
@@ -125,9 +156,9 @@
 			storeByte(w >> 8);
 			storeByte(w);
 		}
-		void addRelocation(uint16_t ri) {
+		void addRelocation(uint16_t ri,int16_t bias = 0) {
 			relocations = new relocation_t(std::pair<uint16_t,uint16_t>(ri,offset),relocations);
-			storeWord(0);
+			storeWord(bias);
 		}
 		void append(relocatableBlob *other) {
 			for (auto i=other->relocations; i; i=i->cdr)
@@ -135,12 +166,15 @@
 			copy(other->contents,other->size);
 			other->destroy();
 		}
-		uint16_t size, offset, index, userData;
+		uint16_t size, offset, index, userData, nextPlaced;
+		uint32_t address;
 		relocation_t *relocations;
 		uint8_t contents[0];
 	};
-	uint16_t relocatableBlob::firstFree=0xFFFF;
+	uint16_t relocatableBlob::firstFree=0xFFFF, relocatableBlob::firstPlaced=0xFFFF, relocatableBlob::lastPlaced;
+	uint32_t relocatableBlob::nextAddress;
 	relocatableBlob *header_blob, *dictionary_blob, *object_blob, *properties_blob, *globals_blob, *current_global;
+	int16_t entry_point_index = -1;
 
 	static const uint8_t opsizes[3] = { 2,1,1 };
 	const uint8_t LONG_JUMP = 0x8C;			// +/-32767
@@ -777,7 +811,7 @@
 		}
 	};
 	uint16_t emit_routine(int numLocals,stmt *body) {
-		currentRoutine = relocatableBlob::create(1024);
+		currentRoutine = relocatableBlob::create(1024,UD_HIGH);
 		emitByte(numLocals);
 		if (the_header.version < 5) {
 			while (numLocals--) { 
@@ -799,7 +833,7 @@
 	const char *sval;
 	expr *eval;
 	expr_branch *brval;
-	symbol *sym;
+	std::pair<const std::string,symbol> *sym;
 	scope_enum scopeval;
 	list_node<uint16_t> *dlist;
 	list_node<expr*> *elist;
@@ -879,14 +913,18 @@ constant_def
 			int v;
 			if (!$4->isConstant(v))
 				yyerror("constant directive must evaluate to compile-time constant value");
-			 $2->token = INTLIT; 
-			 $2->ival = v;
+			 $2->second.token = INTLIT; 
+			 $2->second.ival = v;
 			 // printf("constant = %d\n",v);
 		}
 	;
 
 attribute_def
-	: ATTRIBUTE scope NEWSYM ';' { $3->token = ANAME; $3->ival = next_value_in_scope($2,attribute_next); }
+	: ATTRIBUTE scope NEWSYM ';' 
+		{ 
+			$3->second.token = ANAME; 
+			$3->second.ival = next_value_in_scope($2,attribute_next); 
+		}
 	;
 
 scope
@@ -898,9 +936,9 @@ scope
 property_def
 	: PROPERTY scope NEWSYM opt_default opt_gains ';' 
 		{ 
-			$3->token = PNAME; 
-			$3->ival = next_value_in_scope($2,property_next); 
-			auto i = $3->ival & 63;
+			$3->second.token = PNAME; 
+			$3->second.ival = next_value_in_scope($2,property_next); 
+			auto i = $3->second.ival & 63;
 			if (property_defaults[i] && property_defaults[i] != $4)
 				yyerror("inconsistent valuep for default property (index %d) %d <> %d",
 					i,property_defaults[i],$4);
@@ -948,8 +986,8 @@ global_def
 opt_global_init
 	:					{ globals_blob->storeWord(0); }
 	| '=' INTLIT		{ globals_blob->storeWord($2); }
-	| '=' BYTE_ARRAY '(' INTLIT ')'	{ globals_blob->addRelocation((current_global = relocatableBlob::create($4))->index); } opt_byte_list { current_global = nullptr; }
-	| '=' WORD_ARRAY '(' INTLIT ')' { globals_blob->addRelocation((current_global = relocatableBlob::create($4))->index); } opt_word_list { current_global = nullptr; }
+	| '=' BYTE_ARRAY '(' INTLIT ')'	{ globals_blob->addRelocation((current_global = relocatableBlob::create($4))->index,UD_DYNAMIC); } opt_byte_list { current_global = nullptr; }
+	| '=' WORD_ARRAY '(' INTLIT ')' { globals_blob->addRelocation((current_global = relocatableBlob::create($4))->index,UD_DYNAMIC); } opt_word_list { current_global = nullptr; }
 	;
 
 opt_byte_list
@@ -1023,7 +1061,7 @@ object_or_location_def
 		memset(cdef->properties,0,propCount * sizeof(relocatableBlob*));
 	} opt_property_or_attribute_list '}' {
 		unsigned finalSize = 1 + cdef->descrLen + cdef->propertySize + 1;
-		auto finalProps = relocatableBlob::create(finalSize);
+		auto finalProps = relocatableBlob::create(finalSize,UD_DYNAMIC);
 		finalProps->storeByte(cdef->descrLen>>1);
 		finalProps->copy(cdef->descr,cdef->descrLen);
 		unsigned propCount = the_header.version==3? 32 : 64;
@@ -1101,7 +1139,20 @@ pvalue
 	;
 
 routine_def
-	: ROUTINE NEWSYM routine_body { $2->token = RNAME; $2->ival = $3; }
+	: ROUTINE NEWSYM routine_body 
+		{
+			if ($2->first == "main") {
+				if (entry_point_index == -1) {
+					if (the_relocations[$3]->contents[0])
+						yyerror("main cannot declare any parameters or locals");
+					entry_point_index = $3;
+				}
+				else
+					yyerror("cannot have two routines named main");
+			}
+			$2->second.token = RNAME; 
+			$2->second.ival = $3;
+		}
 	;
 
 article_def
@@ -1118,7 +1169,11 @@ article_def
 	;
 
 placeholder_def
-	: PLACEHOLDER NEWSYM ';' { $2->token = PLNAME; $2->ival = ++next_placeholder; }
+	: PLACEHOLDER NEWSYM ';' 
+		{ 
+			$2->second.token = PLNAME; 
+			$2->second.ival = ++next_placeholder; 
+		}
 	;
 
 action_def
@@ -1173,8 +1228,8 @@ param
 				yyerror("too many params (limit is 3 for v3)"); 
 			else if (the_header.version>3 && next_local==7)
 				yyerror("too many params (limit is 7 for v4+)");
-			$1->token = LNAME; 
-			$1->ival = next_local++; 
+			$1->second.token = LNAME; 
+			$1->second.ival = next_local++; 
 		}
 	;
 
@@ -1193,8 +1248,8 @@ local
 		{ 
 			if (next_local==15) 
 				yyerror("too many params + locals"); 
-			$1->token = LNAME; 
-			$1->ival = next_local++; 
+			$1->second.token = LNAME; 
+			$1->second.ival = next_local++; 
 		}
 	;
 
@@ -1619,9 +1674,9 @@ int yylex_() {
 			return NEWSYM;
 		else {
 			if (the_locals.size())
-				yylval.sym = &the_locals.back()->operator[](yytoken);
+				yylval.sym = &*the_locals.back()->insert(std::pair<std::string,symbol>(yytoken,{0,0})).first;
 			else
-				yylval.sym = &the_globals.operator[](yytoken);
+				yylval.sym = &*the_globals.insert(std::pair<std::string,symbol>(yytoken,{0,0})).first;
 			return NEWSYM;
 		}
 	}
@@ -1851,7 +1906,7 @@ int main(int argc,char **argv) {
 			}
 			printf("%zu words in dictionary\n",the_dictionary.size());
 			// build the final dictionary, assigning word indices.
-			dictionary_blob = relocatableBlob::create(7 + the_dictionary.size() * (dict_entry_size+1));
+			dictionary_blob = relocatableBlob::create(7 + the_dictionary.size() * (dict_entry_size+1),UD_STATIC);
 			dictionary_blob->storeByte(3);
 			dictionary_blob->storeByte('.');
 			dictionary_blob->storeByte(',');
@@ -1870,16 +1925,44 @@ int main(int argc,char **argv) {
 				dictionary_blob->storeByte(0);
 			}
 			printf("%u globals\n",next_global);
-			globals_blob = relocatableBlob::create(next_global * 2);
+			globals_blob = relocatableBlob::create(next_global * 2,UD_DYNAMIC);
 			printf("%zu objects\n",the_object_table.size()-1);
 			printf("%zu actions\n",the_action_table.size()-1);
 			the_globals["$object_count"] = { INTLIT, int16_t(the_object_table.size() - 1) };
 			the_globals["$dict_entry_size"] = { INTLIT, int16_t(dict_entry_size) };
-			header_blob = relocatableBlob::create(64);
-			header_blob->storeByte(the_header.version);		
+			header_blob = relocatableBlob::create(64,UD_DYNAMIC);
 		}
-		else
+		else {
 			yyparse();
+			header_blob->storeByte(the_header.version);	// +0 version
+			header_blob->offset += 3;
+			if (entry_point_index == -1)
+				yyerror("missing main routine");
+			// main routine is also the start of high memory
+			header_blob->addRelocation(entry_point_index); // +4 high mem
+			header_blob->addRelocation(entry_point_index,1); // +6 initial pc (skip local count)
+			header_blob->addRelocation(dictionary_blob->index); // +8 dictionary table
+			header_blob->addRelocation(object_blob->index); // +10 object table
+			header_blob->addRelocation(globals_blob->index); // +12 globals
+			header_blob->addRelocation(dictionary_blob->index); // +14 static memory
+			header_blob->offset += 2;
+			memcpy(header_blob->contents + header_blob->offset,"TINYZ1",6);
+			header_blob->place();
+			object_blob->place();
+			globals_blob->place();
+			relocatableBlob::placeAll(UD_DYNAMIC);
+			// TODO: place any global tables
+			dictionary_blob->place();
+			relocatableBlob::placeAll(UD_STATIC);
+			the_relocations[entry_point_index]->place();
+			relocatableBlob::placeAll(UD_HIGH);
+			header_blob->storeWord(0); // +24 abbreviations
+			header_blob->storeWord(relocatableBlob::nextAddress >> story_shift); // length of file
+			// todo: character table etc.
+			FILE *output = fopen("story.z3","w");
+			relocatableBlob::writeAll(output);
+			fclose(output);
+		}
 		fclose(yyinput);
 	}
 
