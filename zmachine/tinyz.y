@@ -56,6 +56,7 @@
 			result->relocations = nullptr;
 			result->userData = ud;
 			result->address = ~0U;
+			result->nextPlaced = 0xFFFF;
 			memset(result->contents,0,totalSize);
 			if (firstFree != 0xFFFF) {
 				result->index = firstFree;
@@ -108,12 +109,16 @@
 		}
 		void seal() {
 			assert(offset <= size);
-			relocatableBlob *newResult = (relocatableBlob*) new uint8_t[offset + sizeof(relocatableBlob)];
+			size = offset;
+			/* relocatableBlob *newResult = (relocatableBlob*) new uint8_t[offset + sizeof(relocatableBlob)];
 			newResult->size = newResult->offset = offset;
+			newResult->index = index;
+			newResult->address = ~0U;
+			newResult->nextPlaced = 0xFFFF;
 			newResult->relocations = relocations;
 			newResult->userData = userData;
 			delete [] (uint8_t*) the_relocations[index];
-			the_relocations[index] = newResult;
+			the_relocations[newResult->index] = newResult; */
 		}
 		void place(uint32_t alignMask = 0) {
 			if (firstPlaced == 0xFFFF)
@@ -820,6 +825,7 @@
 			}
 		}
 		body->emit();
+		currentRoutine->seal(); // arp arp
 		return currentRoutine->index;
 	}
 
@@ -1061,6 +1067,7 @@ object_or_location_def
 		memset(cdef->properties,0,propCount * sizeof(relocatableBlob*));
 	} opt_property_or_attribute_list '}' {
 		unsigned finalSize = 1 + cdef->descrLen + cdef->propertySize + 1;
+		// this could potentially be placed in static memory but that might break some interpreters.
 		auto finalProps = relocatableBlob::create(finalSize,UD_DYNAMIC);
 		finalProps->storeByte(cdef->descrLen>>1);
 		finalProps->copy(cdef->descr,cdef->descrLen);
@@ -1934,6 +1941,35 @@ int main(int argc,char **argv) {
 		}
 		else {
 			yyparse();
+
+			uint8_t objSize = the_header.version==3? 9 : 14;
+			uint8_t defPropCount = the_header.version==3? 31 : 63;
+			object_blob = relocatableBlob::create((the_object_table.size()-1)*objSize + defPropCount*2);
+			for (int i=1; i<=defPropCount; i++)
+				object_blob->storeWord(property_defaults[i]);
+			if (the_header.version==3) {
+				for (int i=1; i<the_object_table.size(); i++) {
+					auto &o = *the_object_table[i];
+					for (int j=0; j<4; j++)
+						object_blob->storeByte(o.attributes[j]);
+					object_blob->storeByte(o.parent);
+					object_blob->storeByte(o.sibling);
+					object_blob->storeByte(o.child);
+					object_blob->addRelocation(o.finalProps->index);
+				}
+			}
+			else {
+				for (int i=1; i<the_object_table.size(); i++) {
+					auto &o = *the_object_table[i];
+					for (int j=0; j<6; j++)
+						object_blob->storeByte(o.attributes[j]);
+					object_blob->storeWord(o.parent);
+					object_blob->storeWord(o.sibling);
+					object_blob->storeWord(o.child);
+					object_blob->addRelocation(o.finalProps->index);
+				}
+			}
+			
 			header_blob->storeByte(the_header.version);	// +0 version
 			header_blob->offset += 3;
 			if (entry_point_index == -1)
@@ -1946,7 +1982,7 @@ int main(int argc,char **argv) {
 			header_blob->addRelocation(globals_blob->index); // +12 globals
 			header_blob->addRelocation(dictionary_blob->index); // +14 static memory
 			header_blob->offset += 2;
-			memcpy(header_blob->contents + header_blob->offset,"TINYZ1",6);
+			header_blob->copy((uint8_t*)"TINYZ1",6);
 			header_blob->place();
 			object_blob->place();
 			globals_blob->place();
