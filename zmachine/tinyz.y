@@ -141,6 +141,7 @@
 		static void writeAll(FILE *output) {
 			uint16_t i = firstPlaced;
 			while (i != 0xFFFF) {
+				the_relocations[i]->applyRelocations();
 				fwrite(the_relocations[i]->contents,the_relocations[i]->size,1,output);
 				i = the_relocations[i]->nextPlaced;
 			}
@@ -164,6 +165,17 @@
 		void addRelocation(uint16_t ri,int16_t bias = 0) {
 			relocations = new relocation_t(std::pair<uint16_t,uint16_t>(ri,offset),relocations);
 			storeWord(bias);
+		}
+		void applyRelocations() {
+			for (auto i = relocations; i; i=i->cdr) {
+				auto &r = *the_relocations[i->car.first];
+				uint16_t a = r.address >> (r.userData == UD_HIGH? story_shift : 0);
+				a += contents[i->car.second + 1];	// add lower byte of offset;
+				contents[i->car.second] = a >> 8;
+				contents[i->car.second + 1] = a;
+			}
+			delete relocations;
+			relocations = nullptr;
 		}
 		void append(relocatableBlob *other) {
 			for (auto i=other->relocations; i; i=i->cdr)
