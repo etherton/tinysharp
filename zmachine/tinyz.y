@@ -70,8 +70,8 @@
 			}
 			return result;
 		}
-		static uint16_t createInt(int16_t t) {
-			auto r = create(2);
+		static uint16_t createInt(int16_t t,uint8_t propertyIndex) {
+			auto r = createProperty(2,propertyIndex);
 			r->storeInt(t);
 			return r->index;
 		}
@@ -179,7 +179,7 @@
 			delete relocations;
 			relocations = nullptr;
 			if (desc)
-				printf("applied %d relocations to %s, final address %x\n",count,desc,address);
+				printf("blob %d applied %d relocations to %s (size %u), final address %x\n",index,count,desc,size,address);
 		}
 		void append(relocatableBlob *other) {
 			for (auto i=other->relocations; i; i=i->cdr)
@@ -1140,16 +1140,22 @@ property_or_attribute
 	;
 
 pvalue
-	: ONAME ';' { $$ = relocatableBlob::createInt($1); }
+	: ONAME ';' { $$ = relocatableBlob::createInt($1,currentProperty); }
 	| STRLIT ';'
 		{
 			// string literal is just a shorthand for the address of a routine that calls print_ret with that string
 			open_scope();
-			$$ = emit_routine(0,new stmt_print(_0op::print_ret,$1));
+			auto p = relocatableBlob::createProperty(2,currentProperty);
+			p->addRelocation(emit_routine(0,new stmt_print(_0op::print_ret,$1)));
 			close_scope();
+			$$ = p->index;
 		}
-	| INTLIT ';' { $$ = relocatableBlob::createInt($1); }
-	| routine_body { $$ = $1; }
+	| INTLIT ';' { $$ = relocatableBlob::createInt($1,currentProperty); }
+	| routine_body { 
+			auto p = relocatableBlob::createProperty(2,currentProperty); 
+			p->addRelocation($1);
+			$$ = p->index;
+		}
 	| dict_list ';' { 
 		auto p = relocatableBlob::createProperty($1->size() * 2,currentProperty);
 		$$ = p->index;
@@ -1973,6 +1979,7 @@ int main(int argc,char **argv) {
 					object_blob->storeByte(o.sibling);
 					object_blob->storeByte(o.child);
 					object_blob->addRelocation(o.finalProps->index);
+					printf("object %d properties at blob %d\n",i,o.finalProps->index);
 				}
 			}
 			else {
@@ -1984,6 +1991,7 @@ int main(int argc,char **argv) {
 					object_blob->storeWord(o.sibling);
 					object_blob->storeWord(o.child);
 					object_blob->addRelocation(o.finalProps->index);
+					printf("object %d properties at blob %d\n",i,o.finalProps->index);
 				}
 			}
 			
@@ -2001,8 +2009,8 @@ int main(int argc,char **argv) {
 			header_blob->offset += 2;
 			header_blob->copy((uint8_t*)"TINYZ1",6);
 			header_blob->place();
-			object_blob->place();
 			globals_blob->place();
+			object_blob->place();
 			relocatableBlob::placeAll(UD_DYNAMIC);
 			// TODO: place any global tables
 			dictionary_blob->place();
@@ -2010,7 +2018,7 @@ int main(int argc,char **argv) {
 			the_relocations[entry_point_index]->place();
 			relocatableBlob::placeAll(UD_HIGH);
 			header_blob->storeWord(0); // +24 abbreviations
-			header_blob->storeWord(relocatableBlob::nextAddress >> story_shift); // length of file
+			header_blob->storeWord((relocatableBlob::nextAddress + ((1<<story_shift)-1)) >> story_shift); // length of file
 			header_blob->offset = 64;
 			// todo: character table etc.
 			FILE *output = fopen("story.z3","w");
