@@ -205,19 +205,25 @@
 	relocatableBlob * currentRoutine;
 	uint8_t currentProperty;
 	void emitByte(uint8_t b) {
+		printf("%04x: %02x\n",currentRoutine->offset,b);
 		currentRoutine->storeByte(b);
 	}
 	void emitOperand(operand o) {
 		if (o.type==optype::large_constant)
 			emitByte(o.value >> 8);
-		emitByte(o.value);
+		if (o.type!=optype::omitted)
+			emitByte(o.value);
 	}
 	// void emitBranch(uint16_t target);
 	void emitvarop(operand l,_2op op,operand r1,operand r2);
 	void emitvarop(operand l,_2op op,operand r1,operand r2,operand r3);
+	void emitvarop(_var op,operand o0);
 	void emitvarop(_var op,operand o0,operand o1);
+	void emitvarop(_var op,operand o0,operand o1,operand o2);
+	void emitvarop(_var op,operand o0,operand o1,operand o2,operand o3);
 	void emit2op(operand l,_2op op,operand r);
 	void emit1op(_1op op,operand un);
+	void emit0op(_0op op) { emitByte(uint8_t(op) | 0xB0); }
 	const uint8_t TOS = 0, SCRATCH = 3;
 
 	typedef struct label_info {
@@ -463,7 +469,8 @@
 			emitByte(dest);
 			expr_branch::emitBranch(target,negated,isLong);
 		}
-	};	struct expr_in: public expr_branch {
+	};	
+	struct expr_in: public expr_branch {
 		expr_in(expr *l,expr *r1,expr *r2=nullptr,expr *r3=nullptr) : left(l), right1(r1), right2(r2), right3(r3), expr_branch(false) { }
 		expr *left,*right1,*right2,*right3;
 		void emitBranch(label target,bool negated,bool isLong) {
@@ -480,6 +487,33 @@
 			else
 				emit2op(lval,_2op::je,rval1);
 			expr_branch::emitBranch(target,negated,isLong);
+		}
+	};
+	struct expr_call: public expr { // first arg is func address
+		expr_call(list_node<expr*> *a) : args(a) { }
+		list_node<expr*> *args;
+		// TODO: v3 only supports VAR call (3 params). v4 supports 1/2 operand with result and 7 params.
+		// v5 supports implicit pop versions of all calls
+		virtual void emit(uint8_t dest) {
+			operand o1, o2, o3, o4;
+			if (args->size()>=4)
+				args->cdr->cdr->cdr->car->eval(o4);
+			else
+				o4.type = optype::omitted;
+			if (args->size()>=3)
+				args->cdr->cdr->car->eval(o3);
+			else
+				o3.type = optype::omitted;
+			if (args->size()>=2)
+				args->cdr->car->eval(o2);
+			else
+				o2.type = optype::omitted;
+			if (args->size()>=1)
+				args->car->eval(o1);
+			else
+				o1.type = optype::omitted;
+			emitvarop(_var::call_vs,o1,o2,o3,o4);
+			emitByte(dest);
 		}
 	};
 	struct expr_unary_branch: public expr_branch {
@@ -586,12 +620,6 @@
 				placeLabel(trueBranch);
 			}
 		}
-	};
-	struct expr_call: public expr { // first arg is func address
-		expr_call(list_node<expr*> *a) : args(a) { }
-		list_node<expr*> *args;
-		// TODO: v3 only supports VAR call (3 params). v4 supports 1/2 operand with result and 7 params.
-		// v5 supports implicit pop versions of all calls
 	};
 	struct expr_save: public expr_branch {
 		expr_save() : expr_branch(false) { }
@@ -709,12 +737,12 @@
 		void emit() {
 			int c;
 			if (value->isConstant(c) && (c==0||c==1))
-				emitByte((uint8_t)(c==0? _0op::rfalse : _0op::rtrue));
+				emit0op(c==0? _0op::rfalse : _0op::rtrue);
 			else {
 				operand o;
 				value->eval(o);
 				if (o.type == optype::variable && o.value == TOS)
-					emitByte((uint8_t)_0op::ret_popped);
+					emit0op(_0op::ret_popped);
 				else
 					emit1op(_1op::ret,o);
 			}
@@ -761,7 +789,7 @@
 		stmt_0op(_0op op) : opcode(op) { }
 		_0op opcode;
 		void emit() {
-			emitByte((uint8_t)opcode);
+			emit0op(opcode);
 		}
 		unsigned size() const {
 			return 1;
@@ -824,7 +852,7 @@
 		const char *string;
 		_0op opcode;
 		void emit() {
-			emitByte((uint8_t)opcode);
+			emit0op(opcode);
 			currentRoutine->offset += encode_string(currentRoutine->contents + currentRoutine->offset,
 				(currentRoutine->size - currentRoutine->offset) & ~1,string,strlen(string));
 		}
@@ -834,6 +862,7 @@
 	};
 	uint16_t emit_routine(int numLocals,stmt *body) {
 		currentRoutine = relocatableBlob::create(1024,UD_HIGH);
+		printf("%d locals\n",numLocals);
 		emitByte(numLocals);
 		if (the_header.version < 5) {
 			while (numLocals--) { 
@@ -1176,6 +1205,8 @@ routine_def
 					if (the_relocations[$3]->contents[0])
 						yyerror("main cannot declare any parameters or locals");
 					entry_point_index = $3;
+					// Make sure we get its real address, not packed address
+					the_relocations[$3]->userData = UD_STATIC;
 				}
 				else
 					yyerror("cannot have two routines named main");
@@ -1637,11 +1668,34 @@ void emitvarop(operand lval,_2op opcode,operand rval1,operand rval2) {
 	emitOperand(rval2);
 }
 
+void emitvarop(_var opcode,operand op1) {
+	emitByte((uint8_t)opcode + 0xE0);
+	emitByte((uint8_t(op1.type) << 6) | 0x3F);
+	emitOperand(op1);
+}
+
 void emitvarop(_var opcode,operand op1,operand op2) {
 	emitByte((uint8_t)opcode + 0xE0);
 	emitByte((uint8_t(op1.type) << 6) | (uint8_t(op2.type) << 4) | 0xF);
 	emitOperand(op1);
 	emitOperand(op2);
+}
+
+void emitvarop(_var opcode,operand op1,operand op2,operand op3) {
+	emitByte((uint8_t)opcode + 0xE0);
+	emitByte((uint8_t(op1.type) << 6) | (uint8_t(op2.type) << 4) | (uint8_t(op3.type) << 2) | 0x3);
+	emitOperand(op1);
+	emitOperand(op2);
+	emitOperand(op3);
+}
+
+void emitvarop(_var opcode,operand op1,operand op2,operand op3,operand op4) {
+	emitByte((uint8_t)opcode + 0xE0);
+	emitByte((uint8_t(op1.type) << 6) | (uint8_t(op2.type) << 4) | (uint8_t(op3.type) << 2) | uint8_t(op4.type));
+	emitOperand(op1);
+	emitOperand(op2);
+	emitOperand(op3);
+	emitOperand(op4);
 }
 
 void emitvarop(operand lval,_2op opcode,operand rval1,operand rval2,operand rval3) {
@@ -2012,10 +2066,7 @@ int main(int argc,char **argv) {
 			globals_blob->place();
 			object_blob->place();
 			relocatableBlob::placeAll(UD_DYNAMIC);
-			// TODO: place any global tables
-			dictionary_blob->place();
 			relocatableBlob::placeAll(UD_STATIC);
-			the_relocations[entry_point_index]->place();
 			relocatableBlob::placeAll(UD_HIGH);
 			header_blob->storeWord(0); // +24 abbreviations
 			header_blob->storeWord((relocatableBlob::nextAddress + ((1<<story_shift)-1)) >> story_shift); // length of file
