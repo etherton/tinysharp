@@ -49,7 +49,7 @@
 		using relocation_t = list_node<std::pair<uint16_t,uint16_t>>;
 		static uint16_t firstFree, firstPlaced, lastPlaced;
 		static uint32_t nextAddress;
-		static relocatableBlob* create(uint16_t totalSize,uint16_t ud = 0) {
+		static relocatableBlob* create(uint16_t totalSize,uint16_t ud = 0,const char *desc = nullptr) {
 			relocatableBlob* result = (relocatableBlob*) new uint8_t[totalSize + sizeof(relocatableBlob)];
 			result->size = totalSize;
 			result->offset = 0;
@@ -57,6 +57,7 @@
 			result->userData = ud;
 			result->address = ~0U;
 			result->nextPlaced = 0xFFFF;
+			result->desc = desc;
 			memset(result->contents,0,totalSize);
 			if (firstFree != 0xFFFF) {
 				result->index = firstFree;
@@ -135,7 +136,7 @@
 			for (uint16_t i=0; i<the_relocations.size(); i++) {
 				if ((size_t)the_relocations[i] > 0xFFFF && the_relocations[i]->address == ~0U &&
 					the_relocations[i]->userData == type)
-					the_relocations[i]->place(type==UD_HIGH?~0U << story_shift:~0U);
+					the_relocations[i]->place(type==UD_HIGH?(1U << story_shift)-1:0U);
 			}
 		}
 		static void writeAll(FILE *output) {
@@ -167,7 +168,8 @@
 			storeWord(bias);
 		}
 		void applyRelocations() {
-			for (auto i = relocations; i; i=i->cdr) {
+			int count = 0;
+			for (auto i = relocations; i; i=i->cdr, count++) {
 				auto &r = *the_relocations[i->car.first];
 				uint16_t a = r.address >> (r.userData == UD_HIGH? story_shift : 0);
 				a += contents[i->car.second + 1];	// add lower byte of offset;
@@ -176,6 +178,8 @@
 			}
 			delete relocations;
 			relocations = nullptr;
+			if (desc)
+				printf("applied %d relocations to %s, final address %x\n",count,desc,address);
 		}
 		void append(relocatableBlob *other) {
 			for (auto i=other->relocations; i; i=i->cdr)
@@ -185,6 +189,7 @@
 		}
 		uint16_t size, offset, index, userData, nextPlaced;
 		uint32_t address;
+		const char *desc;
 		relocation_t *relocations;
 		uint8_t contents[0];
 	};
@@ -1080,7 +1085,7 @@ object_or_location_def
 	} opt_property_or_attribute_list '}' {
 		unsigned finalSize = 1 + cdef->descrLen + cdef->propertySize + 1;
 		// this could potentially be placed in static memory but that might break some interpreters.
-		auto finalProps = relocatableBlob::create(finalSize,UD_DYNAMIC);
+		auto finalProps = relocatableBlob::create(finalSize,UD_DYNAMIC,"property table");
 		finalProps->storeByte(cdef->descrLen>>1);
 		finalProps->copy(cdef->descr,cdef->descrLen);
 		unsigned propCount = the_header.version==3? 32 : 64;
@@ -1925,7 +1930,7 @@ int main(int argc,char **argv) {
 			}
 			printf("%zu words in dictionary\n",the_dictionary.size());
 			// build the final dictionary, assigning word indices.
-			dictionary_blob = relocatableBlob::create(7 + the_dictionary.size() * (dict_entry_size+1),UD_STATIC);
+			dictionary_blob = relocatableBlob::create(7 + the_dictionary.size() * (dict_entry_size+1),UD_STATIC,"dictionary");
 			dictionary_blob->storeByte(3);
 			dictionary_blob->storeByte('.');
 			dictionary_blob->storeByte(',');
@@ -1944,19 +1949,19 @@ int main(int argc,char **argv) {
 				dictionary_blob->storeByte(0);
 			}
 			printf("%u globals\n",next_global);
-			globals_blob = relocatableBlob::create(next_global * 2,UD_DYNAMIC);
+			globals_blob = relocatableBlob::create(next_global * 2,UD_DYNAMIC,"globals");
 			printf("%zu objects\n",the_object_table.size()-1);
 			printf("%zu actions\n",the_action_table.size()-1);
 			the_globals["$object_count"] = { INTLIT, int16_t(the_object_table.size() - 1) };
 			the_globals["$dict_entry_size"] = { INTLIT, int16_t(dict_entry_size) };
-			header_blob = relocatableBlob::create(64,UD_DYNAMIC);
+			header_blob = relocatableBlob::create(64,UD_DYNAMIC,"story header");
 		}
 		else {
 			yyparse();
 
 			uint8_t objSize = the_header.version==3? 9 : 14;
 			uint8_t defPropCount = the_header.version==3? 31 : 63;
-			object_blob = relocatableBlob::create((the_object_table.size()-1)*objSize + defPropCount*2);
+			object_blob = relocatableBlob::create((the_object_table.size()-1)*objSize + defPropCount*2,UD_DYNAMIC,"object table");
 			for (int i=1; i<=defPropCount; i++)
 				object_blob->storeWord(property_defaults[i]);
 			if (the_header.version==3) {
@@ -2006,6 +2011,7 @@ int main(int argc,char **argv) {
 			relocatableBlob::placeAll(UD_HIGH);
 			header_blob->storeWord(0); // +24 abbreviations
 			header_blob->storeWord(relocatableBlob::nextAddress >> story_shift); // length of file
+			header_blob->offset = 64;
 			// todo: character table etc.
 			FILE *output = fopen("story.z3","w");
 			relocatableBlob::writeAll(output);

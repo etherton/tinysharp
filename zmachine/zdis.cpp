@@ -1,8 +1,13 @@
+// clang++ -std=c++17 zdis.cpp -o zdis
+
+#define ENABLE_DEBUG 1
 #include "header.h"
 #include <stdio.h>
 #include <assert.h>
 
 #include "opcodes.h"
+
+const uint8_t storyScales[] = { 0,0,0,2,4,4,0,8,8 };
 
 storyHeader *getStory(const char *storyName) {
 	FILE *f = fopen(storyName,"rb");
