@@ -3,6 +3,7 @@
 
 %expect 1
 %{
+	#define ENABLE_DEBUG 1
 	#include "opcodes.h"
 	#include "header.h"
 	#include <set>
@@ -206,7 +207,7 @@
 	relocatableBlob * currentRoutine;
 	uint8_t currentProperty;
 	void emitByte(uint8_t b) {
-		printf("%04x: %02x\n",currentRoutine->offset,b);
+		// printf("%04x: %02x\n",currentRoutine->offset,b);
 		currentRoutine->storeByte(b);
 	}
 	void emitOperand(operand o) {
@@ -1762,6 +1763,75 @@ void emitvarop(operand lval,_2op opcode,operand rval1,operand rval2,operand rval
 	emitOperand(rval3);
 }
 
+void disassemble(uint16_t blob) {
+	uint8_t *pc = the_relocations[blob]->contents, *base = pc, *stop = pc + the_relocations[blob]->size;
+	uint32_t addr = the_relocations[blob]->address;
+	if (*pc) {
+		printf("[%d locals]\n",*pc);
+		pc += 1 + (*pc<<1);
+	}
+	else
+		pc++, printf("[no locals]\n");
+	auto prvar = [](uint8_t v) {
+		if (!v)
+			printf(" TOS");
+		else if (v < 16)
+			printf(" local%d",v-1);
+		else
+			printf(" global%d",v-16);
+	};
+	while (pc < stop) {
+		uint16_t offs = pc - base + addr;
+		uint8_t insn = *pc++;
+		uint16_t types = opTypes[insn >> 4] << 8;
+		if (!types) {
+			types = *pc++ << 8;
+			if (insn == (0xA0 | (uint8_t)_var::call_vs2))
+				types |= *pc++;
+			else
+				types |= 0xFF;
+		}
+		else
+			types |= 0xFF;
+		printf("%06x %s",offs,opcode_names[insn]);
+		while (types != 0xFFFF) {
+			if ((types >> 14) == (uint8_t)optype::variable)
+				prvar(*pc++);
+			else if ((types >> 14) == (uint8_t)optype::small_constant)
+				printf(" %d",*pc++);
+			else
+				pc+=2, printf(" %d",int16_t(pc[-2]<<8)|pc[-1]);
+			types = (types << 2) | 0x3;
+		}
+		uint8_t extra = (decode[insn] >> version_shift[the_header.version]) & 3;
+		if (extra & 1) {
+			printf(" ->");
+			prvar(*pc++);
+		}
+		if (extra & 2) {
+			int16_t branch_offset = *pc++;
+			uint8_t branch_cond = branch_offset >> 7;
+			branch_offset &= 127;
+			if (branch_offset & 64)
+				branch_offset &= 63;
+			else {
+				if (branch_offset & 32)
+					branch_offset |= 0xC0;
+				branch_offset = (branch_offset << 8) | *pc++;
+			}
+			if (branch_cond)
+				printf("~");
+			if (branch_offset==0)
+				printf("rfalse");
+			else if (branch_offset==1)
+				printf("rtrue");
+			else
+				printf("%6x",(unsigned)(addr + (pc - base) + branch_offset - 2));
+		}
+		printf("\n");
+	}
+}
+
 int yych, yylen, yypass, yyline, yyscope;
 char yytoken[32];
 FILE *yyinput;
@@ -2133,6 +2203,7 @@ int main(int argc,char **argv) {
 			relocatableBlob::placeAll(UD_DYNAMIC);
 			relocatableBlob::placeAll(UD_STATIC);
 			relocatableBlob::placeAll(UD_HIGH);
+
 			header_blob->storeWord(0); // +24 abbreviations
 			header_blob->storeWord((relocatableBlob::nextAddress + ((1<<story_shift)-1)) >> story_shift); // length of file
 			header_blob->offset = 64;
@@ -2140,6 +2211,12 @@ int main(int argc,char **argv) {
 			FILE *output = fopen("story.z3","w");
 			relocatableBlob::writeAll(output);
 			fclose(output);
+
+			disassemble(entry_point_index);
+			for (int i=0; i<the_relocations.size(); i++) {
+				if ((size_t)the_relocations[i] > 65535 && the_relocations[i]->userData == UD_HIGH)
+					disassemble(i);
+			}
 		}
 		fclose(yyinput);
 	}
