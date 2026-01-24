@@ -1,6 +1,21 @@
 object Player "a hapless adventurer" {
 }
 
+property global description;
+
+object Hook "a demo hook" {
+	description: [;c] {
+		print "It's just a small brass hook, ";
+		if (self has child -> c) {
+			print "with a ";
+			print_obj c;
+			print_ret " hanging on it.";
+		}
+		else
+			print_ret "screwed to the wall.";
+	}
+}
+
 global room;
 global turns;
 global score;

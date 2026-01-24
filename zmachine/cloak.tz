@@ -84,6 +84,7 @@ attribute object scenery;
 // that many word indices.
 
 constant false = 0;
+constant zero = 0; 
 constant true = 1;
 constant adjBit = 1 << 7;
 constant nounBit = 1 << 6;
@@ -307,37 +308,46 @@ routine Inventory [;i] {
 }
 
 routine BlockBefore [act obj;r] {
-	if (obj is 0)
+	if (obj is zero)
 		rfalse;
-	else if (obj has property before -> r)
+	r = obj.before;
+	if (r isnt zero)
 		return call r(act,obj);
 	else
 		rfalse;
 }
 
 routine CheckBefore [act obj;r] {
-	if (obj isnt 0 and obj has property before -> r)
-		return call r(act,obj);
-	else
-		rtrue;
+	if (obj isnt zero) {
+		r = obj.before;
+		if (r isnt zero)
+			return call r(act,obj);
+	}
+	rtrue;
 }
 
 routine CheckAfter [act obj;r] {
-	if (obj isnt 0 and obj has property after -> r)
-		return call r(act,obj);
-	else
-		rtrue;
+	if (obj isnt zero) {
+		r = obj.after;
+		if (r isnt zero)
+			return call r(act,obj);
+	}
+	rtrue;
 }
+
 routine CallAfter [act obj;r] {
-	if (obj isnt 0 and obj has property after -> r)
-		return call r(act,obj);
-	else
-		rtrue;
+	if (obj isnt zero) {
+		r = obj.after;
+		if (r isnt zero)
+			return call r(act,obj);	
+	}
+	rtrue;
 }
 
 routine Travel [dir;r] {
 	if (CheckBefore(#leave,room) is true) {
-		if (room hasnt property dir -> r)
+		r = room.dir;
+		if (r is zero)
 			print_ret "You can't go in that direction";
 		else if (r > $object_count)
 			r = call r();
@@ -364,7 +374,8 @@ routine Take [obj] {
 }
 
 routine Examine [obj; desc] {
-	if (obj has property description -> desc)
+	desc = obj.description;
+	if (desc isnt zero)
 		call desc();
 	else {
 		print "It's just an ordinary ";
@@ -443,10 +454,10 @@ routine DoTurn[;wc wp wt] {
 	repeat {
 		sread(text_buffer, parse_buffer);
 		wc = parse_buffer[1];
-	} while (wc is 0);
+	} while (wc is zero);
 	wp = parse_buffer + 2;
 	wt = wp[[0]][$dict_entry_size - 1];
-	if ((wt & 15) isnt 0)
+	if ((wt & 15) isnt zero)
 		return Travel(wt & 15);
 }
 
@@ -462,13 +473,13 @@ routine Startup[] {
 
 routine main [] {
 	Startup();
-	while (deadflag is 0) {
+	while (deadflag is zero) {
 		DoTurn();
 		if (deadflag is 3)
 			print "*** You have lost! ***";
 		else if (deadflag is 2)
 			print "*** You have won! ***";
-		if (deadflag isnt 0) {
+		if (deadflag isnt zero) {
 			crlf;
 			print "Restart or quit?";
 			restart;

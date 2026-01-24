@@ -14,7 +14,7 @@
 	void yyerror(const char*,...);
 	uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize,bool forDict = false);
 	int encode_string(const char*);
-	void print_encoded_string(const uint8_t *src,void (*pr)(char ch));
+	const uint8_t* print_encoded_string(const uint8_t *src,void (*pr)(char ch));
 	uint8_t next_global, next_local, next_placeholder, story_shift = 1, dict_entry_size = 4;
 	storyHeader the_header = { 3 };
 
@@ -59,7 +59,7 @@
 			result->userData = ud;
 			result->address = ~0U;
 			result->nextPlaced = 0xFFFF;
-			result->desc = desc;
+			result->desc = desc? desc : "";
 			memset(result->contents,0,totalSize);
 			if (firstFree != 0xFFFF) {
 				result->index = firstFree;
@@ -180,8 +180,8 @@
 			}
 			delete relocations;
 			relocations = nullptr;
-			if (desc)
-				printf("blob %d applied %d relocations to %s (size %u), final address %x\n",index,count,desc,size,address);
+			/* if (desc.size())
+				printf("blob %d applied %d relocations to %s (size %u), final address %x\n",index,count,desc,size,address); */
 		}
 		void append(relocatableBlob *other) {
 			for (auto i=other->relocations; i; i=i->cdr)
@@ -191,8 +191,8 @@
 		}
 		uint16_t size, offset, index, userData, nextPlaced;
 		uint32_t address;
-		const char *desc;
 		relocation_t *relocations;
+		std::string desc;
 		uint8_t contents[0];
 	};
 	uint16_t relocatableBlob::firstFree=0xFFFF, relocatableBlob::firstPlaced=0xFFFF, relocatableBlob::lastPlaced;
@@ -212,7 +212,7 @@
 	}
 	void emitOperand(operand o) {
 		if (o.relocation && o.type==optype::large_constant) {
-			printf("add relocatoin to blob %d\n",o.value);
+			// printf("add relocatoin to blob %d\n",o.value);
 			currentRoutine->addRelocation(o.value);
 		}
 		else {
@@ -246,30 +246,59 @@
 		result->references = nullptr;
 		return result;
 	}
+	void fillBranch(uint16_t branchOffset,uint16_t targetOffset,bool negated,bool isLong,bool isJump) {
+		assert(!isJump || !negated);
+		uint8_t *dest = currentRoutine->contents + branchOffset;
+		int delta = (targetOffset - (branchOffset + 1 + isLong)) + 2;
+		assert(delta!=0 && delta!=1);
+		if (isJump) {
+			if (isLong)
+				dest[0] = delta >> 8, dest[1] = delta;
+			else {
+				if (delta>0 && delta <= 255)
+					dest[0] = delta;
+				else {
+					printf("warning - jump delta %d out of range in %s\n",delta,currentRoutine->desc.c_str());
+					dest[0] = 0;
+				}
+			}
+		}
+		else {
+			if (isLong) {
+				assert(delta>=-8192&&delta<=8191);
+				dest[0] = (negated? 0x80 : 0x00) | ((delta >> 8) & 63), dest[1] = delta;\
+			}
+			else {
+				if (delta>0 && delta<64)
+					dest[0] = (negated? 0x80 : 0x00) | 0x40 | delta;
+				else {
+					printf("branch delta %d out of range in %s\n",delta,currentRoutine->desc.c_str());
+					dest[0] = negated? 0xC0 : 0x40;
+				}
+			}
+		}
+	}
+
 	void placeLabel(label l) {
 		l->offset = currentRoutine->offset;
 		for (auto i=l->references; i; i=i->cdr) {
-			int16_t delta = (i->car - currentRoutine->offset + 2);
-			if (currentRoutine->contents[i->car])
-				currentRoutine->contents[i->car] |= (delta >> 8) & 63;
+			int16_t delta = (currentRoutine->offset - i->car + 2);
+			uint8_t *dest = currentRoutine->contents + i->car;
+			if (dest[0]==0xFF)
+				fillBranch(i->car,l->offset,false,dest[-1]==LONG_JUMP,true);
 			else
-				currentRoutine->contents[i->car] = (delta >> 8);
-			currentRoutine->contents[i->car + 1] = delta;
+				fillBranch(i->car,l->offset,(dest[0] & 0x80) != 0,!(dest[0] & 0x40),false);
 		}
 	}
 	void emitJump(label l,bool isLong) {
 		emitByte(isLong? LONG_JUMP : SHORT_JUMP);
-		if (l->offset != 0xFFFF) {
-			int16_t delta = l->offset - currentRoutine->offset + 2;
-			if (isLong)
-				emitByte(delta >> 8);
-			emitByte(delta);
-		}
+		if (l->offset != 0xFFFF)
+			fillBranch(currentRoutine->offset,l->offset,false,isLong,true);
 		else {
 			l->references = new list_node<uint16_t>(currentRoutine->offset,l->references);
+			emitByte(0xFF); // signal jump instead of branch
 			if (isLong)
 				emitByte(0);
-			emitByte(0);
 		}
 	}
 	label createLabelHere() {
@@ -338,6 +367,7 @@
 		virtual bool isConstant(int &c) const { return false; }
 		virtual unsigned size() const { return 0; } // TODO = 0
 		static expr *fold_constant(expr* e);
+		virtual void dump(uint32_t indent) { }
 	};
 
 	struct expr_binary: public expr {
@@ -419,7 +449,7 @@
 			emitByte(dest);
 			// emit a dummy branch to next instruction.
 			if (opcode == _1op::get_sibling || opcode == _1op::get_child)
-				emitByte(0x2);
+				emitByte(0x42);
 		}
 		unsigned size() const {
 			operand uval;
@@ -438,20 +468,16 @@
 		virtual void emitBranch(label target,bool n,bool isLong) {
 			if (negated)
 				n = !n;
-			if (target->offset != 0xFFFF) {
-				int16_t delta = target->offset - currentRoutine->offset + 2;
+			if (target->offset != 0xFFFF)
+				fillBranch(currentRoutine->offset,target->offset,n,isLong,false);
+			else {
+				target->references = new list_node<uint16_t>(currentRoutine->offset,target->references);
 				if (isLong) {
-					emitByte((n? 0xC0 : 0x040) | ((delta >> 8) & 63));
-					emitByte(delta);
+					emitByte(n? 0x80 : 0x00);
+					emitByte(0);
 				}
 				else
-					emitByte((n? 0x80 : 0x00) | delta & 63);
-			}
-			else {
-				emitByte(n? 0xC0 : 0x40);
-				if (isLong)
-					emitByte(0);
-				target->references = new list_node<uint16_t>(currentRoutine->offset,target->references);
+					emitByte(n? 0xC0 : 0x40);
 			}
 		}
 		bool negated;
@@ -910,7 +936,7 @@
 	};
 	uint16_t emit_routine(int numLocals,stmt *body) {
 		currentRoutine = relocatableBlob::create(1024,UD_HIGH);
-		printf("%d locals\n",numLocals);
+		// printf("%d locals\n",numLocals);
 		emitByte(numLocals);
 		if (the_header.version < 5) {
 			while (numLocals--) { 
@@ -1250,6 +1276,7 @@ pvalue
 routine_def
 	: ROUTINE NEWSYM routine_body 
 		{
+			the_relocations[$3]->desc = $2->first;
 			if ($2->first == "main") {
 				if (entry_point_index == -1) {
 					if (the_relocations[$3]->contents[0])
@@ -1426,6 +1453,7 @@ expr
 	| expr '|' expr 	{ $$ = new expr_binary_or_($1,$3); }
 	| expr LSH expr		{ $$ = new expr_binary_log_shift($1,$3); }
 	| expr RSH expr		{ $$ = new expr_binary_log_shift($1,new expr_binary_sub(new expr_literal(0),$3)); }
+	| objref '.' pname	{ $$ = new expr_binary($1,_2op::get_prop,$3); }
 	| '(' expr ')'  	{ $$ = $2; }
 	| primary       	{ $$ = $1; }
 	| INTLIT        	{ $$ = new expr_literal($1); }
@@ -1449,7 +1477,6 @@ bool_expr
 	| objref has_or_hasnt aname	{ $$ = new expr_binary_branch($1,_2op::test_attr,$2,$3); }
 	| objref has_or_hasnt CHILD opt_arrow { $$ = new expr_unary_branch_store(_1op::get_child,$2,$1,$4); }
 	| objref has_or_hasnt SIBLING opt_arrow { $$ = new expr_unary_branch_store(_1op::get_sibling,$2,$1,$4); }
-	| objref has_or_hasnt PROPERTY pname opt_arrow { $$ = new expr_binary_branch_store($1,_2op::get_prop,$2,$4,$5); }
 	| objref HOLDS objref 	{ $$ = new expr_binary_branch($1,_2op::jin,false,$3); }
 	| SAVE				{ $$ = new expr_save(); }
 	| RESTORE			{ $$ = new expr_restore(); }
@@ -1467,7 +1494,7 @@ opt_arrow
 	;
 
 pname
-	: PNAME			{ $$ = new expr_literal($1); }
+	: PNAME			{ $$ = new expr_literal($1 & 63); }
 	| vname			{ $$ = new expr_variable($1); }
 	;
 
@@ -1487,7 +1514,7 @@ objref
 	;
 
 aname
-	: ANAME			{ $$ = new expr_literal($1); }
+	: ANAME			{ $$ = new expr_literal($1 & 63); }
 	| vname			{ $$ = new expr_variable($1); }
 	;
 
@@ -1507,7 +1534,7 @@ std::map<std::string,_var> f_varop2;
 
 static uint8_t s_EncodedCharacters[256];
 
-void print_encoded_string(const uint8_t *src,void (*pr)(char ch)) {
+const uint8_t* print_encoded_string(const uint8_t *src,void (*pr)(char ch)) {
 	uint8_t step = 0, end = 0;
 	auto readCode = [&]() {
 		if (step==0) {
@@ -1540,6 +1567,7 @@ void print_encoded_string(const uint8_t *src,void (*pr)(char ch)) {
 			shift = 0;
 		}
 	}
+	return src;
 }
 
 uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize,bool forDict) {
@@ -1764,8 +1792,9 @@ void emitvarop(operand lval,_2op opcode,operand rval1,operand rval2,operand rval
 }
 
 void disassemble(uint16_t blob) {
-	uint8_t *pc = the_relocations[blob]->contents, *base = pc, *stop = pc + the_relocations[blob]->size;
+	const uint8_t *pc = the_relocations[blob]->contents, *base = pc, *stop = pc + the_relocations[blob]->size;
 	uint32_t addr = the_relocations[blob]->address;
+	printf("%s at %x:\n",the_relocations[blob]->desc.c_str(),addr);
 	if (*pc) {
 		printf("[%d locals]\n",*pc);
 		pc += 1 + (*pc<<1);
@@ -1793,42 +1822,52 @@ void disassemble(uint16_t blob) {
 		}
 		else
 			types |= 0xFF;
-		printf("%06x %s",offs,opcode_names[insn]);
-		while (types != 0xFFFF) {
-			if ((types >> 14) == (uint8_t)optype::variable)
-				prvar(*pc++);
-			else if ((types >> 14) == (uint8_t)optype::small_constant)
-				printf(" %d",*pc++);
-			else
-				pc+=2, printf(" %d",int16_t(pc[-2]<<8)|pc[-1]);
-			types = (types << 2) | 0x3;
-		}
-		uint8_t extra = (decode[insn] >> version_shift[the_header.version]) & 3;
-		if (extra & 1) {
-			printf(" ->");
-			prvar(*pc++);
-		}
-		if (extra & 2) {
-			int16_t branch_offset = *pc++;
-			uint8_t branch_cond = branch_offset >> 7;
-			branch_offset &= 127;
-			if (branch_offset & 64)
-				branch_offset &= 63;
-			else {
-				if (branch_offset & 32)
-					branch_offset |= 0xC0;
-				branch_offset = (branch_offset << 8) | *pc++;
+		if (insn==SHORT_JUMP)
+			pc++, printf("%06x jump %zx\n",offs,addr + pc - base + pc[-1] - 2);
+		else if (insn==LONG_JUMP)
+			pc+=2, printf("%06x jump %zx\n",offs,addr + pc - base + int16_t((pc[-2] << 8) | pc[-1]) - 2);
+		else {
+			printf("%06x %s",offs,opcode_names[insn]);
+			while (types != 0xFFFF) {
+				if ((types >> 14) == (uint8_t)optype::variable)
+					prvar(*pc++);
+				else if ((types >> 14) == (uint8_t)optype::small_constant)
+					printf(" %d",*pc++);
+				else
+					pc+=2, printf(" %d",int16_t(pc[-2]<<8)|pc[-1]);
+				types = (types << 2) | 0x3;
 			}
-			if (branch_cond)
-				printf("~");
-			if (branch_offset==0)
-				printf("rfalse");
-			else if (branch_offset==1)
-				printf("rtrue");
-			else
-				printf("%6x",(unsigned)(addr + (pc - base) + branch_offset - 2));
+			uint8_t extra = (decode[insn] >> version_shift[the_header.version]) & 3;
+			if (extra & 1) {
+				printf(" ->");
+				prvar(*pc++);
+			}
+			if (extra & 2) {
+				int16_t branch_offset = *pc++;
+				uint8_t branch_cond = branch_offset >> 7;
+				branch_offset &= 127;
+				if (branch_offset & 64)
+					branch_offset &= 63;
+				else {
+					if (branch_offset & 32)
+						branch_offset |= 0xC0;
+					branch_offset = (branch_offset << 8) | *pc++;
+				}
+				printf(branch_cond? " ~" : " ");
+				if (branch_offset==0)
+					printf("rfalse");
+				else if (branch_offset==1)
+					printf("rtrue");
+				else
+					printf("%x",(unsigned)(addr + (pc - base) + branch_offset - 2));
+			}
+			if (insn == 0xB2 || insn == 0xB3) {
+				printf(" \"");
+				pc = print_encoded_string(pc,[](char ch){putchar(ch);});
+				printf("\"");
+			}
+			printf("\n");
 		}
-		printf("\n");
 	}
 }
 
