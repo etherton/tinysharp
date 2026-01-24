@@ -1,5 +1,19 @@
+object Player "a hapless adventurer" {
+}
+
+global room;
+global turns;
+global score;
+global scratch;
+
+routine Startup [a] {
+	a = 1 + 9;
+	return a;
+}
+
 routine main[] {
-	print "hello, world
-";
+	// print "hello, world ";
+	print_num Startup();
 	quit;
 }
+

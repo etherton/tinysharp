@@ -30,7 +30,8 @@
 	};
 
 	struct operand { // 0=long, 1=small, variable=2, omitted=3
-		int value:30;
+		int value:29;
+		bool relocation:1;
 		optype type:2;
 	};
 	static_assert(sizeof(operand)==4);
@@ -209,10 +210,18 @@
 		currentRoutine->storeByte(b);
 	}
 	void emitOperand(operand o) {
-		if (o.type==optype::large_constant)
-			emitByte(o.value >> 8);
-		if (o.type!=optype::omitted)
-			emitByte(o.value);
+		if (o.relocation && o.type==optype::large_constant) {
+			printf("add relocatoin to blob %d\n",o.value);
+			currentRoutine->addRelocation(o.value);
+		}
+		else {
+			// static const char *types[] = {"large","small","variable","omitted"};
+			// printf("operand type %s\n",types[(uint8_t)o.type]);
+			if (o.type==optype::large_constant)
+				emitByte(o.value >> 8);
+			if (o.type!=optype::omitted)
+				emitByte(o.value);
+		}
 	}
 	// void emitBranch(uint16_t target);
 	void emitvarop(operand l,_2op op,operand r1,operand r2);
@@ -316,13 +325,15 @@
 	uint8_t& z_dict_payload(uint16_t i) { return dictionary_blob->contents[7 + i * (dict_entry_size+1) + dict_entry_size]; }
 
 	struct expr {
-		virtual void emit(uint8_t dest) { }
-		virtual void eval(operand &o) {
+		virtual void emit(uint8_t dest) const { }
+		virtual void eval(operand &o) const {
 			o.value = TOS;
 			o.type = optype::variable;
+			o.relocation = false;
 			emit(TOS);
 		}
 		virtual bool isLogical() const { return false; }
+		virtual bool isLeaf() const { return false; }
 		virtual bool isConstant(int &c) const { return false; }
 		virtual unsigned size() const { return 0; } // TODO = 0
 		static expr *fold_constant(expr* e);
@@ -332,7 +343,7 @@
 		expr_binary(expr *l,_2op op,expr *r) : left(l), opcode(op), right(r) { }
 		expr *left, *right;
 		_2op opcode;
-		void emit(uint8_t dest) {
+		void emit(uint8_t dest) const {
 			// we defer eval call because there may be unsigned forward references
 			operand lval, rval;
 			right->eval(rval);
@@ -340,9 +351,10 @@
 			emit2op(lval,opcode,rval);
 			emitByte(dest);
 		}
-		void eval(operand &o) {
+		void eval(operand &o) const {
 			o.value = TOS;
 			o.type = optype::variable;
+			o.relocation = false;
 			emit(TOS);
 		}
 		unsigned size() const {
@@ -373,7 +385,7 @@
 	struct expr_binary_log_shift: public expr {
 		expr_binary_log_shift(expr *l,expr *r) : left(l), right(r) { }
 		expr *left, *right;
-		void emit(uint8_t dest) {
+		void emit(uint8_t dest) const {
 			// we defer eval call because there may be unsigned forward references
 			operand lval, rval;
 			right->eval(rval);
@@ -399,7 +411,7 @@
 		expr_unary(_1op op,expr *e) : opcode(op), unary(e) { } 
 		expr *unary;
 		_1op opcode;
-		void emit(uint8_t dest) {
+		void emit(uint8_t dest) const {
 			operand uval;
 			unary->eval(uval);
 			emit1op(opcode,uval);
@@ -419,7 +431,7 @@
 	};
 	struct expr_branch: public expr {
 		expr_branch(bool n) : negated(n) { }
-		void emit() {
+		void emit() const {
 			assert(false); // shouldn't be called.
 		}
 		virtual void emitBranch(label target,bool n,bool isLong) {
@@ -494,7 +506,7 @@
 		list_node<expr*> *args;
 		// TODO: v3 only supports VAR call (3 params). v4 supports 1/2 operand with result and 7 params.
 		// v5 supports implicit pop versions of all calls
-		virtual void emit(uint8_t dest) {
+		virtual void emit(uint8_t dest) const {
 			operand o1, o2, o3, o4;
 			if (args->size()>=4)
 				args->cdr->cdr->cdr->car->eval(o4);
@@ -542,21 +554,31 @@
 	};
 	struct expr_operand: public expr {
 		operand op;
-		void eval(operand &o) {
-			op = o;
+		void eval(operand &o) const {
+			o = op;
 		}
+		bool isLeaf() const { return true; }
 	};
 	struct expr_literal: public expr_operand {
 		expr_literal(int value) {
 			op.type =  value >= 0 && value <= 255? optype::small_constant : optype::large_constant;
 			op.value = value;
+			op.relocation = false;
 		}
 		bool isConstant(int &v) const { v = op.value; return true; }
+	};
+	struct expr_reloc: public expr_operand {
+		expr_reloc(uint16_t r) {
+			op.type = optype::large_constant;
+			op.value = r;
+			op.relocation = true;
+		}
 	};
 	expr* expr::fold_constant(expr *e) {
 			int c;
 			if (e->isConstant(c)) {
 				delete e;
+				// printf("constant folded to %d\n",c);
 				return new expr_literal(c);
 			}
 			else
@@ -566,6 +588,7 @@
 		expr_variable(uint8_t v) {
 			op.type = optype::variable;
 			op.value = v;
+			op.relocation = false;
 		}
 	};
 	struct expr_logical_not: public expr_branch {
@@ -640,7 +663,7 @@
 		return result;
 	}
 	struct stmt {
-		virtual void emit() = 0;
+		virtual void emit() const = 0;
 		virtual unsigned size() const = 0;
 		virtual bool isReturn() const { return false; }
 	};
@@ -652,7 +675,7 @@
 		}
 		list_node<stmt*> *slist;
 		unsigned tsize;
-		void emit() {
+		void emit() const {
 			for (auto i=slist; i; i=i->cdr)
 				i->car->emit();
 		}
@@ -682,7 +705,7 @@
 		// TODO: if ifTrue is rfalse/rtrue, we just need the non-negated branch to 0/1
 		// TODO: else if ifFalse is rfalse/rtrue, we just need the negated branch to 0/1
 		// TODO: If ifTrue ends in a return, we don't need the jump past false block
-		void emit() {
+		void emit() const {
 			label falseBranch = createLabel();
 			cond->emitBranch(falseBranch,true,ifTrue->size() > (ifFalse? 57 : 59));
 			ifTrue->emit();
@@ -705,7 +728,7 @@
 		stmt_while(expr_branch *e,stmt *b): cond(e), body(b) { }
 		expr_branch *cond;
 		stmt *body;
-		void emit() {
+		void emit() const {
 			label falseBranch = createLabel(), top = createLabelHere();
 			cond->emitBranch(falseBranch,true,body->size() > 58);
 			// TODO: continue and break via a stack
@@ -721,7 +744,7 @@
 		stmt_repeat(stmt *b,expr_branch *e): body(b), cond(e) { }
 		stmt *body;
 		expr_branch *cond;
-		void emit() {
+		void emit() const {
 			auto trueBranch = createLabelHere();
 			body->emit();
 			cond->emitBranch(trueBranch,false,true);
@@ -734,13 +757,14 @@
 		stmt_return(expr *e) : value(e) { }
 		expr *value;
 		bool isReturn() const { return true; }
-		void emit() {
+		void emit() const {
 			int c;
 			if (value->isConstant(c) && (c==0||c==1))
 				emit0op(c==0? _0op::rfalse : _0op::rtrue);
 			else {
 				operand o;
 				value->eval(o);
+				// printf("stmt_return o.type %d o.value %d\n",(uint8_t)o.type,o.value);
 				if (o.type == optype::variable && o.value == TOS)
 					emit0op(_0op::ret_popped);
 				else
@@ -762,7 +786,7 @@
 		stmt_2op(_2op op,expr *l,expr *r) : opcode(op), left(l), right(r) { }
 		_2op opcode;
 		expr *left, *right;
-		void emit() {
+		void emit() const {
 			operand lop, rop;
 			right->eval(rop);
 			left->eval(lop);
@@ -776,7 +800,7 @@
 		stmt_1op(_1op op,expr *e) : opcode(op), value(e) { }
 		_1op opcode;
 		expr *value;
-		void emit() {
+		void emit() const {
 			operand o;
 			value->eval(o);
 			emit1op(opcode,o);
@@ -788,7 +812,7 @@
 	struct stmt_0op: public stmt {
 		stmt_0op(_0op op) : opcode(op) { }
 		_0op opcode;
-		void emit() {
+		void emit() const {
 			emit0op(opcode);
 		}
 		unsigned size() const {
@@ -796,14 +820,23 @@
 		}
 	};
 	struct stmt_assign: public stmt {
-		stmt_assign(uint8_t d,expr *e) : dest(d), value(e) { }
+		stmt_assign(uint8_t d,expr *e) : dest(d), value(e) {  }
 		uint8_t dest;
 		expr* value;
-		void emit() {
-			value->emit(dest);
+		void emit() const {
+				if (value->isLeaf()) {
+					operand d, o;
+					value->eval(o);
+					d.type = optype::small_constant;
+					d.relocation = false;
+					d.value = dest;
+					emit2op(d,_2op::store,o);
+				}
+				else
+					value->emit(dest);
 		}
 		unsigned size() const {
-			return value->size() + 1;
+			return value->size() + 1 + value->isLeaf();
 		}
 	};
 	struct stmt_store: public stmt {
@@ -811,7 +844,7 @@
 		_var opcode;
 		uint8_t dest;
 		expr *index, *value;
-		void emit() {
+		void emit() const {
 			operand i, v;
 			value->eval(v);
 			index->eval(i);
@@ -822,22 +855,36 @@
 			return value->size() + 1;
 		}
 	};
-	struct stmt_sread: public stmt {
-		stmt_sread(expr *tb,expr *pb) : text_buffer(tb), parse_buffer(pb) { }
-		expr *text_buffer, *parse_buffer;
-		void emit() {
-			operand a, b;
-			text_buffer->eval(a);
-			parse_buffer->eval(b);
-			emitvarop(_var::sread,a,b);
+	struct stmt_varop1: public stmt {
+		stmt_varop1(_var op,expr *a) : opcode(op), expr0(a) { }
+		_var opcode;
+		expr *expr0;
+		void emit() const {
+			operand op0;
+			expr0->eval(op0);
+			emitvarop(opcode,op0);
 		}
 		unsigned size() const {
-			return text_buffer->size() + parse_buffer->size() + 2;
+			return expr0->size() + 2;
+		}
+	};
+	struct stmt_varop2: public stmt {
+		stmt_varop2(_var op,expr *a,expr *b) : opcode(op), expr0(a), expr1(b) { }
+		_var opcode;
+		expr *expr0, *expr1;
+		void emit() const {
+			operand op0, op1;
+			expr1->eval(op1);
+			expr0->eval(op0);
+			emitvarop(opcode,op0,op1);
+		}
+		unsigned size() const {
+			return expr0->size() + expr1->size() + 2;
 		}
 	};
 	struct stmt_call: public stmt {
 		stmt_call(list_node<expr*> *a) : call(a) { }
-		void emit() {
+		void emit() const {
 			// Call as a statement dumps result to a global
 			// (alternative is dump to TOS and emit a pop, but this is shorter)
 			call.emit(SCRATCH);
@@ -851,7 +898,7 @@
 		stmt_print(_0op o,const char *s) : opcode(o), string(s) { }
 		const char *string;
 		_0op opcode;
-		void emit() {
+		void emit() const {
 			emit0op(opcode);
 			currentRoutine->offset += encode_string(currentRoutine->contents + currentRoutine->offset,
 				(currentRoutine->size - currentRoutine->offset) & ~1,string,strlen(string));
@@ -893,6 +940,7 @@
 	stmt *stval;
 	_0op zeroOp;
 	_1op oneOp;
+	_var varOp;
 }
 
 %token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT IN HOLDS
@@ -904,13 +952,14 @@
 %token WHILE REPEAT IF ELSE
 %token LE "<=" GE ">=" EQ "==" NE "!="
 // %token DEC_CHK "--<" INC_CHK "++>"
-%token SAVE RESTORE SREAD
+%token SAVE RESTORE
 %token LSH "<<" RSH ">>"
 %token ARROW "->" INCR "++" DECR "--"
 %token RFALSE RTRUE RETURN
 %token OR AND NOT
 %token <zeroOp> STMT_0OP
 %token <oneOp> STMT_1OP
+%token <varOp> STMT_VAROP1 STMT_VAROP2
 %token GAINS LOSES
 
 %right '~' NOT
@@ -1332,9 +1381,11 @@ stmt
 	| RFALSE ';'			{ $$ = new stmt_return(new expr_literal(0)); }
 	| RTRUE ';'				{ $$ = new stmt_return(new expr_literal(1)); }
 	| CALL expr opt_call_args ';'	{ $$ = new stmt_call(new list_node<expr*>($2,$3));  }
-	| RNAME opt_call_args ';'		{ $$ = new stmt_call(new list_node<expr*>(new expr_literal($1),$2)); }
+	| RNAME opt_call_args ';'		{ $$ = new stmt_call(new list_node<expr*>(new expr_reloc($1),$2)); }
 	| STMT_0OP ';'					{ $$ = new stmt_0op($1); }
 	| STMT_1OP  expr  ';'			{ $$ = new stmt_1op($1,$2); }
+	| STMT_VAROP1 expr  ';'			{ $$ = new stmt_varop1($1,$2); }
+	| STMT_VAROP2 '(' expr ',' expr ')'  ';'	{ $$ = new stmt_varop2($1,$3,$5); }
 	| PRINT STRLIT ';'				{ $$ = new stmt_print(_0op::print,$2); }
 	| PRINT_RET STRLIT ';'			{ $$ = new stmt_print(_0op::print_ret,$2); }
 	| INCR vname ';'				{ $$ = new stmt_assign($2,new expr_binary_add(new expr_variable($2),new expr_literal(1))); }
@@ -1342,7 +1393,6 @@ stmt
 	| objref GAINS aname ';' 		{ $$ = new stmt_2op(_2op::set_attr,$1,$3); }
 	| objref LOSES aname ';'		{ $$ = new stmt_2op(_2op::clear_attr,$1,$3); }
 	| MOVE objref INTO objref ';'	{ $$ = new stmt_2op(_2op::insert_obj,$2,$4); }
-	| SREAD '(' expr ',' expr ')' ';' { $$ = new stmt_sread($3,$5); }
 	; 
 	
 cond_expr
@@ -1450,6 +1500,9 @@ vname
 std::map<std::string,int16_t> rw;
 std::map<std::string,_0op> f_0op;
 std::map<std::string,_1op> f_1op;
+std::map<std::string,_var> f_varop1;
+std::map<std::string,_var> f_varop2;
+
 
 static uint8_t s_EncodedCharacters[256];
 
@@ -1585,7 +1638,6 @@ void init() {
 	rw["self"] = SELF;
 	rw["move"] = MOVE;
 	rw["into"] = INTO;
-	rw["sread"] = SREAD;
 
 	f_0op["restart"] = _0op::restart;
 	f_0op["quit"] = _0op::quit;
@@ -1597,6 +1649,9 @@ void init() {
 	f_1op["print_paddr"] = _1op::print_paddr;
 	f_1op["remove_obj"] = _1op::remove_obj;
 	f_1op["print_obj"] = _1op::print_obj;
+
+	f_varop1["print_num"] = _var::print_num;
+	f_varop2["sread"] = _var::sread;
 
 	// build the forward mapping
 	const char *alphabet = DEFAULT_ZSCII_ALPHABET;
@@ -1739,6 +1794,16 @@ int yylex_() {
 			yylval.oneOp = o->second;
 			return STMT_1OP;
 		}
+		auto v1 = f_varop1.find(yytoken);
+		if (v1 != f_varop1.end()) {
+			yylval.varOp = v1->second;
+			return STMT_VAROP1;
+		}		
+		auto v2 = f_varop2.find(yytoken);
+		if (v2 != f_varop2.end()) {
+			yylval.varOp = v2->second;
+			return STMT_VAROP2;
+		}		
 		// check locals, which take precedence over other symbols
 		if (the_locals.size()) {
 			auto l = the_locals.back()->find(yytoken);
