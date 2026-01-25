@@ -1,9 +1,9 @@
-object Player "a hapless adventurer" {
+object player "a hapless adventurer" {
 }
 
 property global description;
 
-object Hook "a demo hook" {
+/* object Hook "a demo hook" {
 	description: [;c] {
 		print "It's just a small brass hook, ";
 		if (self has child -> c) {
@@ -14,6 +14,21 @@ object Hook "a demo hook" {
 		else
 			print_ret "screwed to the wall.";
 	}
+} */
+
+routine Inventory [;i] {
+	if (player has child -> i) {
+		print "You are carrying:";
+		crlf;
+		repeat {
+			print "  ";
+			print_obj i;
+			crlf;
+		} while (i has sibling -> i);
+		rtrue;
+	}
+	else
+		print_ret "You are empty-handed";
 }
 
 global room;

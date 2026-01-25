@@ -246,16 +246,18 @@
 		result->references = nullptr;
 		return result;
 	}
+	label rfalseLabel, rtrueLabel;
 	void fillBranch(uint16_t branchOffset,uint16_t targetOffset,bool negated,bool isLong,bool isJump) {
 		assert(!isJump || !negated);
 		uint8_t *dest = currentRoutine->contents + branchOffset;
 		int delta = (targetOffset - (branchOffset + 1 + isLong)) + 2;
 		assert(delta!=0 && delta!=1);
 		if (isJump) {
+			assert(targetOffset != 0xFFF0 && targetOffset != 0xFFF1);
 			if (isLong)
 				dest[0] = delta >> 8, dest[1] = delta;
 			else {
-				if (delta>0 && delta <= 255)
+				if (delta>0 && delta<=255)
 					dest[0] = delta;
 				else {
 					printf("warning - jump delta %d out of range in %s\n",delta,currentRoutine->desc.c_str());
@@ -265,20 +267,22 @@
 		}
 		else {
 			if (isLong) {
+				assert(targetOffset != 0xFFF0 && targetOffset != 0xFFF1);
 				assert(delta>=-8192&&delta<=8191);
-				dest[0] = (negated? 0x80 : 0x00) | ((delta >> 8) & 63), dest[1] = delta;
+				dest[0] = (negated? 0x80 : 0x00) | ((delta >> 8) & 0x3F), dest[1] = delta;
 			}
 			else {
-				if (delta>0 && delta<64)
+				if (targetOffset == 0xFFF0 || targetOffset == 0xFFF1)
+					dest[0] = (negated? 0x80 : 0x00) | (targetOffset & 1);
+				else if (delta>0 && delta<64)
 					dest[0] = (negated? 0x80 : 0x00) | 0x40 | delta;
 				else {
-					printf("branch delta %d out of range in %s\n",delta,currentRoutine->desc.c_str());
+					printf("branch delta %d out of range in %s, changing to rfalse\n",delta,currentRoutine->desc.c_str());
 					dest[0] = negated? 0xC0 : 0x40;
 				}
 			}
 		}
 	}
-
 	void placeLabel(label l) {
 		l->offset = currentRoutine->offset;
 		for (auto i=l->references; i; i=i->cdr) {
@@ -292,8 +296,10 @@
 	}
 	void emitJump(label l,bool isLong) {
 		emitByte(isLong? LONG_JUMP : SHORT_JUMP);
-		if (l->offset != 0xFFFF)
+		if (l->offset != 0xFFFF) {
 			fillBranch(currentRoutine->offset,l->offset,false,isLong,true);
+			currentRoutine->offset += 1 + isLong;
+		}
 		else {
 			l->references = new list_node<uint16_t>(currentRoutine->offset,l->references);
 			emitByte(0xFF); // signal jump instead of branch
@@ -510,8 +516,10 @@
 		virtual void emitBranch(label target,bool n,bool isLong) {
 			if (negated)
 				n = !n;
-			if (target->offset != 0xFFFF)
+			if (target->offset != 0xFFFF) {
 				fillBranch(currentRoutine->offset,target->offset,n,isLong,false);
+				currentRoutine->offset += 1 + isLong;
+			}
 			else {
 				target->references = new list_node<uint16_t>(currentRoutine->offset,target->references);
 				if (isLong) {
@@ -789,6 +797,7 @@
 		virtual void emit() const = 0;
 		virtual unsigned size() const = 0;
 		virtual bool isReturn() const { return false; }
+		virtual bool isJustReturnBool(int &) const { return false; }
 	};
 	struct stmts: public stmt {
 		stmts(list_node<stmt*> *s): slist(s) { 
@@ -833,15 +842,29 @@
 		// TODO: else if ifFalse is rfalse/rtrue, we just need the negated branch to 0/1
 		// TODO: If ifTrue ends in a return, we don't need the jump past false block
 		void emit() const {
+			int flag;
+			if (ifTrue->isJustReturnBool(flag)) {
+				cond->emitBranch(flag? rtrueLabel : rfalseLabel,false,false);
+				if (ifFalse)
+					ifFalse->emit();
+				return;
+			}
+
 			label falseBranch = createLabel();
 			cond->emitBranch(falseBranch,true,ifTrue->size() > (ifFalse? 57 : 59));
 			ifTrue->emit();
 			if (ifFalse) {
-				label skipFalse = createLabel();
-				emitJump(skipFalse,ifFalse->size() > 59);
-				placeLabel(falseBranch);
-				ifFalse->emit();
-				placeLabel(skipFalse);
+				if (ifTrue->isReturn()) {
+					placeLabel(falseBranch);
+					ifFalse->emit();
+				}
+				else {
+					label skipFalse = createLabel();
+					emitJump(skipFalse,ifFalse->size() > 59);
+					placeLabel(falseBranch);
+					ifFalse->emit();
+					placeLabel(skipFalse);
+				}
 			}
 			else
 				placeLabel(falseBranch);
@@ -859,6 +882,9 @@
 				printNode("else:");
 				printNode(ifFalse);
 			}
+		}
+		bool isReturn() const {
+			return ifFalse && ifFalse->isReturn() && ifTrue->isReturn();
 		}
 	};
 	struct stmt_while: public stmt_flow {
@@ -906,6 +932,9 @@
 		stmt_return(expr *e) : value(e) { }
 		expr *value;
 		bool isReturn() const { return true; }
+		bool isJustReturnBool(int &c) const {
+			return (value->isConstant(c) && (c==0||c==1));
+		}
 		void emit() const {
 			int c;
 			if (value->isConstant(c) && (c==0||c==1))
@@ -982,6 +1011,9 @@
 		}
 		void dump() const {
 			printNode(opcode_names[(uint8_t)opcode | 0xB0]);
+		}
+		bool isReturn() const {
+			return opcode==_0op::quit || opcode==_0op::restart;
 		}
 	};
 	struct stmt_assign: public stmt {
@@ -1098,6 +1130,9 @@
 			spaces();
 			printf("%s \"%s\"\n",opcode_names[(uint8_t)opcode | 0xB0],string);
 		}
+		bool isReturn() const {
+			return opcode == _0op::print_ret;
+		}
 	};
 	uint16_t emit_routine(int numLocals,stmt *body) {
 		currentRoutine = relocatableBlob::create(1024,UD_HIGH);
@@ -1110,7 +1145,10 @@
 			}
 		}
 		body->dump();
+		if (!body->isReturn())
+			yyerror("missing return at end of routine (or not all if paths return)");
 		body->emit();
+
 		currentRoutine->seal(); // arp arp
 		return currentRoutine->index;
 	}
@@ -1863,6 +1901,9 @@ void init() {
 
 	the_object_table.push_back(nullptr);	// object zero doesn't exist
 	the_action_table.push_back(nullptr);
+
+	rfalseLabel = createLabel(); rfalseLabel->offset = 0xFFF0;
+	rtrueLabel = createLabel(); rtrueLabel->offset = 0xFFF1;
 }
 
 int encode_string(const char *src) {
@@ -2011,11 +2052,11 @@ void disassemble(uint16_t blob) {
 			if (extra & 2) {
 				int16_t branch_offset = *pc++;
 				uint8_t branch_cond = branch_offset >> 7;
-				branch_offset &= 127;
-				if (branch_offset & 64)
-					branch_offset &= 63;
+				branch_offset &= 0x7F;
+				if (branch_offset & 0x40)
+					branch_offset &= 0x3F;
 				else {
-					if (branch_offset & 32)
+					if (branch_offset & 0x20)
 						branch_offset |= 0xC0;
 					branch_offset = (branch_offset << 8) | *pc++;
 				}
@@ -2032,7 +2073,11 @@ void disassemble(uint16_t blob) {
 				pc = print_encoded_string(pc,[](char ch){putchar(ch);});
 				printf("\"");
 			}
-			printf("\n");
+			printf(" [");
+			offs -= addr;
+			while (base + offs < pc)
+				printf(" %02x",base[offs++]);
+			printf(" ]\n");
 		}
 	}
 }

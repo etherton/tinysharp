@@ -213,6 +213,8 @@ location bar "Foyer Bar" {
 			++message_damage;
 			print_ret "In the dark? You could easily disturb something!";
 		}
+		else
+			rtrue;
 	}
 }
 
@@ -238,6 +240,7 @@ object cloak "velvet cloak" (player) {
 				++score;
 			}
 		}
+		rfalse;
 	}
 	clothing; general; worn;
 }
@@ -248,13 +251,13 @@ object message "scrawled message" (bar) {
 	description: []{
 		if (message_damage < 2) {
 			++score;
-			print "The message, neatly marked in the sawdust, reads...";
 			deadflag = 2;
+			print_ret "The message, neatly marked in the sawdust, reads...";
 		}
 		else {
-			print "The message has been carelessly trampled, making it
-			  difficult to read. You can just distinguish the words...";
 			deadflag = 3;
+			print_ret "The message has been carelessly trampled, making it
+			  difficult to read. You can just distinguish the words...";
 		}
 	}
 }
@@ -268,6 +271,7 @@ object message "scrawled message" (bar) {
 
 routine perform [act obj iobj] {
 	act = act;
+	rfalse;
 }
 
 // articles are skipped entirely except they do force the
@@ -302,6 +306,7 @@ routine Inventory [;i] {
 			print_obj i;
 			crlf;
 		} while (i has sibling -> i);
+		rtrue;
 	}
 	else
 		print_ret "You are empty-handed.";
@@ -359,6 +364,7 @@ routine Travel [dir;r] {
 			CallAfter(#enter,r);
 		}
 	}
+	rfalse;
 }
 
 routine Take [obj] {
@@ -381,13 +387,17 @@ routine Examine [obj; desc] {
 		print "It's just an ordinary ";
 		print_obj obj;
 	}
+	rtrue;
 }
 
 routine Drop [obj] {
 	if (player holds obj and CheckBefore(#drop,room) isnt false and
 		CheckBefore(#drop,obj) isnt false) {
 		move obj into player parent;
+		rtrue;
 	}
+	else
+		rfalse;
 }
 
 // each dictionary word has an extra byte associated with it
@@ -459,6 +469,7 @@ routine DoTurn[;wc wp wt] {
 	wt = wp[[0]][$dict_entry_size - 1];
 	if ((wt & 15) isnt zero)
 		return Travel(wt & 15);
+	rfalse;
 }
 
 routine Startup[] {
@@ -485,4 +496,5 @@ routine main [] {
 			restart;
 		}
 	}
+	quit;
 }
