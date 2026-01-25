@@ -2543,8 +2543,14 @@ int main(int argc,char **argv) {
 				if ((size_t)the_relocations[i] > 65535 && the_relocations[i]->userData == UD_HIGH)
 					disassemble(i);
 			}
-			/* for (int i=0; i<globals_blob->size; i+=2)
-				printf("global %d value %04x\n",i>>1,(globals_blob->contents[i] << 8) | globals_blob->contents[i+1]); */
+			for (int i=0; i<globals_blob->size; i+=2)
+				printf("global %d value %04x\n",i>>1,(globals_blob->contents[i] << 8) | globals_blob->contents[i+1]);
+			uint8_t *d = dictionary_blob->contents + 7;
+			int dc = (dictionary_blob->contents[5] << 8) | dictionary_blob->contents[6];
+			for (; dc--; d+=dict_entry_size+1) {
+				print_encoded_string(d,[](char ch){putchar(ch);});
+				printf(" %02x\n",d[dict_entry_size]);
+			}
 		}
 		fclose(yyinput);
 	}
