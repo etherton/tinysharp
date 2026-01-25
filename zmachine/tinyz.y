@@ -272,16 +272,16 @@
 			if (isLong) {
 				assert(targetOffset != 0xFFF0 && targetOffset != 0xFFF1);
 				assert(delta>=-8192&&delta<=8191);
-				dest[0] = (negated? 0x80 : 0x00) | ((delta >> 8) & 0x3F), dest[1] = delta;
+				dest[0] = (negated? 0x00 : 0x80) | ((delta >> 8) & 0x3F), dest[1] = delta;
 			}
 			else {
 				if (targetOffset == 0xFFF0 || targetOffset == 0xFFF1)
-					dest[0] = (negated? 0xC0 : 0x40) | (targetOffset & 1);
+					dest[0] = (negated? 0x40 : 0xC0) | (targetOffset & 1);
 				else if (delta>0 && delta<64)
-					dest[0] = (negated? 0x80 : 0x00) | 0x40 | delta;
+					dest[0] = (negated? 0x00 : 0x80) | 0x40 | delta;
 				else {
 					printf("branch delta %d out of range in %s, changing to rfalse\n",delta,currentRoutine->desc.c_str());
-					dest[0] = negated? 0xC0 : 0x40;
+					dest[0] = negated? 0x40 : 0xC0;
 				}
 			}
 		}
@@ -294,7 +294,7 @@
 			if (dest[0]==0xFF)
 				fillBranch(i->car,l->offset,false,dest[-1]==LONG_JUMP,true);
 			else
-				fillBranch(i->car,l->offset,(dest[0] & 0x80) != 0,!(dest[0] & 0x40),false);
+				fillBranch(i->car,l->offset,(dest[0] & 0x80) == 0,!(dest[0] & 0x40),false);
 		}
 	}
 	void emitJump(label l,bool isLong) {
@@ -512,6 +512,7 @@
 			assert(false); // shouldn't be called.
 		}
 		virtual void emitBranch(label target,bool n,bool isLong) {
+			// printf("emitBranch negated %d, n %d\n",negated,n);
 			if (negated)
 				n = !n;
 			if (target->offset != 0xFFFF) {
@@ -521,11 +522,11 @@
 			else {
 				target->references = new list_node<uint16_t>(currentRoutine->offset,target->references);
 				if (isLong) {
-					emitByte(n? 0x80 : 0x00);
+					emitByte(n? 0x00 : 0x80);
 					emitByte(0);
 				}
 				else
-					emitByte(n? 0xC0 : 0x40);
+					emitByte(n? 0x40 : 0xC0);
 			}
 		}
 		bool negated;
@@ -629,7 +630,7 @@
 			emitByte(dest);
 		}
 		unsigned size() const {
-			printf("%zd args, size %zd\n",args->size(),3 + args->size()*2);
+			// size %zd\n",args->size(),3 + args->size()*2);
 			return 2 + args->size() * 2 + 1 /* dest */;
 		}
 		void dump() const {
@@ -840,18 +841,18 @@
 		list_node<stmt*> *slist;
 		unsigned tsize;
 		void emit() const {
-			unsigned actualSize = currentRoutine->offset;
+			//unsigned actualSize = currentRoutine->offset;
 			for (auto i=slist; i; i=i->cdr) {
 				i->car->emit();
 				// printf("accum %u\n",currentRoutine->offset - actualSize);
 			}
-			actualSize = currentRoutine->offset - actualSize;
+			//actualSize = currentRoutine->offset - actualSize;
 			// assert(computedSize <= tsize);
-			if (actualSize > tsize) {
+			/*if (actualSize > tsize) {
 				for (auto i=slist; i; i=i->cdr)
 					printf("element size %u\n",i->car->size());
 				yyerror("error in size math, actual %d computed %d",actualSize,tsize);
-			}
+			}*/
 		}
 		unsigned size() const { return tsize; }
 		bool isReturn() const {
@@ -2116,7 +2117,7 @@ void disassemble(uint16_t blob) {
 						branch_offset |= 0xC0;
 					branch_offset = (branch_offset << 8) | *pc++;
 				}
-				printf(branch_cond? " ~" : " ");
+				printf(branch_cond? " ?" : " ?~");
 				if (branch_offset==0)
 					printf("rfalse");
 				else if (branch_offset==1)

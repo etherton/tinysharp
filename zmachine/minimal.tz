@@ -31,17 +31,18 @@ property global description;
 		print_ret "You are empty-handed";
 } */
 
-routine Test [act] {
+/* routine Test [act] {
 	if (act in {1,2})
 		rtrue;
 	rfalse;
-}
+} */
 
-global turns;
+global room;
 global score;
+global turns;
 global scratch;
 
-routine Startup [a] {
+/* routine Startup [a] {
 	a = 1 + 9;
 	return a;
 }
@@ -50,5 +51,13 @@ routine main[] {
 	// print "hello, world ";
 	print_num Startup();
 	quit;
-}
+} */
 
+global deadflag;
+
+routine main[] {
+	while (deadflag is 0) {
+		print "not dead yet!";
+	}
+	quit;
+}
