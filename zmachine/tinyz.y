@@ -404,7 +404,7 @@
 		virtual bool isLogical() const { return false; }
 		virtual bool isLeaf() const { return false; }
 		virtual bool isConstant(int &c) const { return false; }
-		virtual unsigned size() const { return 0; } // TODO = 0
+		virtual unsigned size() const = 0;
 		static expr *fold_constant(expr* e);
 		virtual void dump(uint32_t indent) { }
 	};
@@ -467,7 +467,7 @@
 			left->eval(lval);
 			if (the_header.version < 5)
 				yyerror("shift instructions not available in v3 or v4 stories");
-			emitByte(0xE0);
+			emitByte(0xBE);
 			emitByte((uint8_t)_ext::log_shift);
 			emitByte(((uint8_t)lval.type << 6) | ((uint8_t)rval.type << 4) | 0xF);
 			emitByte(dest);
@@ -481,6 +481,9 @@
 			else 
 				return false; 
 		} 
+		unsigned size() const {
+			return left->size() + right->size() + 4;
+		}
 		void dump() const {
 			printNode("SHIFT");
 		}
@@ -547,6 +550,9 @@
 			emit2op(lval,opcode,rval);
 			expr_branch::emitBranch(target,negated,isLong);
 		}
+		unsigned size() const {
+			return left->size() + right->size() + 3; // assume long branch
+		}
 		void dump() const {
 			spaces(); printf("%s\n",opcode_names[(uint8_t)opcode]);
 			printNode(left);
@@ -563,6 +569,9 @@
 			emit2op(lval,opcode,rval);
 			emitByte(dest);
 			expr_branch::emitBranch(target,negated,isLong);
+		}
+		unsigned size() const {
+			return left->size() + right->size() + 2 /* 2op var */ + 2 /* branch */;
 		}
 		void dump() const {
 			expr_binary_branch::dump();
@@ -587,6 +596,11 @@
 			else
 				emit2op(lval,_2op::je,rval1);
 			expr_branch::emitBranch(target,negated,isLong);
+		}
+		unsigned size() const {
+			return right2? 
+				(right3? right3->size() + right2->size() + right1->size() + left->size() + 2 : 
+					right2->size() + right1->size() + left->size() + 2) : right1->size() + left->size() + 2;
 		}
 		void dump() const {
 			printNode("in:");
@@ -622,6 +636,9 @@
 			emitvarop(_var::call_vs,o1,o2,o3,o4);
 			emitByte(dest);
 		}
+		unsigned size() const {
+			return 2 + args->size() * 2;
+		}
 		void dump() const {
 			printNode("call:");
 			for (auto i=args; i; i=i->cdr)
@@ -638,6 +655,9 @@
 			emit1op(opcode,un);
 			expr_branch::emitBranch(target,negated,isLong);
 		}
+		unsigned size() const {
+			return 1 + unary->size() + 2;
+		}
 		void dump() const {
 			printNode(opcode_names[(uint8_t)opcode | 0x80]);
 			printNode(unary);
@@ -653,6 +673,9 @@
 			emitByte(dest);
 			expr_branch::emitBranch(target,negated,isLong);
 		}
+		unsigned size() const {
+			return 1 + unary->size() + 1 + 3;
+		}
 		void dump() const {
 			expr_unary_branch::dump();
 			printNode(dest);
@@ -664,6 +687,7 @@
 			o = op;
 		}
 		bool isLeaf() const { return true; }
+		unsigned size() const { return op.type == optype::large_constant? 2 : 1; }
 	};
 	struct expr_literal: public expr_operand {
 		expr_literal(int value) {
@@ -712,6 +736,9 @@
 		void emitBranch(label target,bool negated,bool isLong) {
 			unary->emitBranch(target,negated,isLong);
 		}
+		unsigned size() const {
+			return unary->size();
+		}
 		void dump() const {
 			printNode("not:");
 			printNode(unary);
@@ -745,6 +772,9 @@
 				right->emitBranch(target,false,isLong);
 			}
 		}
+		unsigned size() const {
+			return left->size() + right->size();
+		}
 		void dump() const {
 			printNode("and:");
 			printNode(left);
@@ -767,22 +797,27 @@
 				placeLabel(trueBranch);
 			}
 		}
+		unsigned size() const {
+			return left->size() + right->size();
+		}
 		void dump() const {
 			printNode("or:");
 			printNode(left);
 			printNode(right);
 		}
 	};
-	struct expr_save: public expr_branch {
-		expr_save() : expr_branch(false) { }
-		void dump() const {
-			printNode("save");
+	struct expr_saveRestore: public expr_branch {
+		expr_saveRestore(_0op o) : opcode(o), expr_branch(false) { }
+		_0op opcode;
+		void emitBranch(label target,bool negated,bool isLong) {
+			emit0op(opcode);
+			expr_branch::emitBranch(target,negated,isLong);
 		}
-	};
-	struct expr_restore: public expr_branch {
-		expr_restore(): expr_branch(false) { }
+		unsigned size() const {
+			return 3;
+		}
 		void dump() const {
-			printNode("restore");
+			printNode("saveRestore");
 		}
 	};
 	enum scope_enum: uint8_t { SCOPE_GLOBAL, SCOPE_OBJECT, SCOPE_LOCATION };
@@ -812,8 +847,13 @@
 		list_node<stmt*> *slist;
 		unsigned tsize;
 		void emit() const {
+			unsigned actualSize = currentRoutine->offset;
 			for (auto i=slist; i; i=i->cdr)
 				i->car->emit();
+			actualSize = currentRoutine->offset - actualSize;
+			// assert(computedSize <= tsize);
+			if (actualSize > tsize)
+				yyerror("error in size math, actual %u computed %u",actualSize,tsize);
 		}
 		unsigned size() const { return tsize; }
 		bool isReturn() const {
@@ -1127,6 +1167,7 @@
 				(currentRoutine->size - currentRoutine->offset) & ~1,string,strlen(string));
 		}
 		unsigned size() const {
+			// printf("string len %u computed %u\n",(unsigned)strlen(string),encode_string(nullptr,0,string,strlen(string)));
 			return 1 + encode_string(nullptr,0,string,strlen(string));
 		}
 		void dump() const {
@@ -1686,8 +1727,8 @@ bool_expr
 	| objref has_or_hasnt CHILD opt_arrow { $$ = new expr_unary_branch_store(_1op::get_child,$2,$1,$4); }
 	| objref has_or_hasnt SIBLING opt_arrow { $$ = new expr_unary_branch_store(_1op::get_sibling,$2,$1,$4); }
 	| objref HOLDS objref 	{ $$ = new expr_binary_branch($1,_2op::jin,false,$3); }
-	| SAVE				{ $$ = new expr_save(); }
-	| RESTORE			{ $$ = new expr_restore(); }
+	| SAVE				{ $$ = new expr_saveRestore(_0op::save); }
+	| RESTORE			{ $$ = new expr_saveRestore(_0op::restore); }
 	| '(' bool_expr ')' { $$ = $2; }
 	;
 
@@ -1922,7 +1963,7 @@ int encode_string(const char *src) {
 	size_t srcLen = strlen(src);
 	uint16_t bytes = encode_string(nullptr,0,src,srcLen);
 	uint8_t *dest = new uint8_t[bytes];
-	encode_string(dest,0,src,srcLen);
+	encode_string(dest,bytes,src,srcLen);
 	return 0; // TODO
 }
 
