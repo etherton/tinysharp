@@ -5,7 +5,7 @@
 #define DEFAULT_ZSCII_ALPHABET \
 	"abcdefghijklmnopqrstuvwxyz" \
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ" \
-	"\033\n0123456789.,!?_#'\"/\\-:()"
+	"\033\r0123456789.,!?_#'\"/\\-:()"
 
 static const uint8_t opTypes[16+2] = {
 	0b0101'1111, // 0x00-0x3F
