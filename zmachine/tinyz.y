@@ -1768,7 +1768,15 @@ const uint8_t* print_encoded_string(const uint8_t *src,void (*pr)(char ch)) {
 		else if (ch==5)
 			shift = 52;
 		else if (ch>=6) {
-			pr(alphabet[(ch-6)+shift]);
+			if (ch == 6 && shift == 52) {	// 10-bit ZSCII code
+				ch = readCode() << 5;
+				ch |= readCode();
+				pr(ch);
+			}
+			else if (ch == 7 && shift == 52)
+				pr(10);
+			else
+				pr(alphabet[(ch-6)+shift]);
 			shift = 0;
 		}
 	}
@@ -1897,7 +1905,7 @@ void init() {
 	for (uint32_t i=2; i<26; i++)
 		s_EncodedCharacters[alphabet[i+52]] = (5<<5) | (i + 6);
 	s_EncodedCharacters[32] = 0;
-	s_EncodedCharacters[10] = (5 << 5) | 7;
+	s_EncodedCharacters[13] = (5 << 5) | 7;
 	// 1,2,3=abbreviations, 4=shift1, 5=shift2
 
 	the_object_table.push_back(nullptr);	// object zero doesn't exist
@@ -2285,9 +2293,28 @@ int yylex_() {
 			const unsigned maxString = 512;
 			char *sval = new char[maxString];
 			unsigned offset = 0;
-			while (yynext()!=EOF && yych!='"') {
-				if (offset < maxString-1)
+			char term = yych;
+			while (yynext()!=EOF && yych!=term) {
+				if (yych==10||yych==13) {
+NEWLINE:
+					while (offset && (sval[offset-1]==9||sval[offset-1]==32))
+						--offset;
+					while (yynext()!=EOF && yych!=term && (yych==9||yych==32))
+						;
+					if (yych==10||yych==13)
+						goto NEWLINE;
+					if (yych==term)
+						break;
+					if (offset < maxString-1)
+						sval[offset++] = 32;
+				}
+				if (offset < maxString-1) {
+					if (yych < 32)
+						printf("weird character %d line %d\n",yych,yyline);
+					if (yych=='^'||yych==10)
+						yych = 13;
 					sval[offset++] = yych;
+				}
 			}
 			yynext();
 			sval[offset] = 0;
