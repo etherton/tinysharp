@@ -273,7 +273,7 @@
 			}
 			else {
 				if (targetOffset == 0xFFF0 || targetOffset == 0xFFF1)
-					dest[0] = (negated? 0x80 : 0x00) | (targetOffset & 1);
+					dest[0] = (negated? 0xC0 : 0x40) | (targetOffset & 1);
 				else if (delta>0 && delta<64)
 					dest[0] = (negated? 0x80 : 0x00) | 0x40 | delta;
 				else {
@@ -575,6 +575,7 @@
 				right3->eval(rval3);
 			if (right2)
 				right2->eval(rval2);
+			right1->eval(rval1);
 			left->eval(lval);
 			if (right3)
 				emitvarop(lval,_2op::je,rval1,rval2,rval3);
@@ -1144,7 +1145,7 @@
 				emitByte(0); 
 			}
 		}
-		body->dump();
+		// body->dump();
 		if (!body->isReturn())
 			yyerror("missing return at end of routine (or not all if paths return)");
 		body->emit();

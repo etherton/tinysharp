@@ -16,7 +16,7 @@ property global description;
 	}
 } */
 
-routine Inventory [;i] {
+/* routine Inventory [;i] {
 	if (player has child -> i) {
 		print "You are carrying:";
 		crlf;
@@ -29,9 +29,14 @@ routine Inventory [;i] {
 	}
 	else
 		print_ret "You are empty-handed";
+} */
+
+routine Test [act] {
+	if (act in {1,2})
+		rtrue;
+	rfalse;
 }
 
-global room;
 global turns;
 global score;
 global scratch;
