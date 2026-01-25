@@ -405,6 +405,9 @@
 		virtual bool isLeaf() const { return false; }
 		virtual bool isConstant(int &c) const { return false; }
 		virtual unsigned size() const = 0;
+		unsigned opsize() const {
+			return isLeaf()? size() : size() + 1;
+		}
 		static expr *fold_constant(expr* e);
 		virtual void dump(uint32_t indent) { }
 	};
@@ -428,17 +431,11 @@
 			emit(TOS);
 		}
 		unsigned size() const {
-			operand lval, rval;
-			auto prev = currentRoutine;
-			relocatableBlob temp; temp.offset = 0; temp.size = 1024; currentRoutine = &temp;
-			right->eval(rval);
-			left->eval(lval);
-			currentRoutine = prev;
-			// if either is large_constant then it uses VAR form and needs a type byte
-			if (rval.type==optype::large_constant||lval.type==optype::large_constant)
-				return 2 + opsizes[(uint8_t)rval.type] + opsizes[(uint8_t)lval.type];
-			else	// if neither is large_constant then size must be 3
-				return 3;
+			unsigned lSize = left->opsize();
+			unsigned rSize = right->opsize();
+			// if both operands are 1 byte, total size is 3 bytes. otherwise we need a var type encoding.
+			// plus one for dest
+			return lSize + rSize == 2? 4 : lSize + rSize + 3;
 		}
 		void dump() const {
 			spaces(); printf("%s\n",opcode_names[(uint8_t)opcode]);
@@ -482,7 +479,7 @@
 				return false; 
 		} 
 		unsigned size() const {
-			return left->size() + right->size() + 4;
+			return left->opsize() + right->opsize() + 4;
 		}
 		void dump() const {
 			printNode("SHIFT");
@@ -502,12 +499,7 @@
 				emitByte(0x42);
 		}
 		unsigned size() const {
-			operand uval;
-			auto prev = currentRoutine;
-			relocatableBlob temp; temp.offset = 0; temp.size = 1024; currentRoutine = &temp;
-			unary->eval(uval);
-			currentRoutine = prev;
-			return 1 + opsizes[(uint8_t)uval.type];
+			return 1 + unary->opsize() + 1 + (opcode == _1op::get_sibling || opcode == _1op::get_child);
 		}
 		void dump() const {
 			spaces(); printf("%s\n",opcode_names[(uint8_t)opcode | 0x80]);
@@ -551,7 +543,7 @@
 			expr_branch::emitBranch(target,negated,isLong);
 		}
 		unsigned size() const {
-			return left->size() + right->size() + 3; // assume long branch
+			return left->opsize() + right->opsize() + 3; // assume long branch
 		}
 		void dump() const {
 			spaces(); printf("%s\n",opcode_names[(uint8_t)opcode]);
@@ -571,7 +563,7 @@
 			expr_branch::emitBranch(target,negated,isLong);
 		}
 		unsigned size() const {
-			return left->size() + right->size() + 2 /* 2op var */ + 2 /* branch */;
+			return left->opsize() + right->opsize() + 2 /* 2op var */ + 2 /* branch */;
 		}
 		void dump() const {
 			expr_binary_branch::dump();
@@ -599,8 +591,8 @@
 		}
 		unsigned size() const {
 			return right2? 
-				(right3? right3->size() + right2->size() + right1->size() + left->size() + 2 : 
-					right2->size() + right1->size() + left->size() + 2) : right1->size() + left->size() + 2;
+				(right3? right3->opsize() + right2->opsize() + right1->opsize() + left->opsize() + 2 : 
+					right2->opsize() + right1->opsize() + left->opsize() + 2) : right1->opsize() + left->opsize() + 2;
 		}
 		void dump() const {
 			printNode("in:");
@@ -637,7 +629,8 @@
 			emitByte(dest);
 		}
 		unsigned size() const {
-			return 2 + args->size() * 2;
+			printf("%zd args, size %zd\n",args->size(),3 + args->size()*2);
+			return 2 + args->size() * 2 + 1 /* dest */;
 		}
 		void dump() const {
 			printNode("call:");
@@ -656,7 +649,7 @@
 			expr_branch::emitBranch(target,negated,isLong);
 		}
 		unsigned size() const {
-			return 1 + unary->size() + 2;
+			return 1 + unary->opsize() + 2;
 		}
 		void dump() const {
 			printNode(opcode_names[(uint8_t)opcode | 0x80]);
@@ -848,12 +841,17 @@
 		unsigned tsize;
 		void emit() const {
 			unsigned actualSize = currentRoutine->offset;
-			for (auto i=slist; i; i=i->cdr)
+			for (auto i=slist; i; i=i->cdr) {
 				i->car->emit();
+				// printf("accum %u\n",currentRoutine->offset - actualSize);
+			}
 			actualSize = currentRoutine->offset - actualSize;
 			// assert(computedSize <= tsize);
-			if (actualSize > tsize)
-				yyerror("error in size math, actual %u computed %u",actualSize,tsize);
+			if (actualSize > tsize) {
+				for (auto i=slist; i; i=i->cdr)
+					printf("element size %u\n",i->car->size());
+				yyerror("error in size math, actual %d computed %d",actualSize,tsize);
+			}
 		}
 		unsigned size() const { return tsize; }
 		bool isReturn() const {
@@ -873,7 +871,7 @@
 		return s? (s->size() > 61? 3 : 2) : 0;
 	}
 	size_t includingBranchPast(size_t s) {
-		return s > 61? 2 : 1;
+		return s + (s > 61? 2 : 1);
 	}
 	size_t includingJumpPast(size_t s) {
 		return s > 61? 3 : 2;
@@ -1116,7 +1114,8 @@
 			emitvarop(opcode,op0);
 		}
 		unsigned size() const {
-			return expr0->size() + 2;
+			printf("expr0 size is %d\n",expr0->size());
+			return expr0->opsize() + 2;
 		}
 		void dump() const {
 			printNode(opcode_names[(uint8_t)opcode + 0xE0]);
@@ -1167,7 +1166,6 @@
 				(currentRoutine->size - currentRoutine->offset) & ~1,string,strlen(string));
 		}
 		unsigned size() const {
-			// printf("string len %u computed %u\n",(unsigned)strlen(string),encode_string(nullptr,0,string,strlen(string)));
 			return 1 + encode_string(nullptr,0,string,strlen(string));
 		}
 		void dump() const {
