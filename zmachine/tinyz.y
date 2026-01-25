@@ -1115,7 +1115,6 @@
 			emitvarop(opcode,op0);
 		}
 		unsigned size() const {
-			printf("expr0 size is %d\n",expr0->size());
 			return expr0->opsize() + 2;
 		}
 		void dump() const {
@@ -1471,14 +1470,13 @@ property_or_attribute_list
 	;
 
 property_or_attribute
-	: PNAME ':' { currentProperty = $1; } pvalue		
+	: PNAME ':' { currentProperty = $1 & 63; } pvalue		
 			{ 
 				if (!($1 & expected_scope))
 					yyerror("wrong type of property"); 
-				uint8_t thisIndex = $1 & 63;
-				if (cdef->properties[thisIndex])
-					yyerror("already have property %d set",thisIndex);
-				cdef->properties[thisIndex] = the_relocations[$4];
+				if (cdef->properties[currentProperty])
+					yyerror("already have property %d set",currentProperty);
+				cdef->properties[currentProperty] = the_relocations[$4];
 				cdef->propertySize += the_relocations[$4]->size;
 			}
 	| ANAME ';'
@@ -2550,6 +2548,19 @@ int main(int argc,char **argv) {
 			for (; dc--; d+=dict_entry_size+1) {
 				print_encoded_string(d,[](char ch){putchar(ch);});
 				printf(" %02x\n",d[dict_entry_size]);
+			}
+			for (int i=1; i<the_object_table.size(); i++) {
+				printf("object %d properties:\n",i);
+				uint8_t *p = the_relocations[the_object_table[i]->finalProps->index]->contents;
+				p += 1 + p[0]*2;
+				while (*p) {
+					int len = (*p >> 5) + 1;
+					printf("property %d size %d: [",*p & 31,len);
+					p++;
+					while (len--)
+						printf(" %02x",*p++);
+					printf(" ]\n");
+				}
 			}
 		}
 		fclose(yyinput);

@@ -351,7 +351,10 @@ routine CallAfter [act obj;r] {
 
 routine Travel [dir;r] {
 	if (CheckBefore(#leave,room) is true) {
+		print "room = "; print_num room; crlf;
+		print "dir = "; print_num dir; crlf;
 		r = room.dir;
+		print "now r = "; print_num r; crlf;
 		if (r is zero)
 			print_ret "You can't go in that direction";
 		else if (r > $object_count)
@@ -466,13 +469,19 @@ routine DoTurn[;wc wp wt] {
 		wc = parse_buffer[1];
 	} while (wc is zero);
 	wp = parse_buffer + 2;
-	wt = wp[[0]][$dict_entry_size - 1];
-	if ((wt & 15) isnt zero)
+	print "wp = "; print_num wp; crlf;
+	wt = wp[[0]];
+	print "word addr = "; print_num wt; crlf;
+	wt = wt[$dict_entry_size];
+	if ((wt & 15) isnt zero) {
+		print "wt is "; print_num wt & 15; crlf;
 		return Travel(wt & 15);
+	}
 	rfalse;
 }
 
 routine Startup[] {
+   room = player parent;
    print_ret "^Hurrying through the rainswept November night, you're glad to see the
 	bright lights of the Opera House. It's surprising that there aren't more
 	people about but, hey, what do you expect in a cheap demo game...?^";
