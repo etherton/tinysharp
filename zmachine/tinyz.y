@@ -203,6 +203,7 @@
 	static const uint8_t opsizes[3] = { 2,1,1 };
 	const uint8_t LONG_JUMP = 0x8C;			// +/-32767
 	const uint8_t SHORT_JUMP = 0x9C;		// 0-255
+	const uint8_t CALL_VS = 0xE0;
 
 	relocatableBlob * currentRoutine;
 	uint8_t currentProperty;
@@ -1662,7 +1663,7 @@ expr
 	| '(' expr ')'  	{ $$ = $2; }
 	| primary       	{ $$ = $1; }
 	| INTLIT        	{ $$ = new expr_literal($1); }
-	| RNAME opt_call_args { $$ = new expr_call(new list_node<expr*>(new expr_literal($1),$2)); }
+	| RNAME opt_call_args { $$ = new expr_call(new list_node<expr*>(new expr_reloc($1),$2)); }
 	| CALL expr opt_call_args { $$ = new expr_call(new list_node<expr*>($2,$3)); }
 	;
 
@@ -2044,6 +2045,11 @@ void disassemble(uint16_t blob) {
 			pc+=2, printf("%06x jump %zx\n",offs,addr + pc - base + int16_t((pc[-2] << 8) | pc[-1]) - 2);
 		else {
 			printf("%06x %s",offs,opcode_names[insn]);
+			// make sure call address is shifted properly
+			if (insn==CALL_VS && (types>>14)==(uint8_t)optype::large_constant) {
+				pc+=2, printf(" 0x%x",(uint16_t(pc[-2]<<8)|pc[-1]) << story_shift);
+				types = (types << 2) | 0x3;
+			}
 			while (types != 0xFFFF) {
 				if ((types >> 14) == (uint8_t)optype::variable)
 					prvar(*pc++);
