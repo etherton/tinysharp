@@ -145,6 +145,8 @@
 			uint16_t i = firstPlaced;
 			while (i != 0xFFFF) {
 				the_relocations[i]->applyRelocations();
+				while (ftell(output) != the_relocations[i]->address)
+					fputc(0,output);
 				fwrite(the_relocations[i]->contents,the_relocations[i]->size,1,output);
 				i = the_relocations[i]->nextPlaced;
 			}
@@ -1044,23 +1046,22 @@
 		}
 	};
 	struct stmt_store: public stmt {
-		stmt_store(_var o,uint8_t d,expr *i,expr *e) : opcode(o), dest(d), index(i), value(e) { }
+		stmt_store(_var o,expr *a,expr *i,expr *e) : opcode(o), array(a), index(i), value(e) { }
 		_var opcode;
-		uint8_t dest;
-		expr *index, *value;
+		expr *array, *index, *value;
 		void emit() const {
-			operand i, v;
+			operand a, i, v;
+			array->eval(a);
 			value->eval(v);
 			index->eval(i);
-			emitvarop(opcode,v,i);
-			emitByte(dest);
+			emitvarop(opcode,a,v,i);
 		}
 		unsigned size() const {
-			return value->size() + 1;
+			return array->size() + value->size() + index->size() + 2;
 		}
 		void dump() const {
 			printNode("store:");
-			printNode(dest);
+			printNode(array);
 			printNode(value);
 			printNode(index);
 		}
@@ -1150,7 +1151,8 @@
 		if (!body->isReturn())
 			yyerror("missing return at end of routine (or not all if paths return)");
 		body->emit();
-
+		while (currentRoutine->offset & ((1 << story_shift)-1))
+			emitByte(0);
 		currentRoutine->seal(); // arp arp
 		return currentRoutine->index;
 	}
@@ -1609,8 +1611,8 @@ stmt
 	| WHILE cond_expr stmt				{ $$ = new stmt_while($2,$3); }
 	| '{' stmts '}'			{ $$ = new stmts($2); }
 	| vname '=' expr ';'	{ $$ = new stmt_assign($1,expr::fold_constant($3)); }
-	| vname '[' expr ']' '=' expr ';' { $$ = new stmt_store(_var::storeb,$1,$3,$6); }
-	| vname '[' '[' expr ']' ']' '=' expr ';' { $$ = new stmt_store(_var::storew,$1,$4,$8); }
+	| vname '[' expr ']' '=' expr ';' { $$ = new stmt_store(_var::storeb,new expr_variable($1),$3,$6); }
+	| vname '[' '[' expr ']' ']' '=' expr ';' { $$ = new stmt_store(_var::storew,new expr_variable($1),$4,$8); }
 	| RETURN expr ';'		{ $$ = new stmt_return(expr::fold_constant($2)); }
 	| RFALSE ';'			{ $$ = new stmt_return(new expr_literal(0)); }
 	| RTRUE ';'				{ $$ = new stmt_return(new expr_literal(1)); }
