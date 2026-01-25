@@ -1362,8 +1362,8 @@ global_def
 opt_global_init
 	:					{ globals_blob->storeWord(0); }
 	| '=' INTLIT		{ globals_blob->storeWord($2); }
-	| '=' BYTE_ARRAY '(' INTLIT ')'	{ globals_blob->addRelocation((current_global = relocatableBlob::create($4))->index,UD_DYNAMIC); } opt_byte_list { current_global = nullptr; }
-	| '=' WORD_ARRAY '(' INTLIT ')' { globals_blob->addRelocation((current_global = relocatableBlob::create($4))->index,UD_DYNAMIC); } opt_word_list { current_global = nullptr; }
+	| '=' BYTE_ARRAY '(' INTLIT ')'	{ globals_blob->addRelocation((current_global = relocatableBlob::create($4,UD_DYNAMIC,"byte array"))->index); } opt_byte_list { current_global = nullptr; }
+	| '=' WORD_ARRAY '(' INTLIT ')' { globals_blob->addRelocation((current_global = relocatableBlob::create($4,UD_DYNAMIC,"word array"))->index); } opt_word_list { current_global = nullptr; }
 	;
 
 opt_byte_list
@@ -2543,6 +2543,8 @@ int main(int argc,char **argv) {
 				if ((size_t)the_relocations[i] > 65535 && the_relocations[i]->userData == UD_HIGH)
 					disassemble(i);
 			}
+			/* for (int i=0; i<globals_blob->size; i+=2)
+				printf("global %d value %04x\n",i>>1,(globals_blob->contents[i] << 8) | globals_blob->contents[i+1]); */
 		}
 		fclose(yyinput);
 	}
