@@ -2055,7 +2055,10 @@ void disassemble(uint16_t blob) {
 	printf("%s at %x:\n",the_relocations[blob]->desc.c_str(),addr);
 	if (*pc) {
 		printf("[%d locals]\n",*pc);
-		pc += 1 + (*pc<<1);
+		if (the_header.version < 5)
+			pc += 1 + (*pc<<1);
+		else
+			++pc;
 	}
 	else
 		pc++, printf("[no locals]\n");
@@ -2410,9 +2413,20 @@ int main(int argc,char **argv) {
 	putchar('\n');
 	return 1; */
 
-	yydebug = argc > 2 && !strcmp(argv[2],"-debug");
+
+	while (--argc && **++argv=='-')
+		switch(argv[0][1]) {
+			case 'd': yydebug = 1; break;
+			case 'v': set_version(argv[0][2]-'0'); break;
+		}
+	if (!argc)
+		yyerror("missing input tz name");
+
+	char outname[] = "story.z3";
+	outname[7] = the_header.version + '0';
+
 	for (yypass=1; yypass<=2; yypass++) {
-		yyinput = fopen(argv[1],"r");
+		yyinput = fopen(argv[0],"r");
 		int nextObject = 1;
 		yych = 32;
 		yyline = 1;
@@ -2533,7 +2547,7 @@ int main(int argc,char **argv) {
 			header_blob->storeWord((relocatableBlob::nextAddress + ((1<<story_shift)-1)) >> story_shift); // length of file
 			header_blob->offset = 64;
 			// todo: character table etc.
-			FILE *output = fopen("story.z3","w");
+			FILE *output = fopen(outname,"w");
 			relocatableBlob::writeAll(output);
 			fclose(output);
 
