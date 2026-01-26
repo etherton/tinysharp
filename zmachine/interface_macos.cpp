@@ -47,7 +47,7 @@ static int window;
 
 void interface::putchar(int ch) {
 	if (!window || !nostatus)
-    	putc(ch, stdout);
+    	putc(ch==13?10:ch, stdout);
 }
 
 void interface::readline(char *dest,unsigned destSize) {
