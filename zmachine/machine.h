@@ -376,14 +376,14 @@ private:
 		if (addr>=m_dynamicSize)
 			memfault("out of range write to %06x",addr);
 		if (addr < 0x38 && addr != 0x10 && addr != 0x11)
-			memfault("illegal write to header");
+			memfault("illegal write to header addr %02x",addr);
 		m_dynamic[addr] = v;
 	}
 	void write_mem16(uint32_t addr,word v) {
 		if (addr+1>=m_dynamicSize)
 			memfault("out of range write to %06x",addr);
 		if (addr < 0x38 && addr != 0x10)
-			memfault("illegal write to header");
+			memfault("illegal write to header addr %02x",addr);
 		m_dynamic[addr] = v.hi;
 		m_dynamic[addr+1] = v.lo;
 	}
