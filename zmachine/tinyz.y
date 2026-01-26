@@ -1236,18 +1236,18 @@
 %token <varOp> STMT_VAROP1 STMT_VAROP2
 %token GAINS LOSES
 
-%right '~' NOT
-%left PARENT
-%left '*' '/' '%'
-%left '+' '-'
-%nonassoc HAS HASNT GET_CHILD
-%left '<' LE '>' GE
-%left EQ NE
-%left LSH RSH
-%left '&'
-%left '|'
-%left AND
 %left OR
+%left AND
+%left '|'
+%left '&'
+%left LSH RSH
+%left EQ NE
+%left '<' LE '>' GE
+%nonassoc HAS HASNT
+%left '+' '-'
+%left '*' '/' '%'
+%left PARENT
+%right '~' NOT
 
 %type <eval> expr pname objref primary aname arg
 %type <brval> bool_expr cond_expr
@@ -1662,8 +1662,8 @@ stmt
 	| STMT_VAROP2 '(' expr ',' expr ')'  ';'	{ $$ = new stmt_varop2($1,$3,$5); }
 	| PRINT STRLIT ';'				{ $$ = new stmt_print(_0op::print,$2); }
 	| PRINT_RET STRLIT ';'			{ $$ = new stmt_print(_0op::print_ret,$2); }
-	| INCR vname ';'				{ $$ = new stmt_assign($2,new expr_binary_add(new expr_variable($2),new expr_literal(1))); }
-	| DECR vname ';'				{ $$ = new stmt_assign($2,new expr_binary_sub(new expr_variable($2),new expr_literal(1))); }
+	| INCR vname ';'				{ $$ = new stmt_1op(_1op::inc,new expr_literal($2)); }
+	| DECR vname ';'				{ $$ = new stmt_1op(_1op::dec,new expr_literal($2)); }
 	| objref GAINS aname ';' 		{ $$ = new stmt_2op(_2op::set_attr,$1,$3); }
 	| objref LOSES aname ';'		{ $$ = new stmt_2op(_2op::clear_attr,$1,$3); }
 	| MOVE objref INTO objref ';'	{ $$ = new stmt_2op(_2op::insert_obj,$2,$4); }
@@ -1934,6 +1934,7 @@ void init() {
 	f_1op["print_obj"] = _1op::print_obj;
 
 	f_varop1["print_num"] = _var::print_num;
+	f_varop1["print_char"] = _var::print_char;
 	f_varop2["sread"] = _var::sread;
 
 	// build the forward mapping
@@ -2409,7 +2410,7 @@ int main(int argc,char **argv) {
 	putchar('\n');
 	return 1; */
 
-	yydebug = 0;
+	yydebug = argc > 2 && !strcmp(argv[2],"-debug");
 	for (yypass=1; yypass<=2; yypass++) {
 		yyinput = fopen(argv[1],"r");
 		int nextObject = 1;

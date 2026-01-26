@@ -349,12 +349,13 @@ routine CallAfter [act obj;r] {
 	rtrue;
 }
 
+routine Look [] {
+	return call room.description();
+}
+
 routine Travel [dir;r] {
 	if (CheckBefore(#leave,room) is true) {
-		print "room = "; print_num room; crlf;
-		print "dir = "; print_num dir; crlf;
 		r = room.dir;
-		print "now r = "; print_num r; crlf;
 		if (r is zero)
 			print_ret "You can't go in that direction";
 		else if (r > $object_count)
@@ -365,6 +366,7 @@ routine Travel [dir;r] {
 			move player into r;
 			room = r;
 			CallAfter(#enter,r);
+			Look();
 		}
 	}
 	rfalse;
@@ -453,6 +455,41 @@ action #enter;
 global text_buffer = byte_array(64) { 63 };
 global parse_buffer = byte_array(64) { 15 };
 
+routine PrintString [str len] {
+	while (len isnt zero) {
+		print_char str[0];
+		++str;
+		--len;
+	}
+	rfalse;
+}
+
+routine CheckErrors [tb pb; i j] {
+	// print "[[";
+	// PrintString(tb+1,tb[0]);
+	// print "]]^";
+
+	if (pb[1] is zero) 
+		print_ret "I beg your pardon?";
+	i = 0;
+
+	// print_num pb[1]; print " words in input.^";
+	// print_num pb; print " base addr.^";
+
+	while (i < pb[1]) {
+		j = pb + 2 + i * 4;
+		// print_num j; crlf;
+		// print_num j[[0]]; print " addr.^";
+		if (j[[0]] is zero) {
+			print "I don't understand the word '";
+			PrintString(tb + j[3], j[2]);
+			print_ret "'.";
+		}
+		++i;
+	}
+	rfalse;
+}
+
 routine DoTurn[;wc wp wt] {
 	text_buffer[0] = 63;
 	parse_buffer[0] = 15;
@@ -464,18 +501,17 @@ routine DoTurn[;wc wp wt] {
 	// each word consists of four bytes:
 	// first two bytes is address of the word, or 0 if unknown
 	// next byte is the length of the word, then the position in text_buffer.
-	repeat {
+	repeat
 		sread(text_buffer, parse_buffer);
-		wc = parse_buffer[1];
-	} while (wc is zero);
+	while (CheckErrors(text_buffer, parse_buffer) isnt zero);
+
+	wc = parse_buffer[1];
 	wp = parse_buffer + 2;
-	print "wp = "; print_num wp; crlf;
 	wt = wp[[0]];
-	print "word addr = "; print_num wt; crlf;
-	wt = wt[$dict_entry_size];
-	if ((wt & 15) isnt zero) {
-		print "wt is "; print_num wt & 15; crlf;
-		return Travel(wt & 15);
+	if (wt isnt zero) {
+		wt = wt[$dict_entry_size];
+		if ((wt & 15) isnt zero)
+			return Travel(wt & 15);
 	}
 	rfalse;
 }
@@ -489,6 +525,7 @@ routine Startup[] {
 
 routine main [] {
 	Startup();
+	Look();
 	while (deadflag is zero) {
 		DoTurn();
 		if (deadflag is 3)
