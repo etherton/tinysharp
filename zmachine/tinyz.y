@@ -363,6 +363,9 @@
 	std::map<dict_entry,uint16_t> the_dictionary; // maps a dictionary word to its index
 	uint8_t& z_dict_payload(uint16_t i) { return dictionary_blob->contents[7 + i * (dict_entry_size+1) + dict_entry_size]; }
 
+	typedef int (*binary_eval)(int,int);
+	typedef int (*unary_eval)(int);
+
 	struct core {
 		virtual ~core() { }
 		virtual void dump() const = 0;
@@ -417,8 +420,9 @@
 	};
 
 	struct expr_binary: public expr {
-		expr_binary(expr *l,_2op op,expr *r) : left(l), opcode(op), right(r) { }
+		expr_binary(expr *l,_2op op,expr *r,binary_eval f = nullptr) : left(l), opcode(op), right(r), func(f) { }
 		expr *left, *right;
+		binary_eval func;
 		_2op opcode;
 		void emit(uint8_t dest) const {
 			// we defer eval call because there may be unsigned forward references
@@ -441,23 +445,21 @@
 			// plus one for dest
 			return lSize + rSize == 2? 4 : lSize + rSize + 3;
 		}
+		bool isConstant(int &v) const {
+			int l, r;
+			if (func && left->isConstant(l) && right->isConstant(r)) {
+				v = func(l,r);
+				return true;
+			}
+			else
+				return false;
+		}
 		void dump() const {
 			spaces(); printf("%s\n",opcode_names[(uint8_t)opcode]);
 			printNode(left);
 			printNode(right);
 		}
 	};
-	#define IMPL_EXPR_BINARY(zop,cop) struct expr_binary_##zop: public expr_binary { \
-		expr_binary_##zop(expr *l,expr *r) : expr_binary(l,_2op::zop,r) { } \
-		bool isConstant(int &v) const { int l,r; \
-		if (left->isConstant(l)&&right->isConstant(r)) { v = l cop r; return true; } else return false; } }
-	IMPL_EXPR_BINARY(add,+);
-	IMPL_EXPR_BINARY(sub,-);
-	IMPL_EXPR_BINARY(mul,*);
-	IMPL_EXPR_BINARY(div,/);
-	IMPL_EXPR_BINARY(mod,%);
-	IMPL_EXPR_BINARY(and_,&);
-	IMPL_EXPR_BINARY(or_,|);
 	struct expr_binary_log_shift: public expr {
 		expr_binary_log_shift(expr *l,expr *r) : left(l), right(r) { }
 		expr *left, *right;
@@ -536,16 +538,27 @@
 		bool negated;
 		bool isLogical() const { return true; }
 	};
+
 	struct expr_binary_branch: public expr_branch {
-		expr_binary_branch(expr *l,_2op op,bool negated,expr *r) : left(l), opcode(op), right(r), expr_branch(negated) { }
+		expr_binary_branch(expr *l,_2op op,bool negated,expr *r,binary_eval f = nullptr) : left(l), opcode(op), right(r), func(f), expr_branch(negated) { }
 		_2op opcode;
 		expr *left, *right;
+		binary_eval func;
 		void emitBranch(label target,bool negated,bool isLong) {
 			operand lval, rval;
 			right->eval(rval);
 			left->eval(lval);
 			emit2op(lval,opcode,rval);
 			expr_branch::emitBranch(target,negated,isLong);
+		}
+		bool isConstant(int &v) const {
+			int l, r;
+			if (func && left->isConstant(l) && right->isConstant(r)) {
+				v = func(l,r);
+				return true;
+			}
+			else
+				return false;
 		}
 		unsigned size() const {
 			return left->opsize() + right->opsize() + 3; // assume long branch
@@ -756,7 +769,7 @@
 		expr_logical_and(expr_branch *l,expr_branch *r) : left(l), right(r), expr_branch(false) { }
 		expr_branch *left, *right;
 		void emitBranch(label target,bool negated,bool isLong) {
-			printf("emitBranch logical and, negated %d\n",negated);
+			// printf("emitBranch logical and, negated %d\n",negated);
 			// (negated=true) if (a and b) means jz a,target; jz b,target
 			// (negated=true) while (a and b) means jz a,target; jz b,target
 			// (negated=false) repeat ... while (a and b) means jz skip; jnz b,target; skip:
@@ -1709,16 +1722,16 @@ arg
 	;
 
 expr
-	: expr '+' expr 	{ $$ = new expr_binary_add($1,$3); }
-	| expr '-' expr 	{ $$ = new expr_binary_sub($1,$3); }
-	| expr '*' expr 	{ $$ = new expr_binary_mul($1,$3); }
-	| expr '/' expr 	{ $$ = new expr_binary_div($1,$3); }
-	| expr '%' expr 	{ $$ = new expr_binary_mod($1,$3); }
+	: expr '+' expr 	{ $$ = new expr_binary($1,_2op::add,$3,[](int a,int b)->int{return a+b;}); }
+	| expr '-' expr 	{ $$ = new expr_binary($1,_2op::sub,$3,[](int a,int b)->int{return a-b;}); }
+	| expr '*' expr 	{ $$ = new expr_binary($1,_2op::mul,$3,[](int a,int b)->int{return a*b;}); }
+	| expr '/' expr 	{ $$ = new expr_binary($1,_2op::div,$3,[](int a,int b)->int{if (!b) yyerror("division by zero"); return a/b;}); }
+	| expr '%' expr 	{ $$ = new expr_binary($1,_2op::mod,$3,[](int a,int b)->int{if (!b) yyerror("modulo by zero"); return a%b;}); }
 	| '~' expr      	{ $$ = new expr_unary(_1op::not_,$2); }
-	| expr '&' expr 	{ $$ = new expr_binary_and_($1,$3); }
-	| expr '|' expr 	{ $$ = new expr_binary_or_($1,$3); }
+	| expr '&' expr 	{ $$ = new expr_binary($1,_2op::and_,$3,[](int a,int b)->int{return a&b;}); }
+	| expr '|' expr 	{ $$ = new expr_binary($1,_2op::or_,$3,[](int a,int b)->int{return a|b;}); }
 	| expr LSH expr		{ $$ = new expr_binary_log_shift($1,$3); }
-	| expr RSH expr		{ $$ = new expr_binary_log_shift($1,new expr_binary_sub(new expr_literal(0),$3)); }
+	| expr RSH expr		{ $$ = new expr_binary_log_shift($1,new expr_binary(new expr_literal(0),_2op::sub,$3)); }
 	| objref '.' pname	{ $$ = new expr_binary($1,_2op::get_prop,$3); }
 	| '(' expr ')'  	{ $$ = $2; }
 	| primary       	{ $$ = $1; }
@@ -1728,16 +1741,16 @@ expr
 	;
 
 bool_expr
-	: expr '<' expr		{ $$ = new expr_binary_branch($1,_2op::jl,false,$3); }
-	| expr LE expr		{ $$ = new expr_binary_branch($1,_2op::jg,true,$3); }
-	| expr '>' expr		{ $$ = new expr_binary_branch($1,_2op::jg,false,$3); }
-	| expr GE expr		{ $$ = new expr_binary_branch($1,_2op::jl,true,$3); }
+	: expr '<' expr		{ $$ = new expr_binary_branch($1,_2op::jl,false,$3,[](int a,int b)->int{return a<b;}); }
+	| expr LE expr		{ $$ = new expr_binary_branch($1,_2op::jg,true,$3,[](int a,int b)->int{return a<=b;}); }
+	| expr '>' expr		{ $$ = new expr_binary_branch($1,_2op::jg,false,$3,[](int a,int b)->int{return a>b;}); }
+	| expr GE expr		{ $$ = new expr_binary_branch($1,_2op::jl,true,$3,[](int a,int b)->int{return a>=b;}); }
 	| expr EQ expr		{ $$ = $3->isZero()? 
 			static_cast<expr_branch*>(new expr_unary_branch(_1op::jz,false,$1)) : 
-			static_cast<expr_branch*>(new expr_binary_branch($1,_2op::je,false,$3)); }
+			static_cast<expr_branch*>(new expr_binary_branch($1,_2op::je,false,$3,[](int a,int b)->int{return a==b;})); }
 	| expr NE expr		{ $$ = $3->isZero()? 
 			static_cast<expr_branch*>(new expr_unary_branch(_1op::jz,true,$1)) : 
-			static_cast<expr_branch*>(new expr_binary_branch($1,_2op::je,true,$3)); }
+			static_cast<expr_branch*>(new expr_binary_branch($1,_2op::je,true,$3,[](int a,int b)->int{return a!=b;})); }
 	| expr IN '{' expr '}'	{ $$ = new expr_in($1,$4); }
 	| expr IN '{' expr ',' expr '}' { $$ = new expr_in($1,$4,$6); }
 	| expr IN '{' expr ',' expr ',' expr '}' { $$ = new expr_in($1,$4,$6,$8); }
