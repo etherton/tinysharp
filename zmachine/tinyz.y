@@ -404,6 +404,10 @@
 		virtual bool isLogical() const { return false; }
 		virtual bool isLeaf() const { return false; }
 		virtual bool isConstant(int &c) const { return false; }
+		bool isZero() const {
+			int c;
+			return isConstant(c) && c==0;
+		}
 		virtual unsigned size() const = 0;
 		unsigned opsize() const {
 			return isLeaf()? size() : size() + 1;
@@ -1726,8 +1730,12 @@ bool_expr
 	| expr LE expr		{ $$ = new expr_binary_branch($1,_2op::jg,true,$3); }
 	| expr '>' expr		{ $$ = new expr_binary_branch($1,_2op::jg,false,$3); }
 	| expr GE expr		{ $$ = new expr_binary_branch($1,_2op::jl,true,$3); }
-	| expr EQ expr		{ $$ = new expr_binary_branch($1,_2op::je,false,$3); }
-	| expr NE expr		{ $$ = new expr_binary_branch($1,_2op::je,true,$3); }
+	| expr EQ expr		{ $$ = $3->isZero()? 
+			static_cast<expr_branch*>(new expr_unary_branch(_1op::jz,false,$1)) : 
+			static_cast<expr_branch*>(new expr_binary_branch($1,_2op::je,false,$3)); }
+	| expr NE expr		{ $$ = $3->isZero()? 
+			static_cast<expr_branch*>(new expr_unary_branch(_1op::jz,true,$1)) : 
+			static_cast<expr_branch*>(new expr_binary_branch($1,_2op::je,true,$3)); }
 	| expr IN '{' expr '}'	{ $$ = new expr_in($1,$4); }
 	| expr IN '{' expr ',' expr '}' { $$ = new expr_in($1,$4,$6); }
 	| expr IN '{' expr ',' expr ',' expr '}' { $$ = new expr_in($1,$4,$6,$8); }
