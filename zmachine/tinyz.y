@@ -208,7 +208,7 @@
 	const uint8_t CALL_VS = 0xE0;
 
 	relocatableBlob * currentRoutine;
-	uint8_t currentProperty;
+	uint8_t currentProperty, currentBits;
 	void emitByte(uint8_t b) {
 		// printf("%04x: %02x\n",currentRoutine->offset,b);
 		currentRoutine->storeByte(b);
@@ -1230,7 +1230,7 @@
 	}
 
 	uint16_t property_defaults[63];
-	uint8_t property_bits[63];
+	uint8_t property_bits[256];
 %}
 
 %union {
@@ -1348,10 +1348,10 @@ property_def
 			$3->second.ival = next_value_in_scope($2,property_next); 
 			auto i = $3->second.ival & 63;
 			if (property_defaults[i] && property_defaults[i] != $4)
-				yyerror("inconsistent valuep for default property (index %d) %d <> %d",
+				yyerror("inconsistent value for default property (index %d) %d <> %d",
 					i,property_defaults[i],$4);
 			property_defaults[i] = $4;
-			property_bits[i] = $5;
+			property_bits[$3->second.ival] = $5;
 		}
 	;
 
@@ -1503,7 +1503,7 @@ property_or_attribute_list
 	;
 
 property_or_attribute
-	: PNAME ':' { currentProperty = $1 & 63; } pvalue		
+	: PNAME ':' { currentProperty = $1 & 63; currentBits = $1; } pvalue		
 			{ 
 				if (!($1 & expected_scope))
 					yyerror("wrong type of property"); 
@@ -1545,7 +1545,7 @@ pvalue
 		$$ = p->index;
 		auto s = $1;
 		while (s) {
-			z_dict_payload(s->car) |= property_bits[currentProperty];
+			z_dict_payload(s->car) |= property_bits[currentBits];
 			p->storeWord(s->car);
 			s = s->cdr;
 		}
