@@ -55,13 +55,37 @@ routine main[] {
 
 global deadflag;
 
-routine Math[a b] {
+/* routine Math[a b] {
 	return a + 2 + b * 4;
+} */
+
+routine ztest [a] {
+	if (a isnt 0)
+		print_ret "a is not zero";
+	else
+		print_ret "a is zero";
+}
+
+routine andtest [a b] {
+	print "a = "; print_num a; crlf;
+	print "b = "; print_num b; crlf;
+	if (a isnt 0 and b isnt 0)
+		print_ret "a and b are not zero";
+	else
+		print_ret "either a or b is zero";
+}
+
+routine ortest [a b] {
+	print "a = "; print_num a; crlf;
+	print "b = "; print_num b; crlf;
+	if (a isnt 0 or b isnt 0)
+		print_ret "either a or b or both are not zero";
+	else
+		print_ret "both a and b are zero";
 }
 
 routine main[] {
-	while (deadflag is 0) {
-		print "not dead yet!";
-	}
+	andtest(0,0); andtest(1,0); andtest(0,1); andtest(1,1);
+	ortest(0,0); ortest(1,0); ortest(0,1); ortest(1,1);
 	quit;
 }
