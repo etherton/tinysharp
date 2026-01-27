@@ -1101,15 +1101,15 @@
 		}
 	};
 	struct stmt_store: public stmt {
-		stmt_store(_var o,expr *a,expr *i,expr *e) : opcode(o), array(a), index(i), value(e) { }
+		stmt_store(_var o,expr *a,expr *i,expr *v) : opcode(o), array(a), index(i), value(v) { }
 		_var opcode;
 		expr *array, *index, *value;
 		void emit() const {
 			operand a, i, v;
-			array->eval(a);
 			value->eval(v);
 			index->eval(i);
-			emitvarop(opcode,a,v,i);
+			array->eval(a);
+			emitvarop(opcode,a,i,v);
 		}
 		unsigned size() const {
 			return array->size() + value->size() + index->size() + 2;
