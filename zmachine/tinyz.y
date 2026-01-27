@@ -756,18 +756,19 @@
 		expr_logical_and(expr_branch *l,expr_branch *r) : left(l), right(r), expr_branch(false) { }
 		expr_branch *left, *right;
 		void emitBranch(label target,bool negated,bool isLong) {
+			printf("emitBranch logical and, negated %d\n",negated);
 			// (negated=true) if (a and b) means jz a,target; jz b,target
 			// (negated=true) while (a and b) means jz a,target; jz b,target
 			// (negated=false) repeat ... while (a and b) means jz skip; jnz b,target; skip:
-			if (negated) {	// not (a and b) -> (not a) or (not b)
-				label trueBranch = createLabel();
-				left->emitBranch(trueBranch,true,isLong);
-				right->emitBranch(target,false,isLong);
-				placeLabel(trueBranch);
+			if (negated) {
+				left->emitBranch(target,true,isLong);
+				right->emitBranch(target,true,isLong);
 			}
 			else {
-				left->emitBranch(target,false,isLong);
+				label failed = createLabel();
+				left->emitBranch(failed,true,isLong);
 				right->emitBranch(target,false,isLong);
+				placeLabel(failed);
 			}
 		}
 		unsigned size() const {
@@ -783,16 +784,17 @@
 		expr_logical_or(expr_branch*l,expr_branch *r) : left(l), right(r), expr_branch(false) { }
 		expr_branch *left, *right;
 		void emitBranch(label target,bool negated,bool isLong) {
+			//printf("emitBranch logical or, negated %d\n",negated);
 			// if (a or b) means jnz a,skip; jz b,target; skip:
 			if (negated) { // not (a or b) -> (not a) and (not b)
-				left->emitBranch(target,true,isLong);
+				label success = createLabel();
+				left->emitBranch(success,false,isLong);
 				right->emitBranch(target,true,isLong);
+				placeLabel(success);
 			}
 			else {
-				label trueBranch = createLabel();
-				left->emitBranch(trueBranch,false,isLong);
+				left->emitBranch(target,false,isLong);
 				right->emitBranch(target,false,isLong);
-				placeLabel(trueBranch);
 			}
 		}
 		unsigned size() const {
