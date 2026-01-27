@@ -885,9 +885,19 @@
 		// TODO: else if ifFalse is rfalse/rtrue, we just need the negated branch to 0/1
 		// TODO: If ifTrue ends in a return, we don't need the jump past false block
 		void emit() const {
-			int flag;
-			if (ifTrue->isJustReturnBool(flag)) {
-				cond->emitBranch(flag? rtrueLabel : rfalseLabel,false,false);
+			int value;
+
+			// dead code elimination
+			if (cond->isConstant(value)) {
+				if (value)
+					ifTrue->emit();
+				else if (ifFalse)
+					ifFalse->emit();
+				return;
+			}
+
+			if (ifTrue->isJustReturnBool(value)) {
+				cond->emitBranch(value? rtrueLabel : rfalseLabel,false,false);
 				if (ifFalse)
 					ifFalse->emit();
 				return;
@@ -1131,6 +1141,10 @@
 			expr1->eval(op1);
 			expr0->eval(op0);
 			emitvarop(opcode,op0,op1);
+			// on v5+, it's a store, but let's just hide that for now.
+			// if you really need the result you can check scratch.
+			if (opcode == _var::sread && the_header.version >= 5)
+				emitByte(16 + SCRATCH);
 		}
 		unsigned size() const {
 			return expr0->size() + expr1->size() + 2;
@@ -1146,7 +1160,7 @@
 		void emit() const {
 			// Call as a statement dumps result to a global
 			// (alternative is dump to TOS and emit a pop, but this is shorter)
-			call.emit(SCRATCH);
+			call.emit(16 + SCRATCH);
 		}
 		unsigned size() const {
 			return call.size();
@@ -1878,7 +1892,7 @@ uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcS
 	return offset;
 }
 
-void init() {
+void init(int version) {
 	rw["attribute"] = ATTRIBUTE;
 	rw["constant"] = CONSTANT;
 	rw["property"] = PROPERTY;
@@ -1955,6 +1969,16 @@ void init() {
 
 	rfalseLabel = createLabel(); rfalseLabel->offset = 0xFFF0;
 	rtrueLabel = createLabel(); rtrueLabel->offset = 0xFFF1;
+
+	if (version != 8 && (version < 3 || version > 5))
+		yyerror("only versions 3,4,5,8 supported");
+	attribute_next[0] = version>3? 47 : 31;
+	property_next[0] = version>3? 63 : 31;
+	story_shift = version==8? 3 : version==3? 1 : 2;
+	dict_entry_size = version>3? 6 : 4;
+	the_header.version = version;
+
+	the_globals["$zversion"] = { INTLIT, int16_t(version) };
 }
 
 int encode_string(const char *src) {
@@ -1963,16 +1987,6 @@ int encode_string(const char *src) {
 	uint8_t *dest = new uint8_t[bytes];
 	encode_string(dest,bytes,src,srcLen);
 	return 0; // TODO
-}
-
-void set_version(int version) {
-	if (version != 8 && (version < 3 || version > 5))
-		yyerror("only versions 3,4,5,8 supported");
-	attribute_next[0] = version>3? 47 : 31;
-	property_next[0] = version>3? 63 : 31;
-	story_shift = version==8? 3 : version==3? 1 : 2;
-	dict_entry_size = version>3? 6 : 4;
-	the_header.version = version;
 }
 
 void emit1op(_1op opcode,operand uval) {
@@ -2404,7 +2418,6 @@ void yyerror(const char *fmt,...) {
 }
 
 int main(int argc,char **argv) {
-	init();
 
 	/* uint8_t dest[6];
 	encode_string(dest,6,"Test",4);
@@ -2413,14 +2426,15 @@ int main(int argc,char **argv) {
 	putchar('\n');
 	return 1; */
 
-
+	int zversion = 3;
 	while (--argc && **++argv=='-')
 		switch(argv[0][1]) {
 			case 'd': yydebug = 1; break;
-			case 'v': set_version(argv[0][2]-'0'); break;
+			case 'v': zversion = (argv[0][2]-'0'); break;
 		}
 	if (!argc)
 		yyerror("missing input tz name");
+	init(zversion);
 
 	char outname[] = "story.z3";
 	outname[7] = the_header.version + '0';
