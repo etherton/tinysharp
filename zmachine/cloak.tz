@@ -456,7 +456,9 @@ global text_buffer = byte_array(64) { 63 };
 global parse_buffer = byte_array(64) { 15 };
 
 routine PrintString [str len] {
-	while (len isnt zero) {
+	// for v3/4, string is terminated by zero
+	// for v5, the new length is supplied in second byte of buffer
+	while (len isnt zero and str[0] isnt zero) {
 		print_char str[0];
 		++str;
 		--len;
@@ -465,15 +467,22 @@ routine PrintString [str len] {
 }
 
 routine CheckErrors [tb pb; i j] {
-	// print "[[";
-	// PrintString(tb+1,tb[0]);
-	// print "]]^";
+	print_num tb[0]; print_char 32;
+	print_num tb[1]; print_char 32;
+	print_num tb[2]; print_char 32;
+	print "[[";
+	if ($zversion<5)
+		PrintString(tb+1,tb[0]);
+	else
+		PrintString(tb+2,tb[1]);
+	print "]]^";
 
+	// check number of words parsed
 	if (pb[1] is zero) 
 		print_ret "I beg your pardon?";
 	i = 0;
 
-	// print_num pb[1]; print " words in input.^";
+	print_num pb[1]; print " words in input.^";
 	// print_num pb; print " base addr.^";
 
 	while (i < pb[1]) {
@@ -491,19 +500,23 @@ routine CheckErrors [tb pb; i j] {
 }
 
 routine DoTurn[;wc wp wt] {
-	text_buffer[0] = 63;
+	text_buffer[0] = 62;
 	parse_buffer[0] = 15;
+
 	// storeb(text_buffer,0,63);
 	// storeb(parse_buffer,0,15);
 	// text_buffer[0] is the size of the input buffer
+	// in v5+, text_buffer[1] is the number of bytes actually read
 	// parse_buffer[0] is the max number of words
 	// parse_buffer[1] is the actual number of words parsed
 	// each word consists of four bytes:
 	// first two bytes is address of the word, or 0 if unknown
 	// next byte is the length of the word, then the position in text_buffer.
-	repeat
+	repeat {
+		if ($zversion>=5)
+			text_buffer[1] = 0;
 		sread(text_buffer, parse_buffer);
-	while (CheckErrors(text_buffer, parse_buffer) isnt zero);
+	} while (CheckErrors(text_buffer, parse_buffer) isnt zero);
 
 	wc = parse_buffer[1];
 	wp = parse_buffer + 2;
