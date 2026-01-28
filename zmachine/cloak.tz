@@ -480,7 +480,7 @@ routine PrintString [str len] {
 }
 
 routine CheckErrors [tb pb; i j] {
-	print_num tb[0]; print_char 32;
+	/* print_num tb[0]; print_char 32;
 	print_num tb[1]; print_char 32;
 	print_num tb[2]; print_char 32;
 	print "[[";
@@ -488,14 +488,14 @@ routine CheckErrors [tb pb; i j] {
 		PrintString(tb+1,tb[0]);
 	else
 		PrintString(tb+2,tb[1]);
-	print "]]^";
+	print "]]^"; */
 
 	// check number of words parsed
 	if (pb[1] is zero) 
 		print_ret "I beg your pardon?";
 	i = 0;
 
-	print_num pb[1]; print " words in input.^";
+	// print_num pb[1]; print " words in input.^";
 	// print_num pb; print " base addr.^";
 
 	while (i < pb[1]) {
@@ -518,12 +518,10 @@ routine DictAddrToIndex [addr; hdr] {
 	return addr;
 }
 
-routine DoTurn[;wc wp wt] {
+routine DoTurn[;wc wp wt c] {
 	text_buffer[0] = 62;
 	parse_buffer[0] = 15;
 
-	// storeb(text_buffer,0,63);
-	// storeb(parse_buffer,0,15);
 	// text_buffer[0] is the size of the input buffer
 	// in v5+, text_buffer[1] is the number of bytes actually read
 	// parse_buffer[0] is the max number of words
@@ -541,11 +539,14 @@ routine DoTurn[;wc wp wt] {
 	wp = parse_buffer + 2;
 	wt = wp[[0]];
 	if (wt isnt zero) {
+		++turns;
 		wt = DictAddrToIndex(wt);
-		print "index is "; print_num wt; crlf;
-		wt = Compass(wt);
-		if (wt isnt -1)
-			return Travel(wt);
+		// print "index is "; print_num wt; crlf;
+		c = Compass(wt);
+		if (c isnt -1)
+			return Travel(c);
+		else if (wt in {'inventory','i'})
+			return Inventory();
 	}
 	rfalse;
 }
