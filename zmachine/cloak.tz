@@ -88,6 +88,7 @@ constant zero = 0;
 constant true = 1;
 constant adjBit = 1 << 7;
 constant nounBit = 1 << 6;
+constant verbBit = 1 << 4;
 
 // plain properties can be attached to rooms or objects
 // object properties can only be attached to objects
@@ -99,7 +100,6 @@ property global before;
 property global after;
 property object adjective gains adjBit;
 property object noun gains nounBit;
-property location dummy;
 property location n_to;
 property location s_to;
 property location e_to;
@@ -118,10 +118,23 @@ synonym 'wait' 'z';
 */
 
 // the direction directive takes a nonzero property value followed by one or more words.
-direction n_to 'north' 'n';
+/* direction n_to 'north' 'n';
 direction s_to 'south' 's';
 direction e_to 'east' 'e';
-direction w_to 'west' 'w';
+direction w_to 'west' 'w'; */
+
+routine Compass [word] {
+	if (word in {'north','n'})
+		return n_to;
+	else if (word in {'south','s'})
+		return s_to;
+	else if (word in {'east','e'})
+		return e_to;
+	else if (word in {'west','w'})
+		return w_to;
+	else
+		return -1;
+}
 
 // the first three must be in this order for status line (v3) games.
 global room;
@@ -358,7 +371,7 @@ routine Travel [dir;r] {
 		r = room.dir;
 		if (r is zero)
 			print_ret "You can't go in that direction";
-		else if (r > $object_count)
+		else if (r < zero or r > $object_count)
 			r = call r();
 		// player is the first object, and cannot be a room.
 		// this leave rfalse and rtrue as valid responses.
@@ -429,7 +442,7 @@ action #inv { 'i'/'inventory'/'take inventory': Inventory }
 action #take { 'get'/'take'/'pick up' here: Take }
 action #drop { 'drop'/'put down' held: Drop }
 action #look { 'look at'/'examine'/'x' here/held: Examine }
-action #puton { 'hang'/'place'/'put' held 'on'/'upon' here: [do ido] {
+action #puton { 'hang'/'place'/'put' held 'on'/'upon'/'onto' here: [do ido] {
 	if (ido has supporter) {
 		if (ido has child)
 			print_ret "There's no room.";
@@ -499,6 +512,12 @@ routine CheckErrors [tb pb; i j] {
 	rfalse;
 }
 
+routine DictAddrToIndex [addr; hdr] {
+	addr = addr - hdr[[4]] - 7;
+	addr = addr / ($dict_entry_size+1);
+	return addr;
+}
+
 routine DoTurn[;wc wp wt] {
 	text_buffer[0] = 62;
 	parse_buffer[0] = 15;
@@ -522,9 +541,11 @@ routine DoTurn[;wc wp wt] {
 	wp = parse_buffer + 2;
 	wt = wp[[0]];
 	if (wt isnt zero) {
-		wt = wt[$dict_entry_size];
-		if ((wt & 15) isnt zero)
-			return Travel(wt & 15);
+		wt = DictAddrToIndex(wt);
+		print "index is "; print_num wt; crlf;
+		wt = Compass(wt);
+		if (wt isnt -1)
+			return Travel(wt);
 	}
 	rfalse;
 }
