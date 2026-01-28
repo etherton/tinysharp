@@ -1723,17 +1723,17 @@ arg
 
 expr
 	: expr '+' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::add,$3,[](int a,int b)->int{return a+b;})); }
-	| expr '-' expr 	{ $$ = new expr_binary($1,_2op::sub,$3,[](int a,int b)->int{return a-b;}); }
-	| expr '*' expr 	{ $$ = new expr_binary($1,_2op::mul,$3,[](int a,int b)->int{return a*b;}); }
-	| expr '/' expr 	{ $$ = new expr_binary($1,_2op::div,$3,[](int a,int b)->int{if (!b) yyerror("division by zero"); return a/b;}); }
-	| expr '%' expr 	{ $$ = new expr_binary($1,_2op::mod,$3,[](int a,int b)->int{if (!b) yyerror("modulo by zero"); return a%b;}); }
+	| expr '-' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::sub,$3,[](int a,int b)->int{return a-b;})); }
+	| expr '*' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::mul,$3,[](int a,int b)->int{return a*b;})); }
+	| expr '/' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::div,$3,[](int a,int b)->int{if (!b) yyerror("division by zero"); return a/b;})); }
+	| expr '%' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::mod,$3,[](int a,int b)->int{if (!b) yyerror("modulo by zero"); return a%b;})); }
 	| '~' expr      	{ $$ = new expr_unary(_1op::not_,$2); }
-	| expr '&' expr 	{ $$ = new expr_binary($1,_2op::and_,$3,[](int a,int b)->int{return a&b;}); }
-	| expr '|' expr 	{ $$ = new expr_binary($1,_2op::or_,$3,[](int a,int b)->int{return a|b;}); }
+	| expr '&' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::and_,$3,[](int a,int b)->int{return a&b;})); }
+	| expr '|' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::or_,$3,[](int a,int b)->int{return a|b;})); }
 	| expr LSH expr		{ $$ = new expr_binary_log_shift($1,$3); }
 	| expr RSH expr		{ $$ = new expr_binary_log_shift($1,new expr_binary(new expr_literal(0),_2op::sub,$3)); }
 	| objref '.' pname	{ $$ = new expr_binary($1,_2op::get_prop,$3); }
-	| '(' expr ')'  	{ $$ = $2; }
+	| '(' expr ')'  	{ $$ = expr::fold_constant($2); }
 	| primary       	{ $$ = $1; }
 	| INTLIT        	{ $$ = new expr_literal($1); }
 	| DICT				{ $$ = new expr_literal($1); }
