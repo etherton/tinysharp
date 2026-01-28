@@ -838,8 +838,8 @@
 	const uint8_t SCOPE_OBJECT_MASK = 0x40;
 	const uint8_t SCOPE_LOCATION_MASK = 0x80;
 	const uint8_t scope_masks[3] = { SCOPE_OBJECT_MASK | SCOPE_LOCATION_MASK, SCOPE_OBJECT_MASK, SCOPE_LOCATION_MASK };
-	uint8_t attribute_next[3] = {31,0,0}; // 31 should be 47 for v4+
-	uint8_t property_next[3] = {31,0,0}; // 31 should be 63 for v4+
+	uint8_t attribute_next[3] = {31,1,1}; // 31 should be 47 for v4+
+	uint8_t property_next[3] = {31,1,1}; // 31 should be 63 for v4+
 	uint8_t next_value_in_scope(scope_enum sc,uint8_t *state) {
 		uint8_t result = state[sc] | scope_masks[sc];
 		if (sc==SCOPE_GLOBAL) state[sc]--; else state[sc]++;
@@ -1722,7 +1722,7 @@ arg
 	;
 
 expr
-	: expr '+' expr 	{ $$ = new expr_binary($1,_2op::add,$3,[](int a,int b)->int{return a+b;}); }
+	: expr '+' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::add,$3,[](int a,int b)->int{return a+b;})); }
 	| expr '-' expr 	{ $$ = new expr_binary($1,_2op::sub,$3,[](int a,int b)->int{return a-b;}); }
 	| expr '*' expr 	{ $$ = new expr_binary($1,_2op::mul,$3,[](int a,int b)->int{return a*b;}); }
 	| expr '/' expr 	{ $$ = new expr_binary($1,_2op::div,$3,[](int a,int b)->int{if (!b) yyerror("division by zero"); return a/b;}); }
@@ -1736,6 +1736,8 @@ expr
 	| '(' expr ')'  	{ $$ = $2; }
 	| primary       	{ $$ = $1; }
 	| INTLIT        	{ $$ = new expr_literal($1); }
+	| DICT				{ $$ = new expr_literal($1); }
+	| PNAME				{ $$ = new expr_literal($1 & 63); }
 	| RNAME opt_call_args { $$ = new expr_call(new list_node<expr*>(new expr_reloc($1),$2)); }
 	| CALL expr opt_call_args { $$ = new expr_call(new list_node<expr*>($2,$3)); }
 	;
@@ -2002,6 +2004,7 @@ void init(int version) {
 	the_header.version = version;
 
 	the_globals["$zversion"] = { INTLIT, int16_t(version) };
+	the_globals["$dict_entry_size"] = { INTLIT, int16_t(dict_entry_size) };
 }
 
 int encode_string(const char *src) {
@@ -2540,7 +2543,6 @@ int main(int argc,char **argv) {
 				printf("%zu actions\n",the_action_table.size()-1);
 			}
 			the_globals["$object_count"] = { INTLIT, int16_t(the_object_table.size() - 1) };
-			the_globals["$dict_entry_size"] = { INTLIT, int16_t(dict_entry_size) };
 			header_blob = relocatableBlob::create(64,UD_DYNAMIC,"story header");
 		}
 		else {
