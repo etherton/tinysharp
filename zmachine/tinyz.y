@@ -2450,11 +2450,24 @@ int main(int argc,char **argv) {
 	return 1; */
 
 	int zversion = 3;
-	while (--argc && **++argv=='-')
-		switch(argv[0][1]) {
+	enum { R_OBJECTS=1,R_ROUTINES=2,R_GLOBALS=4,R_DICTIONARY=8,R_SUMMARY=16,R_ALL=31};
+	int report = 0;
+	while (--argc && **++argv=='-') {
+		const char *arg = *argv + 1;
+		switch(*arg++) {
 			case 'd': yydebug = 1; break;
-			case 'v': zversion = (argv[0][2]-'0'); break;
+			case 'r':  while (*arg) switch (*arg++) {
+				case 'A': report = R_ALL; break;
+				case 'S': report |= R_SUMMARY; break;
+				case 'O': report |= R_OBJECTS; break;
+				case 'R': report |= R_ROUTINES; break;
+				case 'G': report |= R_GLOBALS; break;
+				case 'D': report |= R_DICTIONARY; break;
+				}
+				break;
+			case 'z': zversion = (argv[0][2]-'0'); break;
 		}
+	}
 	if (!argc)
 		yyerror("missing input tz name");
 	init(zversion);
@@ -2499,7 +2512,8 @@ int main(int argc,char **argv) {
 					}
 				}
 			}
-			printf("%zu words in dictionary\n",the_dictionary.size());
+			if (report & R_SUMMARY) 
+				printf("%zu words in dictionary\n",the_dictionary.size());
 			// build the final dictionary, assigning word indices.
 			dictionary_blob = relocatableBlob::create(7 + the_dictionary.size() * (dict_entry_size+1),UD_STATIC,"dictionary");
 			dictionary_blob->storeByte(3);
@@ -2519,10 +2533,12 @@ int main(int argc,char **argv) {
 				dictionary_blob->copy(d.first.encoded,dict_entry_size);
 				dictionary_blob->storeByte(0);
 			}
-			printf("%u globals\n",next_global);
 			globals_blob = relocatableBlob::create(next_global * 2,UD_DYNAMIC,"globals");
-			printf("%zu objects\n",the_object_table.size()-1);
-			printf("%zu actions\n",the_action_table.size()-1);
+			if (report & R_SUMMARY) {
+				printf("%u globals\n",next_global);
+				printf("%zu objects\n",the_object_table.size()-1);
+				printf("%zu actions\n",the_action_table.size()-1);
+			}
 			the_globals["$object_count"] = { INTLIT, int16_t(the_object_table.size() - 1) };
 			the_globals["$dict_entry_size"] = { INTLIT, int16_t(dict_entry_size) };
 			header_blob = relocatableBlob::create(64,UD_DYNAMIC,"story header");
@@ -2544,7 +2560,8 @@ int main(int argc,char **argv) {
 					object_blob->storeByte(o.sibling);
 					object_blob->storeByte(o.child);
 					object_blob->addRelocation(o.finalProps->index);
-					printf("object %d properties at blob %d\n",i,o.finalProps->index);
+					if (report & R_OBJECTS)
+						printf("object %d properties at blob %d\n",i,o.finalProps->index);
 				}
 			}
 			else {
@@ -2556,7 +2573,8 @@ int main(int argc,char **argv) {
 					object_blob->storeWord(o.sibling);
 					object_blob->storeWord(o.child);
 					object_blob->addRelocation(o.finalProps->index);
-					printf("object %d properties at blob %d\n",i,o.finalProps->index);
+					if (report & R_OBJECTS)
+						printf("object %d properties at blob %d\n",i,o.finalProps->index);
 				}
 			}
 			
@@ -2588,30 +2606,38 @@ int main(int argc,char **argv) {
 			relocatableBlob::writeAll(output);
 			fclose(output);
 
-			disassemble(entry_point_index);
-			for (int i=0; i<the_relocations.size(); i++) {
-				if ((size_t)the_relocations[i] > 65535 && the_relocations[i]->userData == UD_HIGH)
-					disassemble(i);
+			if (report & R_ROUTINES) {
+				disassemble(entry_point_index);
+				for (int i=0; i<the_relocations.size(); i++) {
+					if ((size_t)the_relocations[i] > 65535 && the_relocations[i]->userData == UD_HIGH)
+						disassemble(i);
+				}
 			}
-			for (int i=0; i<globals_blob->size; i+=2)
-				printf("global %d value %04x\n",i>>1,(globals_blob->contents[i] << 8) | globals_blob->contents[i+1]);
-			uint8_t *d = dictionary_blob->contents + 7;
-			int dc = (dictionary_blob->contents[5] << 8) | dictionary_blob->contents[6];
-			for (; dc--; d+=dict_entry_size+1) {
-				print_encoded_string(d,[](char ch){putchar(ch);});
-				printf(" %02x\n",d[dict_entry_size]);
+			if (report & R_GLOBALS) {
+				for (int i=0; i<globals_blob->size; i+=2)
+					printf("global %d value %04x\n",i>>1,(globals_blob->contents[i] << 8) | globals_blob->contents[i+1]);
 			}
-			for (int i=1; i<the_object_table.size(); i++) {
-				printf("object %d properties:\n",i);
-				uint8_t *p = the_relocations[the_object_table[i]->finalProps->index]->contents;
-				p += 1 + p[0]*2;
-				while (*p) {
-					int len = (*p >> 5) + 1;
-					printf("property %d size %d: [",*p & 31,len);
-					p++;
-					while (len--)
-						printf(" %02x",*p++);
-					printf(" ]\n");
+			if (report & R_DICTIONARY) {
+				uint8_t *d = dictionary_blob->contents + 7;
+				int dc = (dictionary_blob->contents[5] << 8) | dictionary_blob->contents[6];
+				for (; dc--; d+=dict_entry_size+1) {
+					print_encoded_string(d,[](char ch){putchar(ch);});
+					printf(" %02x\n",d[dict_entry_size]);
+				}
+			}
+			if (report & R_OBJECTS) {
+				for (int i=1; i<the_object_table.size(); i++) {
+					printf("object %d properties:\n",i);
+					uint8_t *p = the_relocations[the_object_table[i]->finalProps->index]->contents;
+					p += 1 + p[0]*2;
+					while (*p) {
+						int len = (*p >> 5) + 1;
+						printf("property %d size %d: [",*p & 31,len);
+						p++;
+						while (len--)
+							printf(" %02x",*p++);
+						printf(" ]\n");
+					}
 				}
 			}
 		}
