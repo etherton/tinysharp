@@ -421,6 +421,7 @@
 
 	struct expr_binary: public expr {
 		expr_binary(expr *l,_2op op,expr *r,binary_eval f = nullptr) : left(l), opcode(op), right(r), func(f) { }
+		~expr_binary() { delete left; delete right; }
 		expr *left, *right;
 		binary_eval func;
 		_2op opcode;
@@ -493,6 +494,7 @@
 	};
 	struct expr_unary: public expr {
 		expr_unary(_1op op,expr *e) : opcode(op), unary(e) { } 
+		~expr_unary() { delete unary; }
 		expr *unary;
 		_1op opcode;
 		void emit(uint8_t dest) const {
@@ -541,6 +543,7 @@
 
 	struct expr_binary_branch: public expr_branch {
 		expr_binary_branch(expr *l,_2op op,bool negated,expr *r,binary_eval f = nullptr) : left(l), opcode(op), right(r), func(f), expr_branch(negated) { }
+		~expr_binary_branch() { delete left; delete right; }
 		_2op opcode;
 		expr *left, *right;
 		binary_eval func;
@@ -590,6 +593,7 @@
 	};	
 	struct expr_in: public expr_branch {
 		expr_in(expr *l,expr *r1,expr *r2=nullptr,expr *r3=nullptr) : left(l), right1(r1), right2(r2), right3(r3), expr_branch(false) { }
+		~expr_in() { delete left; delete right1; delete right2; delete right3; }
 		expr *left,*right1,*right2,*right3;
 		void emitBranch(label target,bool negated,bool isLong) {
 			operand lval, rval1, rval2, rval3;
@@ -622,6 +626,7 @@
 	};
 	struct expr_call: public expr { // first arg is func address
 		expr_call(list_node<expr*> *a) : args(a) { }
+		~expr_call() { delete args; }
 		list_node<expr*> *args;
 		// TODO: v3 only supports VAR call (3 params). v4 supports 1/2 operand with result and 7 params.
 		// v5 supports implicit pop versions of all calls
@@ -658,6 +663,7 @@
 	};
 	struct expr_unary_branch: public expr_branch {
 		expr_unary_branch(_1op op,bool negated,expr *e) : opcode(op), unary(e), expr_branch(negated) { }
+		~expr_unary_branch() { delete unary; }
 		_1op opcode;
 		expr *unary;
 		void emitBranch(label target,bool negated,bool isLong) {
@@ -743,6 +749,7 @@
 	};
 	struct expr_logical_not: public expr_branch {
 		expr_logical_not(expr_branch *e) : unary(), expr_branch(!e->negated) { }
+		~expr_logical_not() { delete unary; }
 		expr_branch *unary;
 		void emitBranch(label target,bool negated,bool isLong) {
 			unary->emitBranch(target,negated,isLong);
@@ -767,6 +774,7 @@
 	// not (a and b) -> (not a) OR (not b)
 	struct expr_logical_and: public expr_branch {
 		expr_logical_and(expr_branch *l,expr_branch *r) : left(l), right(r), expr_branch(false) { }
+		~expr_logical_and() { delete left; delete right; }
 		expr_branch *left, *right;
 		void emitBranch(label target,bool negated,bool isLong) {
 			// printf("emitBranch logical and, negated %d\n",negated);
@@ -795,6 +803,7 @@
 	};
 	struct expr_logical_or: public expr_branch {
 		expr_logical_or(expr_branch*l,expr_branch *r) : left(l), right(r), expr_branch(false) { }
+		~expr_logical_or() { delete left; delete right; }
 		expr_branch *left, *right;
 		void emitBranch(label target,bool negated,bool isLong) {
 			//printf("emitBranch logical or, negated %d\n",negated);
@@ -857,6 +866,7 @@
 			for (auto i=slist; i; i=i->cdr)
 				tsize += i->car->size();
 		}
+		~stmts() { delete slist; }
 		list_node<stmt*> *slist;
 		unsigned tsize;
 		void emit() const {
@@ -898,6 +908,7 @@
 	}
 	struct stmt_if: public stmt_flow {
 		stmt_if(expr_branch *e,stmt *t,stmt *f): cond(e), ifTrue(t), ifFalse(f) { }
+		~stmt_if() { delete cond; delete ifTrue; delete ifFalse; }
 		expr_branch *cond;
 		stmt *ifTrue, *ifFalse;
 		// TODO: if ifTrue is rfalse/rtrue, we just need the non-negated branch to 0/1
@@ -961,6 +972,7 @@
 	};
 	struct stmt_while: public stmt_flow {
 		stmt_while(expr_branch *e,stmt *b): cond(e), body(b) { }
+		~stmt_while() { delete cond; delete body; }
 		expr_branch *cond;
 		stmt *body;
 		void emit() const {
@@ -983,6 +995,7 @@
 	};
 	struct stmt_repeat: public stmt_flow {
 		stmt_repeat(stmt *b,expr_branch *e): body(b), cond(e) { }
+		~stmt_repeat() { delete cond; delete body; }
 		stmt *body;
 		expr_branch *cond;
 		void emit() const {
@@ -1002,6 +1015,7 @@
 	};
 	struct stmt_return: public stmt {
 		stmt_return(expr *e) : value(e) { }
+		~stmt_return() { delete value; }
 		expr *value;
 		bool isReturn() const { return true; }
 		bool isJustReturnBool(int &c) const {
@@ -1038,6 +1052,7 @@
 	};
 	struct stmt_2op: public stmt {
 		stmt_2op(_2op op,expr *l,expr *r) : opcode(op), left(l), right(r) { }
+		~stmt_2op() { delete left; delete right; }
 		_2op opcode;
 		expr *left, *right;
 		void emit() const {
@@ -1057,6 +1072,7 @@
 	};		
 	struct stmt_1op: public stmt {
 		stmt_1op(_1op op,expr *e) : opcode(op), value(e) { }
+		~stmt_1op() { delete value; }
 		_1op opcode;
 		expr *value;
 		void emit() const {
@@ -1090,6 +1106,7 @@
 	};
 	struct stmt_assign: public stmt {
 		stmt_assign(uint8_t d,expr *e) : dest(d), value(e) {  }
+		~stmt_assign() { delete value; }
 		uint8_t dest;
 		expr* value;
 		void emit() const {
@@ -1115,6 +1132,7 @@
 	};
 	struct stmt_store: public stmt {
 		stmt_store(_var o,expr *a,expr *i,expr *v) : opcode(o), array(a), index(i), value(v) { }
+		~stmt_store() { delete array; delete index; delete value; }
 		_var opcode;
 		expr *array, *index, *value;
 		void emit() const {
@@ -1136,6 +1154,7 @@
 	};
 	struct stmt_varop1: public stmt {
 		stmt_varop1(_var op,expr *a) : opcode(op), expr0(a) { }
+		~stmt_varop1() { delete expr0; }
 		_var opcode;
 		expr *expr0;
 		void emit() const {
@@ -1153,6 +1172,7 @@
 	};
 	struct stmt_varop2: public stmt {
 		stmt_varop2(_var op,expr *a,expr *b) : opcode(op), expr0(a), expr1(b) { }
+		~stmt_varop2() { delete expr0; delete expr1; }
 		_var opcode;
 		expr *expr0, *expr1;
 		void emit() const {
@@ -1191,6 +1211,7 @@
 	};
 	struct stmt_print: public stmt {
 		stmt_print(_0op o,const char *s) : opcode(o), string(s) { }
+		~stmt_print() { delete [] string; }
 		const char *string;
 		_0op opcode;
 		void emit() const {
@@ -1226,6 +1247,7 @@
 		while (currentRoutine->offset & ((1 << story_shift)-1))
 			emitByte(0);
 		currentRoutine->seal(); // arp arp
+		delete body;
 		return currentRoutine->index;
 	}
 
@@ -2540,10 +2562,7 @@ int main(int argc,char **argv) {
 						if (yylex() == NEWSYM) {
 							if (next_global==240)
 								yyerror("cannot have more than 240 globals");
-							the_globals[yytoken] = { GNAME,next_global };
-							// skip the scratch global
-							if (++next_global == SCRATCH)
-								++next_global;
+							the_globals[yytoken] = { GNAME,next_global++ };
 						}
 					}
 				}
@@ -2569,8 +2588,6 @@ int main(int argc,char **argv) {
 				dictionary_blob->copy(d.first.encoded,dict_entry_size);
 				dictionary_blob->storeByte(0);
 			}
-			if (next_global < SCRATCH)
-				yyerror("must declare at least %u global variables so hidden scratch variable can be allocated",SCRATCH);
 			globals_blob = relocatableBlob::create(next_global * 2,UD_DYNAMIC,"globals");
 			if (report & R_SUMMARY) {
 				printf("%u globals\n",next_global);
