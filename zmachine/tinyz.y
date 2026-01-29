@@ -2506,6 +2506,7 @@ int main(int argc,char **argv) {
 	return 1; */
 
 	int zversion = 3;
+	int release_number = 0;
 	enum { R_OBJECTS=1,R_ROUTINES=2,R_GLOBALS=4,R_DICTIONARY=8,R_SUMMARY=16,R_ALL=31};
 	int report = 0;
 	while (--argc && **++argv=='-') {
@@ -2521,6 +2522,7 @@ int main(int argc,char **argv) {
 				case 'D': report |= R_DICTIONARY; break;
 				}
 				break;
+			case 'R': release_number = atoi(arg); break;
 			case 'z': zversion = (argv[0][2]-'0'); break;
 		}
 	}
@@ -2530,6 +2532,7 @@ int main(int argc,char **argv) {
 
 	char outname[] = "story.z3";
 	outname[7] = the_header.version + '0';
+	// printf("compiling release %d\n",release_number);
 
 	for (yypass=1; yypass<=2; yypass++) {
 		yyinput = fopen(argv[0],"r");
@@ -2633,7 +2636,8 @@ int main(int argc,char **argv) {
 			}
 			
 			header_blob->storeByte(the_header.version);	// +0 version
-			header_blob->offset += 3;
+			header_blob->storeByte(0);
+			header_blob->storeWord(release_number);
 			if (entry_point_index == -1)
 				yyerror("missing main routine");
 			// main routine is also the start of high memory
@@ -2644,7 +2648,12 @@ int main(int argc,char **argv) {
 			header_blob->addRelocation(globals_blob->index); // +12 globals
 			header_blob->addRelocation(dictionary_blob->index); // +14 static memory
 			header_blob->offset += 2;
-			header_blob->copy((uint8_t*)"TINYZ1",6);
+			time_t now;
+			time(&now);
+			auto t = localtime(&now);
+			char yymmdd[7];
+			snprintf(yymmdd,sizeof(yymmdd),"%02d%02d%02d",t->tm_year % 100,t->tm_mon + 1,t->tm_mday);
+			header_blob->copy((uint8_t*)yymmdd,6);
 			header_blob->place();
 			globals_blob->place();
 			object_blob->place();
@@ -2654,7 +2663,12 @@ int main(int argc,char **argv) {
 
 			header_blob->storeWord(0); // +24 abbreviations
 			header_blob->storeWord((relocatableBlob::nextAddress + ((1<<story_shift)-1)) >> story_shift); // length of file
-			header_blob->offset = 64;
+			header_blob->offset = 60;
+			header_blob->storeByte('t');
+			header_blob->storeByte('z');
+			header_blob->storeByte('0');
+			header_blob->storeByte('0');
+
 			// todo: character table etc.
 			FILE *output = fopen(outname,"w");
 			relocatableBlob::writeAll(output);

@@ -551,8 +551,17 @@ routine DoTurn[;wc wp wt c] {
 	rfalse;
 }
 
-routine Startup[] {
+routine Startup[; hdr] {
    room = player parent;
+
+   print "Release ";
+   print_num hdr[[1]];
+   print " compiled on ";
+   PrintString(18,6);
+   print " by ";
+   PrintString(60,4);
+   crlf;
+
    print_ret "^Hurrying through the rainswept November night, you're glad to see the
 	bright lights of the Opera House. It's surprising that there aren't more
 	people about but, hey, what do you expect in a cheap demo game...?^";
