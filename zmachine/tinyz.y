@@ -1247,6 +1247,7 @@
 	stmt *stval;
 	_0op zeroOp;
 	_1op oneOp;
+	_2op twoOp;
 	_var varOp;
 }
 
@@ -1266,6 +1267,7 @@
 %token OR AND NOT
 %token <zeroOp> STMT_0OP
 %token <oneOp> STMT_1OP
+%token <twoOp> STMT_2OP
 %token <varOp> STMT_VAROP1 STMT_VAROP2
 %token GAINS LOSES
 
@@ -1691,6 +1693,7 @@ stmt
 	| RNAME opt_call_args ';'		{ $$ = new stmt_call(new list_node<expr*>(new expr_reloc($1),$2)); }
 	| STMT_0OP ';'					{ $$ = new stmt_0op($1); }
 	| STMT_1OP  expr  ';'			{ $$ = new stmt_1op($1,$2); }
+	| STMT_2OP '(' expr ',' expr ')' ';' { $$ = new stmt_2op($1,$3,$5); } 
 	| STMT_VAROP1 expr  ';'			{ $$ = new stmt_varop1($1,$2); }
 	| STMT_VAROP2 '(' expr ',' expr ')'  ';'	{ $$ = new stmt_varop2($1,$3,$5); }
 	| PRINT STRLIT ';'				{ $$ = new stmt_print(_0op::print,$2); }
@@ -1813,6 +1816,7 @@ vname
 std::map<std::string,int16_t> rw;
 std::map<std::string,_0op> f_0op;
 std::map<std::string,_1op> f_1op;
+std::map<std::string,_2op> f_2op;
 std::map<std::string,_var> f_varop1;
 std::map<std::string,_var> f_varop2;
 
@@ -1972,9 +1976,31 @@ void init(int version) {
 	f_1op["remove_obj"] = _1op::remove_obj;
 	f_1op["print_obj"] = _1op::print_obj;
 
+	f_2op["set_attr"] = _2op::set_attr;
+	f_2op["clear_attr"] = _2op::clear_attr;
+	f_2op["insert_obj"] = _2op::insert_obj;
+
 	f_varop1["print_num"] = _var::print_num;
 	f_varop1["print_char"] = _var::print_char;
 	f_varop2["sread"] = _var::sread;
+	f_varop1["output_stream"] = _var::output_stream;
+	f_varop2["output_stream2"] = _var::output_stream;
+	f_varop1["input_stream"] = _var::input_stream;
+
+	if (version >= 4) {
+		f_varop1["erase_window"] = _var::erase_window;
+		f_varop1["erase_line"] = _var::erase_line;
+		f_varop2["set_cursor"] = _var::set_cursor;
+		f_varop1["get_cursor"] = _var::get_cursor;
+		f_varop1["set_text_style"] = _var::set_text_style;
+		f_varop1["buffer_mode"] = _var::buffer_mode;
+		f_varop1["read_char"] = _var::read_char; // not quite correct
+	}
+
+	if (version >= 5) {
+		f_2op["set_color"] = _2op::set_colour;
+		f_2op["set_colour"] = _2op::set_colour;
+	}
 
 	// build the forward mapping
 	const char *alphabet = DEFAULT_ZSCII_ALPHABET;
@@ -2212,6 +2238,11 @@ int yylex_() {
 		if (o != f_1op.end()) {
 			yylval.oneOp = o->second;
 			return STMT_1OP;
+		}
+		auto t = f_2op.find(yytoken);
+		if (t != f_2op.end()) {
+			yylval.twoOp = t->second;
+			return STMT_2OP;
 		}
 		auto v1 = f_varop1.find(yytoken);
 		if (v1 != f_varop1.end()) {
