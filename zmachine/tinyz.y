@@ -2541,7 +2541,9 @@ int main(int argc,char **argv) {
 							if (next_global==240)
 								yyerror("cannot have more than 240 globals");
 							the_globals[yytoken] = { GNAME,next_global };
-							++next_global;
+							// skip the scratch global
+							if (++next_global == SCRATCH)
+								++next_global;
 						}
 					}
 				}
@@ -2567,6 +2569,8 @@ int main(int argc,char **argv) {
 				dictionary_blob->copy(d.first.encoded,dict_entry_size);
 				dictionary_blob->storeByte(0);
 			}
+			if (next_global < SCRATCH)
+				yyerror("must declare at least %u global variables so hidden scratch variable can be allocated",SCRATCH);
 			globals_blob = relocatableBlob::create(next_global * 2,UD_DYNAMIC,"globals");
 			if (report & R_SUMMARY) {
 				printf("%u globals\n",next_global);
