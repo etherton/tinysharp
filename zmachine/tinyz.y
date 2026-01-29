@@ -363,8 +363,8 @@
 	std::map<dict_entry,uint16_t> the_dictionary; // maps a dictionary word to its index
 	uint8_t& z_dict_payload(uint16_t i) { return dictionary_blob->contents[7 + i * (dict_entry_size+1) + dict_entry_size]; }
 
-	typedef int (*binary_eval)(int,int);
-	typedef int (*unary_eval)(int);
+	typedef int16_t (*binary_eval)(int16_t,int16_t);
+	typedef int16_t (*unary_eval)(int16_t);
 
 	struct core {
 		virtual ~core() { }
@@ -1725,14 +1725,14 @@ arg
 	;
 
 expr
-	: expr '+' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::add,$3,[](int a,int b)->int{return a+b;})); }
-	| expr '-' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::sub,$3,[](int a,int b)->int{return a-b;})); }
-	| expr '*' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::mul,$3,[](int a,int b)->int{return a*b;})); }
-	| expr '/' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::div,$3,[](int a,int b)->int{if (!b) yyerror("division by zero"); return a/b;})); }
-	| expr '%' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::mod,$3,[](int a,int b)->int{if (!b) yyerror("modulo by zero"); return a%b;})); }
+	: expr '+' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::add,$3,[](int16_t a,int16_t b)->int16_t{return a+b;})); }
+	| expr '-' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::sub,$3,[](int16_t a,int16_t b)->int16_t{return a-b;})); }
+	| expr '*' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::mul,$3,[](int16_t a,int16_t b)->int16_t{return a*b;})); }
+	| expr '/' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::div,$3,[](int16_t a,int16_t b)->int16_t{if (!b) yyerror("division by zero"); return a/b;})); }
+	| expr '%' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::mod,$3,[](int16_t a,int16_t b)->int16_t{if (!b) yyerror("modulo by zero"); return a%b;})); }
 	| '~' expr      	{ $$ = new expr_unary(_1op::not_,$2); }
-	| expr '&' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::and_,$3,[](int a,int b)->int{return a&b;})); }
-	| expr '|' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::or_,$3,[](int a,int b)->int{return a|b;})); }
+	| expr '&' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::and_,$3,[](int16_t a,int16_t b)->int16_t{return a&b;})); }
+	| expr '|' expr 	{ $$ = expr::fold_constant(new expr_binary($1,_2op::or_,$3,[](int16_t a,int16_t b)->int16_t{return a|b;})); }
 	| expr LSH expr		{ $$ = new expr_binary_log_shift($1,$3); }
 	| expr RSH expr		{ $$ = new expr_binary_log_shift($1,new expr_binary(new expr_literal(0),_2op::sub,$3)); }
 	| objref '.' pname	{ $$ = new expr_binary($1,_2op::get_prop,$3); }
@@ -1746,16 +1746,16 @@ expr
 	;
 
 bool_expr
-	: expr '<' expr		{ $$ = new expr_binary_branch($1,_2op::jl,false,$3,[](int a,int b)->int{return a<b;}); }
-	| expr LE expr		{ $$ = new expr_binary_branch($1,_2op::jg,true,$3,[](int a,int b)->int{return a<=b;}); }
-	| expr '>' expr		{ $$ = new expr_binary_branch($1,_2op::jg,false,$3,[](int a,int b)->int{return a>b;}); }
-	| expr GE expr		{ $$ = new expr_binary_branch($1,_2op::jl,true,$3,[](int a,int b)->int{return a>=b;}); }
+	: expr '<' expr		{ $$ = new expr_binary_branch($1,_2op::jl,false,$3,[](int16_t a,int16_t b)->int16_t{return a<b;}); }
+	| expr LE expr		{ $$ = new expr_binary_branch($1,_2op::jg,true,$3,[](int16_t a,int16_t b)->int16_t{return a<=b;}); }
+	| expr '>' expr		{ $$ = new expr_binary_branch($1,_2op::jg,false,$3,[](int16_t a,int16_t b)->int16_t{return a>b;}); }
+	| expr GE expr		{ $$ = new expr_binary_branch($1,_2op::jl,true,$3,[](int16_t a,int16_t b)->int16_t{return a>=b;}); }
 	| expr EQ expr		{ $$ = $3->isZero()? 
 			static_cast<expr_branch*>(new expr_unary_branch(_1op::jz,false,$1)) : 
-			static_cast<expr_branch*>(new expr_binary_branch($1,_2op::je,false,$3,[](int a,int b)->int{return a==b;})); }
+			static_cast<expr_branch*>(new expr_binary_branch($1,_2op::je,false,$3,[](int16_t a,int16_t b)->int16_t{return a==b;})); }
 	| expr NE expr		{ $$ = $3->isZero()? 
 			static_cast<expr_branch*>(new expr_unary_branch(_1op::jz,true,$1)) : 
-			static_cast<expr_branch*>(new expr_binary_branch($1,_2op::je,true,$3,[](int a,int b)->int{return a!=b;})); }
+			static_cast<expr_branch*>(new expr_binary_branch($1,_2op::je,true,$3,[](int16_t a,int16_t b)->int16_t{return a!=b;})); }
 	| expr IN '{' expr '}'	{ $$ = new expr_in($1,$4); }
 	| expr IN '{' expr ',' expr '}' { $$ = new expr_in($1,$4,$6); }
 	| expr IN '{' expr ',' expr ',' expr '}' { $$ = new expr_in($1,$4,$6,$8); }
