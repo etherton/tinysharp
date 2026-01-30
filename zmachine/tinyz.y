@@ -1273,7 +1273,7 @@
 	_var varOp;
 }
 
-%token ATTRIBUTE PROPERTY DIRECTION GLOBAL OBJECT LOCATION ROUTINE ARTICLE PLACEHOLDER ACTION HAS HASNT IN HOLDS
+%token ATTRIBUTE PROPERTY GLOBAL OBJECT LOCATION ROUTINE WORDBIT PLACEHOLDER ACTION HAS HASNT IN HOLDS
 %token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF SIBLING CHILD PARENT MOVE INTO CONSTANT
 %token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME PLNAME
 %token <sval> STRLIT
@@ -1308,7 +1308,7 @@
 
 %type <eval> expr pname objref primary aname arg
 %type <brval> bool_expr cond_expr
-%type <ival> vname opt_parent opt_default opt_gains opt_arrow has_or_hasnt phrase placeholder_list
+%type <ival> vname opt_parent opt_default opt_wordbit opt_arrow has_or_hasnt phrase placeholder_list
 %type <rval> routine_body pvalue
 %type <scopeval> scope
 %type <dlist> dict_list;
@@ -1328,12 +1328,11 @@ decl_list
 decl
 	: attribute_def
 	| property_def
-	| direction_def
 	| global_def
 	| object_def
 	| location_def
 	| routine_def
-	| article_def
+	| wordbit_def
 	| placeholder_def
 	| action_def
 	| constant_def
@@ -1366,7 +1365,7 @@ scope
 	;
 
 property_def
-	: PROPERTY scope NEWSYM opt_default opt_gains ';' 
+	: PROPERTY scope NEWSYM opt_default opt_wordbit ';' 
 		{ 
 			$3->second.token = PNAME; 
 			$3->second.ival = next_value_in_scope($2,property_next); 
@@ -1384,25 +1383,9 @@ opt_default
 	| '=' INTLIT	{ $$ = $2; }
 	;
 
-opt_gains
-	:				{ $$ = 0; }
-	| GAINS INTLIT	{ $$ = $2; }
-	;
-
-direction_def
-	: DIRECTION PNAME dict_list ';' { 
-		if (($2 & SCOPE_LOCATION_MASK) == 0)
-			yyerror("direction property must be type location");
-		if (($2 & 63) == 0 || ($2 & 63) > 14) 
-			yyerror("direction property index must be between 1 and 14");
-		for (auto it=$3; it; it=it->cdr) {
-			uint8_t &payload = z_dict_payload(it->car);
-			if (payload & 15) 
-				yyerror("dictionary word already has direction bits set (payload %d)",payload);
-			else
-				payload |= ($2 & 15);
-		}
-	}
+opt_wordbit
+	:					{ $$ = 0; }
+	| WORDBIT INTLIT	{ $$ = $2; }
 	;
 
 dict_list
@@ -1573,6 +1556,7 @@ pvalue
 			p->storeWord(s->car);
 			s = s->cdr;
 		}
+		delete $1;
 	}
 	;
 
@@ -1596,16 +1580,14 @@ routine_def
 		}
 	;
 
-article_def
-	: ARTICLE dict_list ';'
+wordbit_def
+	: WORDBIT INTLIT dict_list ';'
 		{
-			for (auto it=$2; it; it = it->cdr) {
+			for (auto it=$3; it; it = it->cdr) {
 				auto &payload = z_dict_payload(it->car);
-				if (payload & 15)
-					yyerror("already an article or direction");
-				else
-					payload |= 15;
+				payload |= $2;
 			}
+			delete $3;
 		}
 	;
 
@@ -1947,12 +1929,11 @@ void init(int version) {
 	rw["attribute"] = ATTRIBUTE;
 	rw["constant"] = CONSTANT;
 	rw["property"] = PROPERTY;
-	rw["direction"] = DIRECTION;
 	rw["global"] = GLOBAL;
 	rw["object"] = OBJECT;
 	rw["location"] = LOCATION;
 	rw["routine"] = ROUTINE;
-	rw["article"] = ARTICLE;
+	rw["wordbit"] = WORDBIT;
 	rw["placeholder"] = PLACEHOLDER;
 	rw["action"] = ACTION;
 	rw["in"] = IN;
