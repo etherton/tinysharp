@@ -499,6 +499,7 @@ void machine::printTable(uint16_t zsciiAddr,uint16_t width,uint16_t height,uint1
 
 void machine::copyTable(uint16_t first,uint16_t second,int16_t count) {
 	if (second) {
+		//printf("{{ copy %d bytes from %x to %x }}\n",count,first,second);
 		if (count < 0 || first > second) {
 			if (count < 0)
 				count = -count;
@@ -881,7 +882,7 @@ void machine::run(uint32_t pc) {
 				case _var::print_table: printTable(operands[0].getU(),operands[1].getU(),opCount>2?operands[2].getU():1,
 						opCount>3?operands[3].getU():0);
 						break;
-				case _var::copy_table: copyTable(operands[0].getU(),operands[1].getU(),operands[3].getS()); break;
+				case _var::copy_table: copyTable(operands[0].getU(),operands[1].getU(),operands[2].getS()); break;
 				case _var::check_arg_count: branch(operands[0].getU() <= (m_stack[m_lp+2].lo & 31)); break;
 				default: fault("unimplemented VAR opcode %d (0x%x)",opcode,opcode); break;
 			}
