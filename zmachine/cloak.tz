@@ -189,7 +189,8 @@ object hook "small brass hook" (cloakroom) {
 	scenery; supporter;
 }
 
-object hat "a nondescript hat" (foyer) {
+object hat "nondescript hat" (foyer) {
+	adjective: 'boring' 'nondescript';
 	noun: 'hat';
 	description: "It's a really boring hat just meant to test the cloakroom";
 	clothing;
@@ -504,6 +505,57 @@ routine DictAddrToIndex [addr; hdr] {
 	return addr;
 }
 
+routine PrintDict [w; hdr] {
+	w = hdr[[4]] + 7 + w * ($dict_entry_size+1);
+	print_char 32;
+	print_addr w;
+	rfalse;
+}
+
+global CaptureBuffer = byte_array(64);
+
+routine ObjUtil[i] {
+	output_stream2(3, CaptureBuffer);
+	print_obj i;
+	output_stream(-3);
+	if (CaptureBuffer[1] isnt 0) {
+		if (CaptureBuffer[2] in {@a,@e,@i} or CaptureBuffer[2] in {@o,@u})
+			print "An ";
+		else
+			print "A ";
+		print_obj i;
+	}
+	rfalse;
+}
+
+routine ObjLoop[;i j k w] {
+	while (i < $object_count) {
+		++i;
+		ObjUtil(i);
+		j = addrof(i.adjective);
+		if (j isnt 0) {
+			print " has adjectives:";
+			k = 0;
+			while (k+k < sizeof(j)) {
+				PrintDict(j[[k]]);
+				++k;
+			}
+		}
+		j = addrof(i.noun);
+		if (j isnt 0) {
+			print " and has nouns:";
+			k = 0;
+			while (k+k < sizeof(j)) {
+				PrintDict(j[[k]]);
+				++k;
+			}
+		}
+		crlf;
+		++i;
+	}
+	rfalse;
+}
+
 routine DoTurn[;wc wp wt c] {
 	text_buffer[0] = 62;
 	parse_buffer[0] = 15;
@@ -546,7 +598,7 @@ routine Startup[; hdr] {
    print_num hdr[[1]];
    print " compiled on ";
    PrintString(18,6);
-   print " by ";
+   print " by tinyzc v";
    PrintString(60,4);
    crlf;
 
@@ -558,6 +610,7 @@ routine Startup[; hdr] {
 routine main [] {
 	Startup();
 	Look();
+	ObjLoop();
 	while (deadflag is zero) {
 		DoTurn();
 		if (deadflag is 3)

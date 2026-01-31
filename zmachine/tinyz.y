@@ -1274,7 +1274,7 @@
 }
 
 %token ATTRIBUTE PROPERTY GLOBAL OBJECT LOCATION ROUTINE WORDBIT PLACEHOLDER ACTION HAS HASNT IN HOLDS
-%token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF SIBLING CHILD PARENT MOVE INTO CONSTANT
+%token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF SIBLING CHILD PARENT MOVE INTO CONSTANT SIZEOF ADDROF
 %token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME PLNAME
 %token <sval> STRLIT
 %token <rval> RNAME
@@ -1686,6 +1686,7 @@ stmt
 	| IF cond_expr stmt ELSE stmt 	%prec IF	{ $$ = new stmt_if($2,$3,$5); }
 	| REPEAT stmt WHILE cond_expr ';'	{ $$ = new stmt_repeat($2,$4); }
 	| WHILE cond_expr stmt				{ $$ = new stmt_while($2,$3); }
+	// | FOR '(' opt_init_expr ';' opt_bool_expr
 	| '{' stmts '}'			{ $$ = new stmts($2); }
 	| vname '=' expr ';'	{ $$ = new stmt_assign($1,expr::fold_constant($3)); }
 	| vname '[' expr ']' '=' expr ';' { $$ = new stmt_store(_var::storeb,new expr_variable($1),$3,$6); }
@@ -1740,6 +1741,8 @@ expr
 	| expr LSH expr		{ $$ = new expr_binary_log_shift($1,$3); }
 	| expr RSH expr		{ $$ = new expr_binary_log_shift($1,new expr_binary(new expr_literal(0),_2op::sub,$3)); }
 	| objref '.' pname	{ $$ = new expr_binary($1,_2op::get_prop,$3); }
+	| ADDROF '(' objref '.' pname ')' { $$ = new expr_binary($3,_2op::get_prop_addr,$5); }
+	| SIZEOF '(' expr ')' { $$ = new expr_unary(_1op::get_prop_len,$3); }
 	| '(' expr ')'  	{ $$ = expr::fold_constant($2); }
 	| primary       	{ $$ = $1; }
 	| INTLIT        	{ $$ = new expr_literal($1); }
@@ -1967,6 +1970,8 @@ void init(int version) {
 	rw["self"] = SELF;
 	rw["move"] = MOVE;
 	rw["into"] = INTO;
+	rw["sizeof"] = SIZEOF;
+	rw["addrof"] = ADDROF;
 
 	f_0op["restart"] = _0op::restart;
 	f_0op["quit"] = _0op::quit;
@@ -2315,6 +2320,7 @@ int yylex_() {
 			}
 			else
 				return '+';
+		case '@': yynext(); yylval.ival = yych; yynext(); return INTLIT;
 		case '(': case ')':
 		case '~': case '*': case ':': case '.': case '%':
 		case '&': case '|': case ';':
@@ -2337,7 +2343,8 @@ int yylex_() {
 		case '}':
 			--yyscope;
 			yynext();
-			return '}';		case '=':
+			return '}';		
+		case '=':
 			yynext();
 			if (yych=='=') {
 				yynext();
@@ -2511,8 +2518,15 @@ int main(int argc,char **argv) {
 		yyerror("missing input tz name");
 	init(zversion);
 
-	char outname[] = "story.z3";
-	outname[7] = the_header.version + '0';
+	char outname[64];
+	strlcpy(outname,argv[0],sizeof(outname)-4);
+	char *ext = strrchr(outname,'.');
+	if (!ext)
+		ext = outname + strlen(outname);
+	*ext++ = '.';
+	*ext++ = 'z';
+	*ext++ = the_header.version + '0';
+	*ext = 0;
 	// printf("compiling release %d\n",release_number);
 
 	for (yypass=1; yypass<=2; yypass++) {
@@ -2645,12 +2659,13 @@ int main(int argc,char **argv) {
 			header_blob->storeWord(0); // +24 abbreviations
 			header_blob->storeWord((relocatableBlob::nextAddress + ((1<<story_shift)-1)) >> story_shift); // length of file
 			header_blob->offset = 60;
-			header_blob->storeByte('t');
-			header_blob->storeByte('z');
+			header_blob->storeByte('0');
+			header_blob->storeByte('.');
 			header_blob->storeByte('0');
 			header_blob->storeByte('0');
 
 			// todo: character table etc.
+			printf("writing '%s'...\n",outname);
 			FILE *output = fopen(outname,"w");
 			relocatableBlob::writeAll(output);
 			fclose(output);
