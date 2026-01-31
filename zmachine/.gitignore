@@ -7,3 +7,5 @@ tinyz.output
 *.o
 zdis
 tinyzterp
+tinyzc
+tinyzc.dSYM/
