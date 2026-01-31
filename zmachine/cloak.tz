@@ -91,7 +91,10 @@ constant nounBit = 1 << 6;
 constant verbBit = 1 << 5;
 constant prepBit = 1 << 4;
 constant artBit = 1 << 3;
-constant dirBit = 1 << 0;
+constant dirBit = 1 << 2;
+// if this word only appears in one adjective or noun list, it's set
+// this allows the parser to skip a lot of disambiguation processing.
+constant uniqueBit = 1 << 0;
 
 // plain properties can be attached to rooms or objects
 // object properties can only be attached to objects
@@ -134,7 +137,7 @@ global deadflag;
 // player is always first at object 1. this also guarantees that
 // a room a player can be in is always greater than 1, meaning routines
 // that return a location can also rtrue or rfalse as well.
-object player "Player" (foyer) {
+object Player "Player" (foyer) {
 }
 
 // If a string constant crosses multiple lines, any number of spaces and tabs
@@ -225,7 +228,7 @@ location bar "Foyer Bar" {
 	}
 }
 
-object cloak "velvet cloak" (player) {
+object cloak "velvet cloak" (Player) {
 	adjective: 'handsome' 'velvet' 'black' 'satin';
 	noun: 'cloak';
 	description: "A handsome cloak, of velvet trimmed with satin, and slightly
@@ -281,27 +284,8 @@ routine perform [act obj iobj] {
 	rfalse;
 }
 
-// words in action syntax get encoded into nonzero indices
-// we support up to 8191 unique words (plenty since each
-// takes at least four bytes and must be below 64k mark)
-// the upper three bits indicate the type of entry:
-// 1--: this is the last entry in the table. routines follow.
-// -00: this is an object placeholder; lower bits indciate which kind
-// -01: this is a single word
-// -10: this is the second word of a two-word phrase
-
-// when a 'word' appears in a routine, it evaluates to the 0-based index
-// of the word in the master dictionary
-
-// a placeholder encodes a bit shift between 0 and 12; there can be
-// up to 13 of them.
-placeholder held;		// object in your possession
-placeholder here;		// object in your room (parent)
-placeholder anyobj;		// any object not in room zero
-placeholder compass;	// a compass direction
-
 routine Inventory [;i] {
-	if (player has child -> i) {
+	if (Player has child -> i) {
 		print "You are carrying:";
 		crlf;
 		repeat {
@@ -366,7 +350,7 @@ routine Travel [dir;r] {
 		// player is the first object, and cannot be a room.
 		// this leave rfalse and rtrue as valid responses.
 		if (r > 1) {
-			move player into r;
+			move Player into r;
 			room = r;
 			CallAfter(#enter,r);
 			Look();
@@ -379,7 +363,7 @@ routine Take [obj] {
 	if (obj hasnt scenery) {
 		if (BlockBefore(#take,room) is true or BlockBefore(#take,obj) is true)
 			rtrue;
-		move obj into player;
+		move obj into Player;
 		CallAfter(#take,obj);
 		rfalse;
 	}
@@ -399,13 +383,33 @@ routine Examine [obj; desc] {
 }
 
 routine Drop [obj] {
-	if (player holds obj and CheckBefore(#drop,room) isnt false and
+	if (Player holds obj and CheckBefore(#drop,room) isnt false and
 		CheckBefore(#drop,obj) isnt false) {
-		move obj into player parent;
+		move obj into Player parent;
 		rtrue;
 	}
 	else
 		rfalse;
+}
+
+routine PutOn [do ido] {
+	if (ido has supporter) {
+		if (ido has child)
+			print_ret "There's no room.";
+		else if (CheckBefore(#puton,room) isnt false and 
+				CheckBefore(#puton,do) isnt false and 
+				CheckBefore(#puton,ido) isnt false) {
+			move do into ido;
+			CallAfter(#puton,ido);
+			CallAfter(#puton,do);
+			CallAfter(#puton,room);
+			rfalse;
+		}
+		else
+			rtrue;
+	}
+	else
+		print_ret "You can't put it on that.";
 }
 
 // each dictionary word has an extra byte associated with it
@@ -425,33 +429,60 @@ routine Drop [obj] {
 // if payload is nonzero, the word is a synonym
 // if payload is nonzero but larger than number of words, it's a biased direction proeprty index
 
+// object is owned by player
+routine Held [obj] {
+	while (obj parent isnt zero) {
+		obj = obj parent;
+		if (obj is Player)
+			rtrue;
+	}
+	rfalse;
+}
+
+// object is in room with player but not held by player
+routine Nearby [obj; pr] {
+	while (obj parent isnt zero) {
+		obj = obj parent;
+		if (obj is room)
+			rtrue;
+		else if (obj is Player)
+			rfalse;
+	}
+	rfalse;
+}
+
+// Object is in player's room and/or held by player
+routine Here [obj] {
+	while (obj parent isnt zero) {
+		obj = obj parent;
+		if (obj is room)
+			rtrue;
+	}
+	rfalse;
+}
+
+
+constant endOfAction = 1 << 15;
+constant nextIsDisambiguator = 1 << 14;
+constant twoWordPhrase = 1 << 13;
+/*
+	The first word is the action routine, or zero to terminate the entire action table
+	The upper 3 bits indciate several things: (and leave room for vocabulary of 8191 words)
+	--0 - this is a single word phrase
+	--1 - this is the first word of a two word phrase (next word follows)
+	-1- - the next word is a disambiguation routine (or a word bit mask if < 256)
+	1-- - this is the end of the action list
+	*/
+
 // actions are scanned in-order
 // so specific cases need to be before more general cases
 // some actions are really just messages and aren't part of grammar
-action #inv { 'i'/'inventory'/'take inventory': Inventory }
-action #take { 'get'/'take'/'pick up' here: Take }
-action #drop { 'drop'/'put down' held: Drop }
-action #look { 'look at'/'examine'/'x' here/held: Examine }
-action #puton { 'hang'/'place'/'put' held 'on'/'upon'/'onto' here: [do ido] {
-	if (ido has supporter) {
-		if (ido has child)
-			print_ret "There's no room.";
-		else if (CheckBefore(#puton,room) isnt false and 
-				CheckBefore(#puton,do) isnt false and 
-				CheckBefore(#puton,ido) isnt false) {
-			move do into ido;
-			CallAfter(#puton,ido);
-			CallAfter(#puton,do);
-			CallAfter(#puton,room);
-			rfalse;
-		}
-		else
-			rtrue;
-	}
-	else
-		print_ret "You can't put it on that.";
-}}
-action #go { 'go'/'walk'/'travel' compass: Travel }
+action #inv { Inventory: 'i'/'inventory'/'take inventory' }
+action #take { Take: 'get'/'take'/'pick up' Here }
+action #drop { Drop: 'drop'/'put down' Held }
+action #look { Examine: 'look at'/'examine'/'x' Nearby }
+action #puton { PutOn: 'hang'/'place'/'put' Held 'on'/'upon'/'on to'/'onto' Here }
+// action #go { Travel: 'go'/'walk'/'travel' dirBit }
 action #leave;
 action #enter;
 
@@ -597,8 +628,32 @@ routine DoTurn[;wc wp wt c] {
 	rfalse;
 }
 
+routine DebugActions[;a] {
+	a = $actions;
+	while (a[[0]] isnt -1) {
+		print "routine at "; print_num a[[0]];
+		print ": ";
+		repeat {
+			if (a[[0]] & twoWordPhrase isnt 0) {
+				PrintDict(a[[0]] & 8191);
+				++a;
+				print "+";
+				PrintDict(a[[0]] & 8191);
+				++a;
+			}
+			else {
+				PrintDict(a[[0]] & 8191);
+				++a;
+			}
+			print " ";
+		} while (a[[-1]] & endOfAction isnt 0);
+		crlf;
+	}
+	rfalse;
+}
+
 routine Startup[; hdr] {
-   room = player parent;
+   room = Player parent;
 
    print "Release ";
    print_num hdr[[1]];
@@ -617,6 +672,7 @@ routine main [] {
 	Startup();
 	Look();
 	ObjLoop();
+	DebugActions();
 	while (deadflag is zero) {
 		DoTurn();
 		if (deadflag is 3)

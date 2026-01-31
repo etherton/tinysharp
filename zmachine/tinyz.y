@@ -15,7 +15,7 @@
 	uint16_t encode_string(uint8_t *dest,size_t destSize,const char *src,size_t srcSize,bool forDict = false);
 	int encode_string(const char*);
 	const uint8_t* print_encoded_string(const uint8_t *src,void (*pr)(char ch));
-	uint8_t next_global, next_local, next_placeholder, story_shift = 1, dict_entry_size = 4;
+	uint8_t next_global, next_local, story_shift = 1, dict_entry_size = 4;
 	storyHeader the_header = { 3 };
 
 	template <typename T> struct list_node {
@@ -199,8 +199,9 @@
 	};
 	uint16_t relocatableBlob::firstFree=0xFFFF, relocatableBlob::firstPlaced=0xFFFF, relocatableBlob::lastPlaced;
 	uint32_t relocatableBlob::nextAddress;
-	relocatableBlob *header_blob, *dictionary_blob, *object_blob, *properties_blob, *globals_blob, *current_global;
+	relocatableBlob *header_blob, *dictionary_blob, *object_blob, *properties_blob, *globals_blob, *actions_blob, *current_global;
 	int16_t entry_point_index = -1;
+	uint8_t action_bit = 0;
 
 	static const uint8_t opsizes[3] = { 2,1,1 };
 	const uint8_t LONG_JUMP = 0x8C;			// +/-32767
@@ -1273,9 +1274,9 @@
 	_var varOp;
 }
 
-%token ATTRIBUTE PROPERTY GLOBAL OBJECT LOCATION ROUTINE WORDBIT PLACEHOLDER ACTION HAS HASNT IN HOLDS
+%token ATTRIBUTE PROPERTY GLOBAL OBJECT LOCATION ROUTINE WORDBIT ACTION HAS HASNT IN HOLDS
 %token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF SIBLING CHILD PARENT MOVE INTO CONSTANT SIZEOF ADDROF
-%token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME PLNAME
+%token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME
 %token <sval> STRLIT
 %token <rval> RNAME
 %token <sym> NEWSYM
@@ -1308,7 +1309,7 @@
 
 %type <eval> expr pname objref primary aname arg
 %type <brval> bool_expr cond_expr
-%type <ival> vname opt_parent opt_default opt_wordbit opt_arrow has_or_hasnt phrase placeholder_list
+%type <ival> vname opt_parent opt_default opt_wordbit opt_arrow has_or_hasnt phrase
 %type <rval> routine_body pvalue
 %type <scopeval> scope
 %type <dlist> dict_list;
@@ -1333,7 +1334,6 @@ decl
 	| location_def
 	| routine_def
 	| wordbit_def
-	| placeholder_def
 	| action_def
 	| constant_def
 	;
@@ -1586,37 +1586,23 @@ routine_def
 wordbit_def
 	: WORDBIT INTLIT dict_list ';'
 		{
-			for (auto it=$3; it; it = it->cdr) {
-				auto &payload = z_dict_payload(it->car);
-				payload |= $2;
-			}
+			for (auto it=$3; it; it = it->cdr)
+				z_dict_payload(it->car) |= $2;
 			delete $3;
-		}
-	;
-
-placeholder_def
-	: PLACEHOLDER NEWSYM ';' 
-		{ 
-			$2->second.token = PLNAME; 
-			$2->second.ival = ++next_placeholder; 
 		}
 	;
 
 action_def
 	: ACTION INTLIT ';'
-	| ACTION INTLIT '{' action_list ':' routine_body '}'
-	| ACTION INTLIT '{' action_list ':' RNAME '}'
+	| ACTION INTLIT '{' RNAME ':' { actions_blob->addRelocation($4); action_bit = 32; } action_list '}'
+		{ actions_blob->contents[actions_blob->offset-2] |= 0x80; }
 	;
 
 action_list
 	: phrase_list
-	| phrase_list placeholder_list
-	| phrase_list placeholder_list phrase_list placeholder_list
-	;
-
-placeholder_list
-	: PLNAME						{ $$ = $1; }
-	| PLNAME '/' placeholder_list	{ $$ = $1 | ($3 << 4); }
+	| phrase_list RNAME	{ actions_blob->contents[actions_blob->offset-2] |= 0x40; actions_blob->addRelocation($2); }
+	| phrase_list RNAME { actions_blob->contents[actions_blob->offset-2] |= 0x40; actions_blob->addRelocation($2); action_bit = 16; }
+	  phrase_list RNAME { actions_blob->contents[actions_blob->offset-2] |= 0x40; actions_blob->addRelocation($5); }
 	;
 
 phrase_list
@@ -1625,8 +1611,8 @@ phrase_list
 	;
 
 phrase
-	: DICT			{ $$ = $1; }
-	| DICT DICT		{ $$ = (1<<28) | ($2 << 14) | $1; }
+	: DICT			{ z_dict_payload($1) |= action_bit; actions_blob->storeWord($1); }
+	| DICT DICT		{ z_dict_payload($1) |= action_bit; actions_blob->storeWord($2 | 0x2000); }
 	;
 
 routine_body
@@ -1940,7 +1926,6 @@ void init(int version) {
 	rw["location"] = LOCATION;
 	rw["routine"] = ROUTINE;
 	rw["wordbit"] = WORDBIT;
-	rw["placeholder"] = PLACEHOLDER;
 	rw["action"] = ACTION;
 	rw["in"] = IN;
 	rw["is"] = EQ;
@@ -2562,8 +2547,8 @@ int main(int argc,char **argv) {
 					}
 					else if (t == GLOBAL) {
 						if (yylex() == NEWSYM) {
-							if (next_global==240)
-								yyerror("cannot have more than 240 globals");
+							if (next_global==239)
+								yyerror("cannot have more than 239 globals");
 							the_globals[yytoken] = { GNAME,next_global++ };
 						}
 					}
@@ -2590,18 +2575,23 @@ int main(int argc,char **argv) {
 				dictionary_blob->copy(d.first.encoded,dict_entry_size);
 				dictionary_blob->storeByte(0);
 			}
+			++next_global;
 			globals_blob = relocatableBlob::create(next_global * 2,UD_DYNAMIC,"globals");
+			actions_blob = relocatableBlob::create(the_action_table.size() << 4,UD_STATIC,"actions");
 			if (report & R_SUMMARY) {
 				printf("%u globals\n",next_global);
 				printf("%zu objects\n",the_object_table.size()-1);
 				printf("%zu actions\n",the_action_table.size()-1);
 			}
 			the_globals["$object_count"] = { INTLIT, int16_t(the_object_table.size() - 1) };
+			the_globals["$dict_word_count"] = { INTLIT, int16_t(the_dictionary.size()) };
+			the_globals["$actions"] = { GNAME, int16_t(next_global + 16) };
 			header_blob = relocatableBlob::create(64,UD_DYNAMIC,"story header");
 		}
 		else {
 			yyparse();
-
+			actions_blob->storeWord(-1); // terminate the action list
+			globals_blob->addRelocation(actions_blob->index);
 			uint8_t objSize = the_header.version==3? 9 : 14;
 			uint8_t defPropCount = the_header.version==3? 31 : 63;
 			object_blob = relocatableBlob::create((the_object_table.size()-1)*objSize + defPropCount*2,UD_DYNAMIC,"object table");
