@@ -67,11 +67,14 @@ void machine::init(const void *data,bool debug) {
 
 #if ENABLE_DEBUG
 void machine::printObjTree() {
+	auto prev = m_outputEnables;
+	m_outputEnables &= ~1;
 	for (int i=1; i<=m_objCount; i++) {
 		printf("Object %d named [",i);
 		objPrint(i);
 		printf("] parent %d child %d sibling %d\n",objGetParent(i).getU(),objGetChild(i).getU(),objGetSibling(i).getU());
 	}
+	m_outputEnables = prev;
 }
 #endif
 
