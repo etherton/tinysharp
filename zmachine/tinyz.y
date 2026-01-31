@@ -1459,6 +1459,7 @@ object_or_location_def
 		cdef = the_object_table[$1];
 		cdef->child = 0;
 		cdef->parent = $3;
+
 		if ($3) {
 			cdef->sibling = the_object_table[$3]->child;
 			the_object_table[$3]->child = $1;
@@ -1470,6 +1471,8 @@ object_or_location_def
 		encode_string(cdef->descr,cdef->descrLen,$2,strlen($2));
 		delete[] $2;
 		memset(cdef->attributes,0,sizeof(cdef->attributes));
+		if (expected_scope == SCOPE_OBJECT_MASK)
+			cdef->attributes[0] = 0x80;
 		unsigned propCount = the_header.version==3? 32 : 64;
 		cdef->properties = new relocatableBlob*[propCount];
 		cdef->propertySize = 0;
@@ -2039,6 +2042,7 @@ void init(int version) {
 
 	the_globals["$zversion"] = { INTLIT, int16_t(version) };
 	the_globals["$dict_entry_size"] = { INTLIT, int16_t(dict_entry_size) };
+	the_globals["$is_object"] = { ANAME, int16_t(0) };
 }
 
 int encode_string(const char *src) {

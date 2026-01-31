@@ -43,9 +43,9 @@
 //   expr binary_op expr
 //   expr == integer_literal,integer_literal[,integer_literal][,integer_literal]
 
-// If there are two attributes, they are opposites
-// Each resolves to an index between 0-31 (0-47 on v4+)
+// Each resolves to an index between 1-31 (1-47 on v4+)
 // it's not always strictly necessary but reduces the chance of programming errors
+// attribute zero ($is_object) is special and is used to disambiguate objects (true) and locations (false)
 attribute global lit;
 attribute global general;
 attribute global supporter;
@@ -154,6 +154,9 @@ location foyer "Foyer of the Opera House" {
 	    to be getting worse.";
 	w_to: cloakroom;
 	lit;
+}
+
+object Aardvark "aardvark" (foyer) {
 }
 
 // location_or_object new_name "short description" ['(' parent ')'] '{'
@@ -532,26 +535,29 @@ routine ObjLoop[;i j k w] {
 	while (i < $object_count) {
 		++i;
 		ObjUtil(i);
-		j = addrof(i.adjective);
-		if (j isnt 0) {
-			print " has adjectives:";
-			k = 0;
-			while (k+k < sizeof(j)) {
-				PrintDict(j[[k]]);
-				++k;
+		if (i has $is_object) {
+			j = addrof(i.adjective);
+			if (j isnt 0) {
+				print " has adjectives:";
+				k = 0;
+				while (k+k < sizeof(j)) {
+					PrintDict(j[[k]]);
+					++k;
+				}
+			}
+			j = addrof(i.noun);
+			if (j isnt 0) {
+				print " and has nouns:";
+				k = 0;
+				while (k+k < sizeof(j)) {
+					PrintDict(j[[k]]);
+					++k;
+				}
 			}
 		}
-		j = addrof(i.noun);
-		if (j isnt 0) {
-			print " and has nouns:";
-			k = 0;
-			while (k+k < sizeof(j)) {
-				PrintDict(j[[k]]);
-				++k;
-			}
-		}
+		else
+			print " is a location";
 		crlf;
-		++i;
 	}
 	rfalse;
 }
