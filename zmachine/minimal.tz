@@ -91,6 +91,13 @@ routine andtest2 [a b] {
 		rfalse;
 }
 
+routine ortest2 [a b] {
+	if (a isnt 0 or b isnt 0)
+		rtrue;
+	else
+		rfalse;
+}
+
 routine main[] {
 	// andtest(0,0); andtest(1,0); andtest(0,1); andtest(1,1);
 	// ortest(0,0); ortest(1,0); ortest(0,1); ortest(1,1);
