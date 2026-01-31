@@ -1,5 +1,5 @@
 a.out
-story.z*
+*.z*
 *.txt
 *.save
 tinyz.tab.*
