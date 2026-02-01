@@ -96,6 +96,18 @@ constant dirBit = 1 << 2;
 // this allows the parser to skip a lot of disambiguation processing.
 constant uniqueBit = 1 << 0;
 
+// synonyms of a word are identical to it in all contexts. if a word appears
+// here as a synonym it cannot appear anywhere else (because it would never match)
+// internally synonyms are flagged with a payload of 0xFF.
+synonym 'north' 'n';
+synonym 'south' 's';
+synonym 'east' 'e';
+synonym 'west' 'w';
+synonym 'examine' 'x';
+synonym 'wait' 'z';
+synonym 'inventory' 'i';
+synonym 'again' 'g';
+
 // plain properties can be attached to rooms or objects
 // object properties can only be attached to objects
 // room properties can only be attached to rooms
@@ -111,17 +123,17 @@ property location s_to;
 property location e_to;
 property location w_to;
 
-wordbit dirBit 'north' 'n' 'south' 's' 'east' 'e' 'west' 'w';
+wordbit dirBit 'north' 'south' 'east' 'west';
 wordbit artBit 'a' 'an' 'the';
 
 routine Compass [word] {
-	if (word in {'north','n'})
+	if (word is 'north')
 		return n_to;
-	else if (word in {'south','s'})
+	else if (word is 'south')
 		return s_to;
-	else if (word in {'east','e'})
+	else if (word is 'east')
 		return e_to;
-	else if (word in {'west','w'})
+	else if (word is 'west')
 		return w_to;
 	else
 		return -1;
@@ -477,12 +489,12 @@ constant twoWordPhrase = 1 << 13;
 // actions are scanned in-order
 // so specific cases need to be before more general cases
 // some actions are really just messages and aren't part of grammar
-action #inv { Inventory: 'i'/'inventory'/'take inventory' }
+action #inv { Inventory: 'inventory'/'take inventory' }
 action #take { Take: 'get'/'take'/'pick up' Here }
 action #drop { Drop: 'drop'/'put down' Held }
-action #look { Examine: 'look at'/'examine'/'x' Nearby }
+action #look { Examine: 'look at'/'examine' Nearby }
 action #puton { PutOn: 'hang'/'place'/'put' Held 'on'/'upon'/'on to'/'onto' Here }
-// action #go { Travel: 'go'/'walk'/'travel' dirBit }
+// action #go { Travel: 'go' dirBit }
 action #leave;
 action #enter;
 
@@ -594,6 +606,19 @@ routine ObjLoop[;i j k w] {
 	rfalse;
 }
 
+// given address of a word that is a synonym, return address of original word
+routine FindSynonym [w; i m hdr] {
+	w = DictAddrToIndex(w);
+	while ($synonyms[[i]] isnt -1) {
+		if ($synonyms[[i]] < 0)
+			m = $synonyms[[i]] & 8191;
+		else if ($synonyms[[i]] is w)
+			return m * ($dict_entry_size+1) + 7 + hdr[[4]];
+		++i;
+	}
+	rfalse;
+}
+
 routine DoTurn[;wc wp wt c] {
 	text_buffer[0] = 62;
 	parse_buffer[0] = 15;
@@ -615,6 +640,8 @@ routine DoTurn[;wc wp wt c] {
 	wp = parse_buffer + 2;
 	wt = wp[[0]];
 	if (wt isnt zero) {
+		if (wt[$dict_entry_size] is 255)
+			wt = FindSynonym(wt);
 		++turns;
 		if ((wt[$dict_entry_size] & dirBit) isnt zero) {
 			wt = DictAddrToIndex(wt);
@@ -623,7 +650,7 @@ routine DoTurn[;wc wp wt c] {
 			if (c isnt -1)
 				return Travel(c);
 		}
-		if (wt in {'inventory','i'})
+		if (wt is 'inventory')
 			return Inventory();
 	}
 	rfalse;

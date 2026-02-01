@@ -208,7 +208,7 @@
 	};
 	uint16_t relocatableBlob::firstFree=0xFFFF, relocatableBlob::firstPlaced=0xFFFF, relocatableBlob::lastPlaced;
 	uint32_t relocatableBlob::nextAddress;
-	relocatableBlob *header_blob, *dictionary_blob, *object_blob, *properties_blob, *globals_blob, *actions_blob, *current_global;
+	relocatableBlob *header_blob, *dictionary_blob, *object_blob, *properties_blob, *globals_blob, *actions_blob, *synonyms_blob, *current_global;
 	int16_t entry_point_index = -1;
 	uint8_t action_bit = 0;
 
@@ -1283,7 +1283,7 @@
 	_var varOp;
 }
 
-%token ATTRIBUTE PROPERTY GLOBAL OBJECT LOCATION ROUTINE WORDBIT ACTION HAS HASNT IN HOLDS
+%token ATTRIBUTE PROPERTY GLOBAL OBJECT LOCATION ROUTINE WORDBIT ACTION HAS HASNT IN HOLDS SYNONYM
 %token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF SIBLING CHILD PARENT MOVE INTO CONSTANT SIZEOF ADDROF
 %token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME
 %token <sval> STRLIT
@@ -1318,7 +1318,7 @@
 
 %type <eval> expr pname objref primary aname arg
 %type <brval> bool_expr cond_expr
-%type <ival> vname opt_parent opt_default opt_wordbit opt_arrow has_or_hasnt phrase
+%type <ival> vname opt_parent opt_default opt_wordbit opt_arrow has_or_hasnt phrase dict
 %type <rval> routine_body pvalue
 %type <scopeval> scope
 %type <dlist> dict_list;
@@ -1344,6 +1344,7 @@ decl
 	| routine_def
 	| wordbit_def
 	| action_def
+	| synonym_def;
 	| constant_def
 	;
 
@@ -1398,10 +1399,22 @@ opt_wordbit
 	;
 
 dict_list
-	: DICT dict_list	{ $$ = new list_node<uint16_t>($1,$2); }
-	| DICT				{ $$ = new list_node<uint16_t>($1,nullptr); }
+	: dict dict_list	{ $$ = new list_node<uint16_t>($1,$2); }
+	| dict				{ $$ = new list_node<uint16_t>($1,nullptr); }
 	;
 
+synonym_def
+	: SYNONYM dict { synonyms_blob->storeWord($2 | 32768); } syn_list ';'
+	;
+
+syn_list
+	: syn_list syn
+	| syn
+	;
+
+syn
+	: dict		{ synonyms_blob->storeWord($1); z_dict_payload($1) = 255; }
+	;
 
 global_def
 	: GLOBAL GNAME opt_global_init ';'
@@ -1563,7 +1576,7 @@ pvalue
 		auto p = relocatableBlob::createProperty($1->size() * 2,currentProperty);
 		$$ = p->index;
 		auto s = $1;
-		while (s) {
+		while (s) { 
 			z_dict_payload(s->car) |= property_bits[currentBits];
 			p->storeWord(s->car);
 			s = s->cdr;
@@ -1619,8 +1632,12 @@ phrase_list
 	;
 
 phrase
-	: DICT			{ z_dict_payload($1) |= action_bit; actions_blob->storeWord($1); }
-	| DICT DICT		{ z_dict_payload($1) |= action_bit; actions_blob->storeWord($1); actions_blob->storeWord($2 | 0x2000); }
+	: dict			{ z_dict_payload($1) |= action_bit; actions_blob->storeWord($1); }
+	| dict dict		{ z_dict_payload($1) |= action_bit; actions_blob->storeWord($1); actions_blob->storeWord($2 | 0x2000); }
+	;
+
+dict
+	: DICT	{ if (z_dict_payload($1)==255) yyerror("cannot use synonym here"); $$ = $1; }
 	;
 
 routine_body
@@ -1743,7 +1760,7 @@ expr
 	| '(' expr ')'  	{ $$ = expr::fold_constant($2); }
 	| primary       	{ $$ = $1; }
 	| INTLIT        	{ $$ = new expr_literal($1); }
-	| DICT				{ $$ = new expr_literal($1); }
+	| dict				{ $$ = new expr_literal($1); }
 	| PNAME				{ $$ = new expr_literal($1 & 63); }
 	| RNAME opt_call_args { $$ = new expr_call(new list_node<expr*>(new expr_reloc($1),$2)); }
 	| CALL expr opt_call_args { $$ = new expr_call(new list_node<expr*>($2,$3)); }
@@ -1934,6 +1951,7 @@ void init(int version) {
 	rw["location"] = LOCATION;
 	rw["routine"] = ROUTINE;
 	rw["wordbit"] = WORDBIT;
+	rw["synonym"] = SYNONYM;
 	rw["action"] = ACTION;
 	rw["in"] = IN;
 	rw["is"] = EQ;
@@ -2406,6 +2424,7 @@ int yylex_() {
 			else
 				yynext();
 			yytoken[yylen] = 0;
+			
 			dict_entry de = {};
 			encode_string(de.encoded,dict_entry_size,yytoken,yylen,true);
 			if (yypass==1) {
@@ -2555,8 +2574,8 @@ int main(int argc,char **argv) {
 					}
 					else if (t == GLOBAL) {
 						if (yylex() == NEWSYM) {
-							if (next_global==239)
-								yyerror("cannot have more than 239 globals");
+							if (next_global==238)
+								yyerror("cannot have more than 238 globals");
 							the_globals[yytoken] = { GNAME,next_global++ };
 						}
 					}
@@ -2584,8 +2603,11 @@ int main(int argc,char **argv) {
 				dictionary_blob->storeByte(0);
 			}
 			the_globals["$actions"] = { GNAME, int16_t(next_global++) };
+			the_globals["$synonyms"] = { GNAME, int16_t(next_global++) };
+
 			globals_blob = relocatableBlob::create(next_global * 2,UD_DYNAMIC,"globals");
 			actions_blob = relocatableBlob::create(the_action_table.size() << 4,UD_STATIC,"actions");
+			synonyms_blob = relocatableBlob::create(256,UD_STATIC,"synonyms");
 			if (report & R_SUMMARY) {
 				printf("%u globals\n",next_global);
 				printf("%zu objects\n",the_object_table.size()-1);
@@ -2598,7 +2620,9 @@ int main(int argc,char **argv) {
 		else {
 			yyparse();
 			actions_blob->storeWord(-1); // terminate the action list
+			synonyms_blob->storeWord(-1); // terminate the synonym list
 			globals_blob->addRelocation(actions_blob->index);
+			globals_blob->addRelocation(synonyms_blob->index);
 			uint8_t objSize = the_header.version==3? 9 : 14;
 			uint8_t defPropCount = the_header.version==3? 31 : 63;
 			object_blob = relocatableBlob::create((the_object_table.size()-1)*objSize + defPropCount*2,UD_DYNAMIC,"object table");
