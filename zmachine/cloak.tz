@@ -541,7 +541,6 @@ routine DictAddrToIndex [addr; hdr] {
 
 routine PrintDict [w; hdr] {
 	w = hdr[[4]] + 7 + w * ($dict_entry_size+1);
-	print_char 32;
 	print_addr w;
 	rfalse;
 }
@@ -572,6 +571,7 @@ routine ObjLoop[;i j k w] {
 				print " has adjectives:";
 				k = 0;
 				while (k+k < sizeof(j)) {
+					print_char 32;
 					PrintDict(j[[k]]);
 					++k;
 				}
@@ -581,6 +581,7 @@ routine ObjLoop[;i j k w] {
 				print " and has nouns:";
 				k = 0;
 				while (k+k < sizeof(j)) {
+					print_char 32;
 					PrintDict(j[[k]]);
 					++k;
 				}
@@ -628,26 +629,30 @@ routine DoTurn[;wc wp wt c] {
 	rfalse;
 }
 
-routine DebugActions[;a] {
-	a = $actions;
-	while (a[[0]] isnt -1) {
-		print "routine at "; print_num a[[0]];
-		print ": ";
+routine DebugActions[;a n x] {
+	while ($actions[[a]] isnt -1) {
+		print "routine at "; print_num $actions[[a]];
+		print ":";
+		++a;
 		repeat {
-			if (a[[0]] & twoWordPhrase isnt 0) {
-				PrintDict(a[[0]] & 8191);
-				++a;
+			n = $actions[[a]];
+			++a;
+			if (n & 8192 isnt 0)
 				print "+";
-				PrintDict(a[[0]] & 8191);
+			else
+				print " ";
+			PrintDict(n & 8191);
+			if (n & 16384 isnt 0) {
+				print " (routine ";
+				print_num $actions[[a]];
+				print ")";
 				++a;
 			}
-			else {
-				PrintDict(a[[0]] & 8191);
-				++a;
-			}
-			print " ";
-		} while (a[[-1]] & endOfAction isnt 0);
+		} while (n > 0);
 		crlf;
+		++x;
+		if (x is 10)
+			rfalse;
 	}
 	rfalse;
 }

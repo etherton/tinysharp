@@ -167,6 +167,15 @@
 			storeByte(w >> 8);
 			storeByte(w);
 		}
+		uint8_t readByte(uint16_t &o) {
+			assert(o < offset);
+			return contents[o++];
+		}
+		uint16_t readWord(uint16_t &o) {
+			assert(o+1 < offset);
+			o+=2;
+			return (contents[o-2]<<8) | contents[o-1];
+		}
 		void addRelocation(uint16_t ri,int16_t bias = 0) {
 			relocations = new relocation_t(std::pair<uint16_t,uint16_t>(ri,offset),relocations);
 			storeWord(bias);
@@ -1595,14 +1604,13 @@ wordbit_def
 action_def
 	: ACTION INTLIT ';'
 	| ACTION INTLIT '{' RNAME ':' { actions_blob->addRelocation($4); action_bit = 32; } action_list '}'
-		{ actions_blob->contents[actions_blob->offset-2] |= 0x80; }
 	;
 
 action_list
-	: phrase_list
-	| phrase_list RNAME	{ actions_blob->contents[actions_blob->offset-2] |= 0x40; actions_blob->addRelocation($2); }
+	: phrase_list { actions_blob->contents[actions_blob->offset-2] |= 0x80; }
+	| phrase_list RNAME	{ actions_blob->contents[actions_blob->offset-2] |= 0xC0; actions_blob->addRelocation($2); }
 	| phrase_list RNAME { actions_blob->contents[actions_blob->offset-2] |= 0x40; actions_blob->addRelocation($2); action_bit = 16; }
-	  phrase_list RNAME { actions_blob->contents[actions_blob->offset-2] |= 0x40; actions_blob->addRelocation($5); }
+	  phrase_list RNAME { actions_blob->contents[actions_blob->offset-2] |= 0xC0; actions_blob->addRelocation($5); }
 	;
 
 phrase_list
@@ -1612,7 +1620,7 @@ phrase_list
 
 phrase
 	: DICT			{ z_dict_payload($1) |= action_bit; actions_blob->storeWord($1); }
-	| DICT DICT		{ z_dict_payload($1) |= action_bit; actions_blob->storeWord($2 | 0x2000); }
+	| DICT DICT		{ z_dict_payload($1) |= action_bit; actions_blob->storeWord($1); actions_blob->storeWord($2 | 0x2000); }
 	;
 
 routine_body
@@ -2484,20 +2492,20 @@ int main(int argc,char **argv) {
 
 	int zversion = 3;
 	int release_number = 0;
-	enum { R_OBJECTS=1,R_ROUTINES=2,R_GLOBALS=4,R_DICTIONARY=8,R_SUMMARY=16,R_ALL=31};
+	enum { R_OBJECTS=1,R_ROUTINES=2,R_GLOBALS=4,R_DICTIONARY=8,R_ACTIONS=16,R_SUMMARY=32,R_ALL=63};
 	int report = 0;
 	while (--argc && **++argv=='-') {
 		const char *arg = *argv + 1;
 		switch(*arg++) {
 			case 'd': yydebug = 1; break;
-			case 'r':  while (*arg) switch (*arg++) {
-				case 'A': report = R_ALL; break;
+			case 'r':  if (*arg) while (*arg) switch (*arg++) {
 				case 'S': report |= R_SUMMARY; break;
 				case 'O': report |= R_OBJECTS; break;
 				case 'R': report |= R_ROUTINES; break;
 				case 'G': report |= R_GLOBALS; break;
 				case 'D': report |= R_DICTIONARY; break;
-				}
+				case 'A': report |= R_ACTIONS; break;
+				} else report = R_ALL;
 				break;
 			case 'R': release_number = atoi(arg); break;
 			case 'z': zversion = (argv[0][2]-'0'); break;
@@ -2575,7 +2583,7 @@ int main(int argc,char **argv) {
 				dictionary_blob->copy(d.first.encoded,dict_entry_size);
 				dictionary_blob->storeByte(0);
 			}
-			++next_global;
+			the_globals["$actions"] = { GNAME, int16_t(next_global++) };
 			globals_blob = relocatableBlob::create(next_global * 2,UD_DYNAMIC,"globals");
 			actions_blob = relocatableBlob::create(the_action_table.size() << 4,UD_STATIC,"actions");
 			if (report & R_SUMMARY) {
@@ -2585,7 +2593,6 @@ int main(int argc,char **argv) {
 			}
 			the_globals["$object_count"] = { INTLIT, int16_t(the_object_table.size() - 1) };
 			the_globals["$dict_word_count"] = { INTLIT, int16_t(the_dictionary.size()) };
-			the_globals["$actions"] = { GNAME, int16_t(next_global + 16) };
 			header_blob = relocatableBlob::create(64,UD_DYNAMIC,"story header");
 		}
 		else {
@@ -2695,6 +2702,31 @@ int main(int argc,char **argv) {
 						while (len--)
 							printf(" %02x",*p++);
 						printf(" ]\n");
+					}
+				}
+			}
+			if (report & R_ACTIONS) {
+				uint16_t o = 0;
+				uint8_t *d = dictionary_blob->contents + 7;
+				while (o < actions_blob->offset) {
+					uint16_t r = actions_blob->readWord(o); 
+					if (r == 0xFFFF)
+						break;
+					printf("routine %06x:",r << story_shift);
+					for (;;) {
+						uint16_t n = actions_blob->readWord(o);
+						//printf(" [%04x]",n);
+						if (n & 0x2000)
+							putchar('+');
+						else
+							putchar(32);
+						print_encoded_string(d + (dict_entry_size+1) * (n & 0x1FFF),[](char ch){putchar(ch);});
+						if (n & 0x4000)
+							printf(" (routine %06x)",actions_blob->readWord(o) << story_shift);
+						if (n & 0x8000) {
+							putchar('\n');
+							break;
+						}
 					}
 				}
 			}
