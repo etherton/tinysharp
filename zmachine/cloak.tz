@@ -107,6 +107,7 @@ synonym 'examine' 'x';
 synonym 'wait' 'z';
 synonym 'inventory' 'i';
 synonym 'again' 'g';
+synonym 'look' 'l';
 
 // plain properties can be attached to rooms or objects
 // object properties can only be attached to objects
@@ -349,6 +350,8 @@ routine CallAfter [act obj;r] {
 }
 
 routine Look [] {
+	if (room hasnt lit)
+		print_ret "It's too dark to see anything.";
 	return call room.description();
 }
 
@@ -512,6 +515,29 @@ routine PrintString [str len] {
 	rfalse;
 }
 
+routine DictAddrToIndex [addr; hdr] {
+	addr = addr - hdr[[4]] - 7;
+	addr = addr / ($dict_entry_size+1);
+	return addr;
+}
+
+// given address of a word that is a synonym, return address of original word
+// TODO: could use scan_table in v4+ but we'd need table length.
+routine FindSynonym [wordAddr; i m hdr] {
+	while ($synonyms[[i]] isnt -1) {
+		if ($synonyms[[i]] < 0)
+			m = $synonyms[[i]] & 8191;
+		else if ($synonyms[[i]] is wordAddr[[0]]) {
+			wordAddr[[0]] = m;
+			m = m * ($dict_entry_size+1) + 7 + hdr[[4]];
+			wordAddr[2] = m[$dict_entry_size];
+			rtrue;
+		}
+		++i;
+	}
+	rfalse;
+}
+
 routine CheckErrors [tb pb; i j] {
 	/* print_num tb[0]; print_char 32;
 	print_num tb[1]; print_char 32;
@@ -540,15 +566,18 @@ routine CheckErrors [tb pb; i j] {
 			PrintString(tb + j[3], j[2]);
 			print_ret "'.";
 		}
+		else {
+			// Copy the type byte over
+			j[2] = j[[0]][$dict_entry_size];
+			// Replace the address with the index
+			j[[0]] = DictAddrToIndex(j[[0]]);
+			// Deal with synonyms (and fix type byte)
+			if (j[2]==255)
+				FindSynonym(j);
+		}
 		++i;
 	}
 	rfalse;
-}
-
-routine DictAddrToIndex [addr; hdr] {
-	addr = addr - hdr[[4]] - 7;
-	addr = addr / ($dict_entry_size+1);
-	return addr;
 }
 
 routine PrintDict [w; hdr] {
@@ -606,18 +635,7 @@ routine ObjLoop[;i j k w] {
 	rfalse;
 }
 
-// given address of a word that is a synonym, return address of original word
-routine FindSynonym [w; i m hdr] {
-	w = DictAddrToIndex(w);
-	while ($synonyms[[i]] isnt -1) {
-		if ($synonyms[[i]] < 0)
-			m = $synonyms[[i]] & 8191;
-		else if ($synonyms[[i]] is w)
-			return m * ($dict_entry_size+1) + 7 + hdr[[4]];
-		++i;
-	}
-	rfalse;
-}
+
 
 routine DoTurn[;wc wp wt c] {
 	text_buffer[0] = 62;
@@ -636,23 +654,21 @@ routine DoTurn[;wc wp wt c] {
 		sread(text_buffer, parse_buffer);
 	} while (CheckErrors(text_buffer, parse_buffer) isnt zero);
 
+	// Every word address in the parse buffer has been replaced with its index.
+	// The next byte contains the payload byte.
 	wc = parse_buffer[1];
 	wp = parse_buffer + 2;
 	wt = wp[[0]];
-	if (wt isnt zero) {
-		if (wt[$dict_entry_size] is 255)
-			wt = FindSynonym(wt);
-		++turns;
-		if ((wt[$dict_entry_size] & dirBit) isnt zero) {
-			wt = DictAddrToIndex(wt);
-			// print "index is "; print_num wt; crlf;
-			c = Compass(wt);
-			if (c isnt -1)
-				return Travel(c);
-		}
-		if (wt is 'inventory')
-			return Inventory();
+
+	if (wp[2] & dirBit isnt zero) {
+		c = Compass(wt);
+		if (c isnt -1)
+			return Travel(c);
 	}
+	if (wt is 'inventory')
+		return Inventory();
+	if (wt is 'look')
+		return Look();
 	rfalse;
 }
 
@@ -706,7 +722,7 @@ routine main [] {
 	ObjLoop();
 	DebugActions();
 	while (deadflag is zero) {
-		DoTurn();
+		turns = turns + DoTurn();
 		if (deadflag is 3)
 			print "*** You have lost! ***";
 		else if (deadflag is 2)
