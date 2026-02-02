@@ -477,9 +477,11 @@ routine Here [obj] {
 }
 
 
-constant endOfAction = 1 << 15;
-constant nextIsDisambiguator = 1 << 14;
-constant twoWordPhrase = 1 << 13;
+constant isEnd = 1 << 15;
+constant isRoutine = 1 << 14;
+constant hasSecondWord = 1 << 13;
+constant wordMask = 8191;
+
 /*
 	The first word is the action routine, or zero to terminate the entire action table
 	The upper 3 bits indciate several things: (and leave room for vocabulary of 8191 words)
@@ -496,6 +498,7 @@ action #inv { Inventory: 'inventory'/'take inventory' }
 action #take { Take: 'get'/'take'/'pick up' Here }
 action #drop { Drop: 'drop'/'put down' Held }
 action #look { Examine: 'look at'/'examine' Nearby }
+action #lookHere { Look: 'look' }
 action #puton { PutOn: 'hang'/'place'/'put' Held 'on'/'upon'/'on to'/'onto' Here }
 // action #go { Travel: 'go' dirBit }
 action #leave;
@@ -526,11 +529,11 @@ routine DictAddrToIndex [addr; hdr] {
 routine FindSynonym [wordAddr; i m hdr] {
 	while ($synonyms[[i]] isnt -1) {
 		if ($synonyms[[i]] < 0)
-			m = $synonyms[[i]] & 8191;
+			m = $synonyms[[i]] & wordMask;
 		else if ($synonyms[[i]] is wordAddr[[0]]) {
 			wordAddr[[0]] = m;
 			m = m * ($dict_entry_size+1) + 7 + hdr[[4]];
-			wordAddr[2] = m[$dict_entry_size];
+			wordAddr[[1]] = m[$dict_entry_size];
 			rtrue;
 		}
 		++i;
@@ -568,11 +571,11 @@ routine CheckErrors [tb pb; i j] {
 		}
 		else {
 			// Copy the type byte over
-			j[2] = j[[0]][$dict_entry_size];
+			j[[1]] = j[[0]][$dict_entry_size];
 			// Replace the address with the index
 			j[[0]] = DictAddrToIndex(j[[0]]);
 			// Deal with synonyms (and fix type byte)
-			if (j[2]==255)
+			if (j[[1]]==255)
 				FindSynonym(j);
 		}
 		++i;
@@ -635,9 +638,59 @@ routine ObjLoop[;i j k w] {
 	rfalse;
 }
 
+routine SkipRestOfAction [i; n] {
+	repeat {
+		n = $actions[[i]];
+		++i;
+		if (n & isRoutine isn't zero)
+			++i;
+	} while (n >= 0);
+	return i;
+}
 
+routine ScanParseTable [wordCount wordArray; i j r] {
+	while ($actions[[i]] isn't -1) {
+		r = $actions[[i]];
+		print "Checking "; print_num r; crlf;
+		++i;
+		// do we match a word in the pattern?
+		print "Match "; print_num($actions[[i]]); print " vs "; print_num wordArray[[j]]; crlf;
+		if ($actions[[i]] & wordMask is wordArray[[j]]) {
+			print "First part matched.^";
+			// if there is no second word, or it matches our next word
+			if ($actions[[i]] & hasSecondWord isn't zero) {
+				if ($actions[[i+1]] & wordMask is wordArray[[j+2]]) {
+					print "Second word matched!^";
+					++i;
+					j = j + 2;
+				}
+				else {
+					print "Second word didn't match.^";
+					i = SkipRestOfAction(i);
+					print "i now "; print_num i; crlf;
+					continue;
+				}
+			}
+			
+			// Have a match, skip to routine or end, whichever we hit first.
+			while ($actions[[i]] & (isEnd | isRoutine) is zero)
+				++i;
+			// Did we make it to the end already?
+			if ($actions[[i]] < 0)
+				return call r();
+		}
+		// if not a match, and there is a second word, skip it
+		else if ($actions[[i]] & hasSecondWord isn't zero)
+			++i;
+		// else if we got to a disambiguator or end, skip the action
+		else if ($actions[[i]] & (isRoutine | isEnd) isn't zero)
+			i = SkipRestOfAction(i); 
+		// otherwise keep trying for a new match.
+	}
+	print_ret "I don't understand.";
+}
 
-routine DoTurn[;wc wp wt c] {
+routine DoTurn[; i] {
 	text_buffer[0] = 62;
 	parse_buffer[0] = 15;
 
@@ -654,25 +707,24 @@ routine DoTurn[;wc wp wt c] {
 		sread(text_buffer, parse_buffer);
 	} while (CheckErrors(text_buffer, parse_buffer) isnt zero);
 
+	// parse_buffer[1] is the actual number of words parsed
+	// parse_buffer[[1]] is the first word parsed (same as parse_buffer[2] and [3])
+	// parse_buffer[[2]] is the type code of the first word
+
 	// Every word address in the parse buffer has been replaced with its index.
 	// The next byte contains the payload byte.
-	wc = parse_buffer[1];
-	wp = parse_buffer + 2;
-	wt = wp[[0]];
-
-	if (wp[2] & dirBit isnt zero) {
-		c = Compass(wt);
-		if (c isnt -1)
-			return Travel(c);
+	if (parse_buffer[[2]] & dirBit isnt zero) {
+		i = Compass(parse_buffer[[1]]);
+		if (i isnt -1)
+			return Travel(i);
 	}
-	if (wt is 'inventory')
-		return Inventory();
-	if (wt is 'look')
-		return Look();
+	if (ScanParseTable(parse_buffer[1],parse_buffer + 2) isn't zero)
+		rtrue;
+
 	rfalse;
 }
 
-routine DebugActions[;a n x] {
+routine DebugActions[;a n] {
 	while ($actions[[a]] isnt -1) {
 		print "routine at "; print_num $actions[[a]];
 		print ":";
@@ -680,12 +732,12 @@ routine DebugActions[;a n x] {
 		repeat {
 			n = $actions[[a]];
 			++a;
-			if (n & 8192 isnt 0)
+			PrintDict(n & wordMask);
+			if (n & hasSecondWord isnt 0)
 				print "+";
 			else
 				print " ";
-			PrintDict(n & 8191);
-			if (n & 16384 isnt 0) {
+			if (n & isRoutine isnt 0) {
 				print " (routine ";
 				print_num $actions[[a]];
 				print ")";
@@ -693,9 +745,6 @@ routine DebugActions[;a n x] {
 			}
 		} while (n > 0);
 		crlf;
-		++x;
-		if (x is 10)
-			rfalse;
 	}
 	rfalse;
 }

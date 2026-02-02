@@ -260,6 +260,8 @@
 		return result;
 	}
 	label rfalseLabel, rtrueLabel;
+	label continue_label, break_label;
+	std::vector<std::pair<label,label>> flow_stack;
 	void fillBranch(uint16_t branchOffset,uint16_t targetOffset,bool negated,bool isLong,bool isJump) {
 		assert(!isJump || !negated);
 		uint8_t *dest = currentRoutine->contents + branchOffset;
@@ -986,12 +988,18 @@
 		expr_branch *cond;
 		stmt *body;
 		void emit() const {
+			flow_stack.push_back(std::pair<label,label>(continue_label,break_label));
 			label falseBranch = createLabel(), top = createLabelHere();
+			continue_label = top;
+			break_label = falseBranch;
 			cond->emitBranch(falseBranch,true,body->size() > 58);
 			// TODO: continue and break via a stack
 			body->emit();
 			emitJump(top,true);
 			placeLabel(falseBranch);
+			continue_label = flow_stack.back().first;
+			break_label = flow_stack.back().second;
+			flow_stack.pop_back();
 		}
 		unsigned size() const { 
 			return cond->size() + includingJumpPast(body->size()) + 3; 
@@ -1022,6 +1030,25 @@
 			printNode("while:");
 			printNode(cond);
 		}
+	};
+	// TODO: an if whose body is continue/break should just be a direct branch like rtrue/rfalse
+	struct stmt_continue: public stmt {
+		void emit() const {
+			if (continue_label == nullptr)
+				yyerror("continue found outside of any loop");
+			emitJump(continue_label,true);
+		}
+		unsigned size() const { return 3; }
+		void dump() const { printNode("continue;"); }
+	};
+	struct stmt_break: public stmt {
+		void emit() const {
+			if (break_label == nullptr)
+				yyerror("break found outside of any loop");
+			emitJump(break_label,true);
+		}
+		unsigned size() const { return 3; }
+		void dump() const { printNode("break;"); }
 	};
 	struct stmt_return: public stmt {
 		stmt_return(expr *e) : value(e) { }
@@ -1283,7 +1310,7 @@
 	_var varOp;
 }
 
-%token ATTRIBUTE PROPERTY GLOBAL OBJECT LOCATION ROUTINE WORDBIT ACTION HAS HASNT IN HOLDS SYNONYM
+%token ATTRIBUTE PROPERTY GLOBAL OBJECT LOCATION ROUTINE WORDBIT ACTION HAS HASNT IN HOLDS SYNONYM CONTINUE BREAK
 %token BYTE_ARRAY WORD_ARRAY CALL PRINT PRINT_RET SELF SIBLING CHILD PARENT MOVE INTO CONSTANT SIZEOF ADDROF
 %token <ival> DICT ANAME PNAME LNAME GNAME INTLIT ONAME
 %token <sval> STRLIT
@@ -1633,7 +1660,7 @@ phrase_list
 
 phrase
 	: dict			{ z_dict_payload($1) |= action_bit; actions_blob->storeWord($1); }
-	| dict dict		{ z_dict_payload($1) |= action_bit; actions_blob->storeWord($1); actions_blob->storeWord($2 | 0x2000); }
+	| dict dict		{ z_dict_payload($1) |= action_bit; actions_blob->storeWord($1 | 0x2000); actions_blob->storeWord($2); }
 	;
 
 dict
@@ -1722,6 +1749,8 @@ stmt
 	| objref GAINS aname ';' 		{ $$ = new stmt_2op(_2op::set_attr,$1,$3); }
 	| objref LOSES aname ';'		{ $$ = new stmt_2op(_2op::clear_attr,$1,$3); }
 	| MOVE objref INTO objref ';'	{ $$ = new stmt_2op(_2op::insert_obj,$2,$4); }
+	| CONTINUE ';'					{ $$ = new stmt_continue(); }
+	| BREAK ';'						{ $$ = new stmt_break(); }
 	; 
 	
 cond_expr
@@ -1830,6 +1859,7 @@ aname
 vname
 	: LNAME			{ $$ = $1 + 1; }
 	| GNAME			{ if ($1 == SCRATCH) yyerror("cannot refer to scratch variable here"); $$ = $1 + 16; }
+	| NEWSYM		{ yyerror("unknown symbol '%s'",$1->first.c_str()); $$ = SCRATCH + 16; }
 	;
 
 %%
@@ -1956,8 +1986,10 @@ void init(int version) {
 	rw["in"] = IN;
 	rw["is"] = EQ;
 	rw["isnt"] = NE;
+	rw["isn't"] = NE;
 	rw["has"] = HAS;
 	rw["hasnt"] = HASNT;
+	rw["hasn't"] = HASNT;
 	rw["holds"] = HOLDS;
 	rw["gains"] = GAINS;
 	rw["loses"] = LOSES;
@@ -1986,6 +2018,8 @@ void init(int version) {
 	rw["into"] = INTO;
 	rw["sizeof"] = SIZEOF;
 	rw["addrof"] = ADDROF;
+	rw["continue"] = CONTINUE;
+	rw["break"] = BREAK;
 
 	f_0op["restart"] = _0op::restart;
 	f_0op["quit"] = _0op::quit;
@@ -2246,7 +2280,7 @@ int yylex_() {
 				yyerror("token too long");
 			yytoken[yylen++] = yych;
 			yynext();
-		} while (isalnum(yych)||yych=='_');
+		} while (isalnum(yych)||yych=='_'||yych=='\'');
 		yytoken[yylen] = 0;
 		// reserved words and builtin funcs first
 		auto r = rw.find(yytoken);
@@ -2740,11 +2774,11 @@ int main(int argc,char **argv) {
 					for (;;) {
 						uint16_t n = actions_blob->readWord(o);
 						//printf(" [%04x]",n);
+						print_encoded_string(d + (dict_entry_size+1) * (n & 0x1FFF),[](char ch){putchar(ch);});
 						if (n & 0x2000)
 							putchar('+');
 						else
 							putchar(32);
-						print_encoded_string(d + (dict_entry_size+1) * (n & 0x1FFF),[](char ch){putchar(ch);});
 						if (n & 0x4000)
 							printf(" (routine %06x)",actions_blob->readWord(o) << story_shift);
 						if (n & 0x8000) {
